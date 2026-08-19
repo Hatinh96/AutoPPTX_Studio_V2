@@ -106,6 +106,13 @@ def _load_fx(cfg):
         fx['fix_date_val'] = _dt.datetime.now().strftime('%d/%m/%Y')
     if not fx.get('fix_time_val'):
         fx['fix_time_val'] = _dt.datetime.now().strftime('%H:%M')
+    if not fx.get('logo_path') or not os.path.exists(fx.get('logo_path')):
+        base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for name in ['Logo Golden Asia_Standard Horizontal.png', 'Logo Golden Asia_Symbol_Standard.png', 'Logo Golden_Symbol Multicolor.png']:
+            p = os.path.join(base, 'LOGO', name)
+            if os.path.exists(p):
+                fx['logo_path'] = p
+                break
     return fx
 
 
