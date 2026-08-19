@@ -13,6 +13,9 @@ a = Analysis(
     binaries=[],
     datas=[
         (ctk_path, 'customtkinter'),
+        ('LOGO', 'LOGO'),
+        ('Data background', 'Data background'),
+        ('Data avatar', 'Data avatar'),
     ],
     hiddenimports=[
         'customtkinter',
