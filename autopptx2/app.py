@@ -128,7 +128,6 @@ class App(ctk.CTk):
         self.title("AutoPPTX Studio V2")
         self.geometry(cfg.get('geometry', '1560x900'))
         self.minsize(1280, 720)
-        self._set_app_window_icon()
 
         # ── Model ──
         self.layout = _deep_merge(DEFAULT_LAYOUT, cfg.get('layout'))
@@ -193,6 +192,19 @@ class App(ctk.CTk):
             'excel': 'Theo mã Excel',
             'manual': 'Gõ tay',
         }
+        self._loc_mode_vals = {v: k for k, v in self._loc_mode_labels.items()}
+
+        self.shell = ctk.CTkFrame(self, fg_color='transparent')
+        self.shell.pack(fill='both', expand=True)
+        self.protocol('WM_DELETE_WINDOW', self._on_close)
+        self._set_app_window_icon()
+        self.show_login()
+
+        if windnd is not None:
+            try:
+                windnd.hook_dropfiles(self, func=self._on_drop)
+            except Exception:
+                pass
 
     def _set_app_window_icon(self):
         try:
@@ -218,18 +230,6 @@ class App(ctk.CTk):
                     break
         except Exception:
             pass
-        self._loc_mode_vals = {v: k for k, v in self._loc_mode_labels.items()}
-
-        self.shell = ctk.CTkFrame(self, fg_color='transparent')
-        self.shell.pack(fill='both', expand=True)
-        self.protocol('WM_DELETE_WINDOW', self._on_close)
-        self.show_login()
-
-        if windnd is not None:
-            try:
-                windnd.hook_dropfiles(self, func=self._on_drop)
-            except Exception:
-                pass
 
     # ════════════════════════ CONFIG ════════════════════════
     @staticmethod
