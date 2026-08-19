@@ -214,29 +214,29 @@ class App(ctk.CTk):
                 pass
 
     def _set_app_window_icon(self):
-        try:
-            from PIL import Image, ImageTk
-            base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            icon_paths = [
-                os.path.join(base, 'app_icon.ico'),
-                os.path.join(base, 'LOGO', 'Logo Golden Asia_Symbol_Standard.png'),
-                os.path.join(base, 'LOGO', 'Logo Golden_Symbol Premium.png'),
-            ]
-            for p in icon_paths:
-                if os.path.exists(p):
-                    if p.endswith('.ico'):
-                        try:
-                            self.iconbitmap(p)
-                            break
-                        except Exception:
-                            pass
-                    im = Image.open(p)
-                    photo = ImageTk.PhotoImage(im)
-                    self.iconphoto(True, photo)
-                    self._app_icon_photo = photo
-                    break
-        except Exception:
-            pass
+        def _apply():
+            try:
+                base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                ico_path = os.path.join(base, 'app_icon.ico')
+                if os.path.exists(ico_path):
+                    self.iconbitmap(ico_path)
+                    return
+
+                for png_name in ['Logo Golden Asia_Symbol_Standard.png', 'Logo Golden_Symbol Premium.png']:
+                    png_path = os.path.join(base, 'LOGO', png_name)
+                    if os.path.exists(png_path):
+                        from PIL import Image, ImageTk
+                        im = Image.open(png_path)
+                        photo = ImageTk.PhotoImage(im)
+                        self.iconphoto(True, photo)
+                        self._app_icon_photo = photo
+                        return
+            except Exception:
+                pass
+
+        _apply()
+        self.after(50, _apply)
+        self.after(200, _apply)
 
     # ════════════════════════ CONFIG ════════════════════════
     @staticmethod
