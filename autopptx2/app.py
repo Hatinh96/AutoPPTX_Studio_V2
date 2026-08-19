@@ -128,6 +128,7 @@ class App(ctk.CTk):
         self.title("AutoPPTX Studio V2")
         self.geometry(cfg.get('geometry', '1560x900'))
         self.minsize(1280, 720)
+        self._set_app_window_icon()
 
         # ── Model ──
         self.layout = _deep_merge(DEFAULT_LAYOUT, cfg.get('layout'))
@@ -192,6 +193,31 @@ class App(ctk.CTk):
             'excel': 'Theo mã Excel',
             'manual': 'Gõ tay',
         }
+
+    def _set_app_window_icon(self):
+        try:
+            from PIL import Image, ImageTk
+            base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            icon_paths = [
+                os.path.join(base, 'app_icon.ico'),
+                os.path.join(base, 'LOGO', 'Logo Golden Asia_Symbol_Standard.png'),
+                os.path.join(base, 'LOGO', 'Logo Golden_Symbol Premium.png'),
+            ]
+            for p in icon_paths:
+                if os.path.exists(p):
+                    if p.endswith('.ico'):
+                        try:
+                            self.iconbitmap(p)
+                            break
+                        except Exception:
+                            pass
+                    im = Image.open(p)
+                    photo = ImageTk.PhotoImage(im)
+                    self.iconphoto(True, photo)
+                    self._app_icon_photo = photo
+                    break
+        except Exception:
+            pass
         self._loc_mode_vals = {v: k for k, v in self._loc_mode_labels.items()}
 
         self.shell = ctk.CTkFrame(self, fg_color='transparent')
