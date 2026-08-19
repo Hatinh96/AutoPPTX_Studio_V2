@@ -1,10 +1,12 @@
 #!/bin/bash
-# Build script for macOS (.app / binary)
+# Build script for macOS (.app bundle)
 echo "Building AutoPPTX Studio V2 for macOS..."
 
+python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 python3 -m pip install pyinstaller
 
-python3 -m PyInstaller --noconsole --onefile --name AutoPPTX_Studio_V2 --icon=app_icon.ico --add-data "LOGO:LOGO" --collect-all customtkinter AutoPPTX_Studio_V2.py
+python3 -m PyInstaller --noconfirm AutoPPTX_Studio_V2.spec
 
-echo "Build complete! Output located in dist/AutoPPTX_Studio_V2"
+echo "Build complete! Output located in dist/AutoPPTX_Studio_V2.app or dist/AutoPPTX_Studio_V2"
+

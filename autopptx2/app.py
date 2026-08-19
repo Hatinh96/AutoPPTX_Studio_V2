@@ -158,7 +158,8 @@ class App(ctk.CTk):
             'open_after_export': bool(o.get('open_after_export', True)),
             'write_checklist': bool(o.get('write_checklist', True)),
             'qa_gate': bool(o.get('qa_gate', True)),
-            'app_mode': o.get('app_mode', 'cloud'),   # local | cloud
+            # Mỗi lần mở app: Đám mây. Có thể đổi sang Máy này trong phiên.
+            'app_mode': 'cloud',
             'visible': {n: True for n in ELEMENT_NAMES} | o.get('visible', {}),
             'locked': {n: False for n in ELEMENT_NAMES} | o.get('locked', {}),
             'fx': _load_fx(cfg),
@@ -639,6 +640,18 @@ class App(ctk.CTk):
 
     # ─────────── các thẻ sidebar ───────────
     @staticmethod
+    def _seg_btn(parent, values, value, command=None, **kw):
+        """Tạo segmented button: .set() trước, command sau — tránh CTk bắn callback lúc khởi tạo."""
+        w = ctk.CTkSegmentedButton(parent, values=list(values), **kw)
+        try:
+            w.set(value)
+        except Exception:
+            pass
+        if command is not None:
+            w.configure(command=command)
+        return w
+
+    @staticmethod
     def _card(parent, title):
         f = ctk.CTkFrame(parent, fg_color=INPUT, corner_radius=10)
         f.pack(fill='x', padx=8, pady=(8, 0))
@@ -925,12 +938,10 @@ class App(ctk.CTk):
         f = self._step_card(
             tab, 1, 'Đồng bộ',
             'Đám mây: bấm Đồng bộ để lấy list + avatar công ty. Máy này: bỏ qua, sang bước 2.')
-        self.seg_mode = ctk.CTkSegmentedButton(
-            f, values=['Máy này', 'Đám mây công ty'],
+        self.seg_mode = self._seg_btn(
+            f, ['Đám mây công ty', 'Máy này'], 'Đám mây công ty',
             command=self._on_app_mode,
             selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
-        self.seg_mode.set('Đám mây công ty' if self.opts.get('app_mode') == 'cloud'
-                          else 'Máy này')
         self.seg_mode.pack(fill='x', padx=10, pady=(0, 8))
         who = self.cloud.email or '(chưa đăng nhập)'
         role = {'admin': 'Quản trị', 'super_admin': 'Super Admin'}.get(
@@ -1075,10 +1086,11 @@ class App(ctk.CTk):
 
     def _build_tab_mau(self, tab):
         """Tab Mẫu: header gọn, gallery chiếm hết chiều cao."""
-        self.seg_bg = ctk.CTkSegmentedButton(
-            tab, values=['Trắng', 'Ảnh nền'], command=self._on_bg_mode,
+        self.seg_bg = self._seg_btn(
+            tab, ['Trắng', 'Ảnh nền'],
+            'Trắng' if self.opts['bg_mode'] == 'white' else 'Ảnh nền',
+            command=self._on_bg_mode,
             selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
-        self.seg_bg.set('Trắng' if self.opts['bg_mode'] == 'white' else 'Ảnh nền')
         self.seg_bg.pack(fill='x', padx=10, pady=(10, 4))
 
         row = ctk.CTkFrame(tab, fg_color='transparent')
@@ -1210,11 +1222,10 @@ class App(ctk.CTk):
         row = ctk.CTkFrame(f, fg_color='transparent')
         row.pack(fill='x', padx=10, pady=2)
         ctk.CTkLabel(row, text='Ảnh/slide:', text_color=MUTED).pack(side='left')
-        self.seg_n = ctk.CTkSegmentedButton(row, values=['1', '2', '3', '4'],
-                                            width=150, command=self._on_n,
-                                            selected_color=ACCENT,
-                                            selected_hover_color=ACCENT_HOVER)
-        self.seg_n.set(str(self.opts['n_per_slide']))
+        self.seg_n = self._seg_btn(
+            row, ['1', '2', '3', '4'], str(self.opts['n_per_slide']),
+            command=self._on_n, width=150,
+            selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
         self.seg_n.pack(side='left', padx=8)
         row = ctk.CTkFrame(f, fg_color='transparent')
         row.pack(fill='x', padx=10, pady=2)
@@ -1226,12 +1237,12 @@ class App(ctk.CTk):
                                        text_color=TEXT, command=self._on_ar)
         self.om_ar.set(self.opts['ar_label'])
         self.om_ar.pack(side='left', padx=8)
-        self.seg_fit = ctk.CTkSegmentedButton(f, values=['Lấp đầy', 'Vừa khung'],
-                                              command=self._on_fit,
-                                              selected_color=ACCENT,
-                                              selected_hover_color=ACCENT_HOVER)
-        self.seg_fit.set('Lấp đầy' if self.layout['image'].get('fit_mode', 'fill') == 'fill'
-                         else 'Vừa khung')
+        self.seg_fit = self._seg_btn(
+            f, ['Lấp đầy', 'Vừa khung'],
+            'Lấp đầy' if self.layout['image'].get('fit_mode', 'fill') == 'fill'
+            else 'Vừa khung',
+            command=self._on_fit,
+            selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
         self.seg_fit.pack(fill='x', padx=10, pady=4)
         self.sl_gap = self._slider(f, 'Khe hở ảnh', 0, 0.4,
                                    self.layout['image'].get('gap', 0.1),
@@ -1551,8 +1562,10 @@ class App(ctk.CTk):
         ctk.CTkLabel(row, text='Màu chữ', text_color=TEXT,
                      font=ctk.CTkFont(size=12)).pack(side='left')
 
-        self.seg_elem_align = ctk.CTkSegmentedButton(
-            box, values=['Trái', 'Giữa', 'Phải'],
+        al0 = {'left': 'Trái', 'center': 'Giữa', 'right': 'Phải'}.get(
+            self.layout.get('title', {}).get('align', 'left'), 'Trái')
+        self.seg_elem_align = self._seg_btn(
+            box, ['Trái', 'Giữa', 'Phải'], al0,
             command=self._on_elem_align, selected_color=ACCENT,
             selected_hover_color=ACCENT_HOVER)
         self.seg_elem_align.pack(fill='x', padx=10, pady=(2, 8))
@@ -2289,15 +2302,13 @@ class App(ctk.CTk):
         self._pick_color(key, near=near)
 
     def _on_elem_align(self, v):
+        if getattr(self, '_insp_updating', False):
+            return
         name = self.editor.selected or self._sel_name()
         if name not in ('title', 'info', 'channel'):
             return
         self._set_elem_key(name, 'align', {'Trái': 'left', 'Giữa': 'center', 'Phải': 'right'}[v])
         self._paint_fmt_align(v)
-        try:
-            self.seg_elem_align.set(v)
-        except Exception:
-            pass
 
     def _paint_fmt_align(self, v):
         for lab, btn in (getattr(self, '_fmt_align_btns', None) or {}).items():
