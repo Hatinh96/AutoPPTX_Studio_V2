@@ -19,11 +19,15 @@ from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN, MSO_ANCHOR
 from pptx.dml.color import RGBColor
 
-from .constants import SLIDE_W_IN, SLIDE_H_IN, MAX_SLIDES_PER_FILE
+from .constants import (SLIDE_W_IN, SLIDE_H_IN, MAX_SLIDES_PER_FILE,
+                        TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_DATA_BG,
+                        TABLE_SUB_FG, TABLE_LINE, TABLE_TEXT)
 from . import geometry as G
 from . import effects as FX
+from . import fonts as FN
 from .datasource import (match_row, build_merged_groups, build_info_rows,
-                         channel_text, clean, build_overview, place_label)
+                         build_info_table, channel_text, clean, build_overview,
+                         place_label)
 
 
 class ExportCancelled(Exception):
@@ -44,6 +48,8 @@ class ExportJob:
     channel_template: str = "Report {channel} 2026"
     visible: dict = field(default_factory=dict)   # {tên phần tử: bool}
     fx: dict = field(default_factory=dict)        # đóng dấu / mini-map / AI
+    excel_rows: list = field(default_factory=list)  # mọi dòng (khu/loại màn)
+    slide_style: str = 'report'                   # report | saleskit
 
 
 @dataclass
@@ -148,7 +154,7 @@ def _style_fit_textbox(tb, text, width_in, height_in, default_size,
             'right': PP_ALIGN.RIGHT}
     for para in tf.paragraphs:
         para.alignment = amap.get(align, PP_ALIGN.LEFT)
-        para.font.name = font_name   # cùng family với file .ttf đã quét trên máy
+        para.font.name = FN.safe_family(font_name, text)
         para.font.bold = bold
         para.font.italic = italic
         para.font.size = Pt(size)
@@ -222,7 +228,7 @@ def _set_pic_opacity(pic, opacity):
 
 
 def _add_info_table(slide, info_rows, ninfo, font_cfg):
-    """Khối Thông tin = BẢNG PowerPoint thật (chữ edit được, không viền)."""
+    """Khối Thông tin mẫu báo cáo = BẢNG PowerPoint 2 cột."""
     from pptx.oxml.ns import qn
     rows = [(l, str(v), acc) for (l, v, acc) in info_rows]
     if not rows:
@@ -233,7 +239,6 @@ def _add_info_table(slide, info_rows, ninfo, font_cfg):
     table = gt.table
     table.first_row = False
     table.horz_banding = False
-    # Style 'No Style, No Grid' — không viền, không nền
     tblPr = table._tbl.tblPr
     for el in tblPr.findall(qn('a:tableStyleId')):
         tblPr.remove(el)
@@ -268,7 +273,7 @@ def _add_info_table(slide, info_rows, ninfo, font_cfg):
         p0.text = label
         p0.alignment = PP_ALIGN.LEFT
         f0 = _p_run(p0).font
-        f0.name = fname
+        f0.name = FN.safe_family(fname, label)
         f0.size = Pt(max(6, size_pt * 0.85))
         f0.bold = False
         f0.color.rgb = label_rgb
@@ -276,7 +281,7 @@ def _add_info_table(slide, info_rows, ninfo, font_cfg):
         p1.text = value
         p1.alignment = PP_ALIGN.RIGHT
         f1 = _p_run(p1).font
-        f1.name = fname
+        f1.name = FN.safe_family(fname, value)
         f1.bold = True
         f1.size = Pt(max(7, size_pt * (1.5 if accent else 1.0)))
         f1.color.rgb = accent_rgb if accent else vr
@@ -285,16 +290,161 @@ def _add_info_table(slide, info_rows, ninfo, font_cfg):
         _apply_run_alpha(_p_run(p1), op)
 
 
-def _place_avatar(slide, path, av):
+def _add_saleskit_table(slide, info_table, ninfo, font_cfg):
+    """Khung bảng SALESKIT (5 cột, gộp ô TRƯỜNG/ĐỊA CHỈ/TRAFFIC)."""
+    from lxml import etree
+    from pptx.oxml.ns import qn
+    table = info_table or {}
+    specs = list(table.get('specs') or [{'area': '', 'form': '', 'size': '',
+                                         'qty': '', 'note': ''}])
+    n_rows = 3 + max(1, len(specs))
+    n_cols = 5
+    x, y, w, h = ninfo['x'], ninfo['y'], ninfo['w'], ninfo['h']
+    gt = slide.shapes.add_table(n_rows, n_cols, Inches(x), Inches(y),
+                                Inches(w), Inches(h))
+    tbl = gt.table
+    tbl.first_row = False
+    tbl.horz_banding = False
+    tblPr = tbl._tbl.tblPr
+    for el in tblPr.findall(qn('a:tableStyleId')):
+        tblPr.remove(el)
+    sid = tblPr.makeelement(qn('a:tableStyleId'), {})
+    sid.text = '{2D5ABB26-0587-4C30-8999-92F81FD0307C}'
+    tblPr.append(sid)
+    fracs = (0.22, 0.18, 0.22, 0.16, 0.22)
+    for i, f in enumerate(fracs):
+        tbl.columns[i].width = Inches(w * f)
+    row_h = Inches(max(0.16, h / n_rows))
+    for i in range(n_rows):
+        try:
+            tbl.rows[i].height = row_h
+        except Exception:
+            pass
+    try:
+        tbl.cell(0, 0).merge(tbl.cell(0, 1))
+        tbl.cell(0, 2).merge(tbl.cell(0, 3))
+        tbl.cell(1, 0).merge(tbl.cell(1, 1))
+        tbl.cell(1, 2).merge(tbl.cell(1, 3))
+    except Exception:
+        pass
+
+    raw_name = ninfo.get('font') or font_cfg.get('name', 'Arial') or 'Arial'
+    size_pt = float(ninfo.get('size', 11))
+    hdr_bg = ninfo.get('accent_color') or TABLE_HEADER_BG
+    op = ninfo.get('opacity', 100)
+
+    def paint(r, c, text, *, bg, fg, bold, align='left', sz=None):
+        cell = tbl.cell(r, c)
+        _fill_cell(cell, bg)
+        _border_cell(cell, TABLE_LINE)
+        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+        cell.margin_left = Inches(0.04)
+        cell.margin_right = Inches(0.04)
+        cell.margin_top = Inches(0.02)
+        cell.margin_bottom = Inches(0.02)
+        tf = cell.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = str(text or '')
+        p.alignment = {'left': PP_ALIGN.LEFT, 'center': PP_ALIGN.CENTER,
+                       'right': PP_ALIGN.RIGHT}.get(align, PP_ALIGN.LEFT)
+        run = _p_run(p)
+        run.font.name = FN.safe_family(raw_name, text)
+        run.font.bold = bold
+        run.font.size = Pt(max(7, sz if sz is not None else size_pt))
+        run.font.color.rgb = _hex_rgb(fg)
+        _apply_run_alpha(run, op)
+
+    paint(0, 0, 'TRƯỜNG', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True)
+    paint(0, 2, 'ĐỊA CHỈ', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True)
+    paint(0, 4, 'TRAFFIC', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True, align='center')
+    paint(1, 0, table.get('school') or '', bg=TABLE_DATA_BG, fg=TABLE_TEXT, bold=True)
+    paint(1, 2, table.get('address') or '', bg=TABLE_DATA_BG, fg=TABLE_TEXT,
+          bold=False, sz=size_pt * 0.9)
+    paint(1, 4, table.get('traffic') or '', bg=TABLE_DATA_BG, fg=TABLE_TEXT,
+          bold=True, align='center')
+    sub_h = ('Khu vực', 'Hình thức', 'Kích thước', 'Số lượng', 'Note')
+    for c, lab in enumerate(sub_h):
+        paint(2, c, lab, bg='#FFFFFF', fg=hdr_bg, bold=True, align='center',
+              sz=size_pt * 0.85)
+    keys = ('area', 'form', 'size', 'qty', 'note')
+    aligns = ('left', 'center', 'center', 'center', 'left')
+    for i, spec in enumerate(specs):
+        bg = TABLE_DATA_BG if i % 2 == 0 else '#FFFFFF'
+        for c, key in enumerate(keys):
+            paint(3 + i, c, spec.get(key) or '', bg=bg, fg=TABLE_TEXT,
+                  bold=False, align=aligns[c], sz=size_pt * 0.9)
+
+
+def _fill_cell(cell, hexv):
+    try:
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = _hex_rgb(hexv, (255, 255, 255))
+    except Exception:
+        pass
+
+
+def _border_cell(cell, hexv, width_pt=0.75):
+    try:
+        from lxml import etree
+        from pptx.oxml.ns import qn
+        tc = cell._tc
+        tcPr = tc.get_or_add_tcPr()
+        for edge in ('lnL', 'lnR', 'lnT', 'lnB'):
+            for old in tcPr.findall(qn('a:' + edge)):
+                tcPr.remove(old)
+            ln = etree.SubElement(tcPr, qn('a:' + edge))
+            ln.set('w', str(int(width_pt * 12700)))
+            sf = etree.SubElement(ln, qn('a:solidFill'))
+            srgb = etree.SubElement(sf, qn('a:srgbClr'))
+            srgb.set('val', str(hexv).lstrip('#').upper())
+    except Exception:
+        pass
+
+
+def _pptx_photo_path(path, temp_dir):
+    """File chèn PPTX: pixel đã đúng chiều, không EXIF Orientation 2–8.
+
+    PowerPoint tự xoay JPEG theo tag — nếu PIL đã tính crop theo ảnh đứng
+    mà file gốc vẫn còn Orientation=6/8 thì slide bị xoay thêm 90°.
+    """
+    if not path or G.exif_orientation(path) == 1:
+        return path
+    try:
+        key = hashlib.md5(
+            f"upright|{os.path.abspath(path)}|{os.path.getmtime(path)}".encode(
+                errors='replace')).hexdigest()
+    except Exception:
+        key = hashlib.md5(f"upright|{path}".encode(errors='replace')).hexdigest()
+    out = os.path.join(temp_dir, f"up_{key}.jpg")
+    if os.path.exists(out):
+        return out
+    im = G.open_upright(path)
+    try:
+        rgb = im.convert('RGB')
+        try:
+            rgb.info.pop('exif', None)
+        except Exception:
+            pass
+        rgb.save(out, 'JPEG', quality=95)
+        return out
+    finally:
+        try:
+            im.close()
+        except Exception:
+            pass
+
+
+def _place_avatar(slide, path, av, temp_dir):
     """Avatar center-crop lấp khung `ar` bằng crop_* của PPTX (không méo)."""
     a_ar = av.get('ar') or (4 / 3)
     w_in = av['w']
     h_in = w_in / a_ar
-    pic = slide.shapes.add_picture(path, Inches(av['x']), Inches(av['y']),
+    src = _pptx_photo_path(path, temp_dir)
+    pic = slide.shapes.add_picture(src, Inches(av['x']), Inches(av['y']),
                                    width=Inches(w_in), height=Inches(h_in))
     try:
-        with Image.open(path) as im:
-            iw, ih = im.size
+        iw, ih = G.image_size_upright(path)
         l, r, t, b = G.crop_fractions((iw / ih) if ih else a_ar, a_ar)
         pic.crop_left, pic.crop_right = l, r
         pic.crop_top, pic.crop_bottom = t, b
@@ -317,6 +467,7 @@ def _rounded_png(src_path, box_ar, radius_pct, temp_dir):
         im.draft('RGB', (2048, 2048))
     except Exception:
         pass
+    im = G.exif_upright(im)
     im = im.convert("RGB")
     im = G.center_crop_to_ar(im, box_ar)
     if im.width > 1800:
@@ -332,9 +483,17 @@ def _rounded_png(src_path, box_ar, radius_pct, temp_dir):
     return out
 
 
+def _add_contained_picture(slide, src, bx, by, bw, bh, iar):
+    """Chèn ảnh vừa khít ô (letterbox), không crop, không kéo méo."""
+    w, h = G.contain_dims(iar, 1.0, bw, bh)
+    return slide.shapes.add_picture(
+        src, Inches(bx + (bw - w) / 2), Inches(by + (bh - h) / 2),
+        width=Inches(w), height=Inches(h))
+
+
 def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
     """Xếp lưới ảnh trong vùng — toạ độ ô lấy từ geometry.grid_cells
-    (đúng bằng preview)."""
+    (đúng bằng preview). Ảnh dọc: contain tỉ lệ gốc; ảnh ngang: theo fit_mode."""
     num = len(paths)
     if num == 0:
         return
@@ -349,22 +508,23 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
     cells = G.grid_cells(area, num, img_ar, gap)
 
     for path, (bx, by, bw, bh) in zip(paths, cells):
+        iw = ih = 0
         try:
-            with Image.open(path) as im:
-                iw, ih = im.size
+            iw, ih = G.image_size_upright(path)
             iar = (iw / ih) if ih else 1.0
         except Exception:
             iar = 1.0
+        use_fit = G.photo_fit_mode(fit_mode, iw, ih)
         box_ar = bw / bh if bh else 1.0
         pic = None
         baked = False
 
         if bake_fx:
             try:
-                rp = FX.bake_export_png(path, fx, box_ar, fit_mode, radius,
+                rp = FX.bake_export_png(path, fx, box_ar, use_fit, radius,
                                         temp_dir, opacity)
                 if rp:
-                    if fit_mode == 'fill':
+                    if use_fit == 'fill':
                         pic = slide.shapes.add_picture(
                             rp, Inches(bx), Inches(by),
                             width=Inches(bw), height=Inches(bh))
@@ -375,20 +535,14 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
                             par = (piw / pih) if pih else 1.0
                         except Exception:
                             par = iar
-                        if box_ar > par:
-                            h, w = bh, bh * par
-                        else:
-                            w, h = bw, bw / par
-                        pic = slide.shapes.add_picture(
-                            rp, Inches(bx + (bw - w) / 2),
-                            Inches(by + (bh - h) / 2),
-                            width=Inches(w), height=Inches(h))
+                        pic = _add_contained_picture(
+                            slide, rp, bx, by, bw, bh, par)
                     baked = True
             except Exception as e:
                 print('Bake image err:', e)
                 pic = None
 
-        if pic is None and fit_mode == 'fill':
+        if pic is None and use_fit == 'fill':
             if radius > 0:
                 try:
                     rp = _rounded_png(path, box_ar, radius, temp_dir)
@@ -397,7 +551,8 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
                 except Exception:
                     pic = None
             if pic is None:
-                pic = slide.shapes.add_picture(path, Inches(bx), Inches(by),
+                src = _pptx_photo_path(path, temp_dir)
+                pic = slide.shapes.add_picture(src, Inches(bx), Inches(by),
                                                width=Inches(bw), height=Inches(bh))
                 try:
                     l, r, t, b = G.crop_fractions(iar, box_ar)
@@ -406,13 +561,8 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
                 except Exception:
                     pass
         elif pic is None:
-            if box_ar > iar:
-                h, w = bh, bh * iar
-            else:
-                w, h = bw, bw / iar
-            pic = slide.shapes.add_picture(path, Inches(bx + (bw - w) / 2),
-                                           Inches(by + (bh - h) / 2),
-                                           width=Inches(w), height=Inches(h))
+            src = _pptx_photo_path(path, temp_dir)
+            pic = _add_contained_picture(slide, src, bx, by, bw, bh, iar)
         if pic is not None and not baked:
             _set_pic_opacity(pic, opacity)
 
@@ -700,6 +850,10 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
 
             name_val = str(clean(row.get('Name'))).strip() or code
             info_rows = build_info_rows(row, len(paths))
+            sibs = [r for r in (job.excel_rows or [])
+                    if str(r.get('Code_RP') or '').strip().upper()
+                    == str((row or {}).get('Code_RP') or mcode or code or '').upper()]
+            info_table = build_info_table(row, sibs or [row])
             avatar_path = job.avatar_map.get(code.upper())
             if not avatar_path and shown('avatar'):
                 rep.missing_avatars.append(code)
@@ -734,7 +888,7 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
 
                 if shown('avatar') and avatar_path:
                     try:
-                        _place_avatar(slide, avatar_path, L['avatar'])
+                        _place_avatar(slide, avatar_path, L['avatar'], temp_dir)
                     except Exception as e:
                         log(f"Lỗi avatar {code}: {e}")
 
@@ -758,7 +912,10 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
                         tracking=tcfg.get('tracking', 0))
 
                 if shown('info'):
-                    _add_info_table(slide, info_rows, L['info'], font_cfg)
+                    if (job.slide_style or 'report') == 'saleskit':
+                        _add_saleskit_table(slide, info_table, L['info'], font_cfg)
+                    else:
+                        _add_info_table(slide, info_rows, L['info'], font_cfg)
 
                 if shown('channel') and job.channel_enabled:
                     ccfg = L['channel']

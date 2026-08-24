@@ -1,6 +1,7 @@
 """Hằng số & bố cục mặc định dùng chung toàn app."""
 import os
 import re
+import sys
 
 # ── Slide 16:9 chuẩn ──
 SLIDE_W_IN = 13.33
@@ -18,6 +19,56 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 PRESET_DIR = os.path.join(CONFIG_DIR, "presets")
 V1_CREDS_PATH = os.path.join(os.path.expanduser("~"), ".autopptx_studio.json")
 KEYRING_SERVICE = "AutoPPTXStudio"
+
+
+def app_root():
+    """Thư mục cạnh .exe (ghi được). Không dùng temp PyInstaller."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def bundle_root():
+    """Onefile: sys._MEIPASS (LOGO/ico được giải nén ở đây)."""
+    if getattr(sys, 'frozen', False):
+        return getattr(sys, '_MEIPASS', app_root())
+    return app_root()
+
+
+def find_asset(*rel_paths):
+    """Tìm file đóng gói: _MEIPASS trước, rồi cạnh .exe / source."""
+    roots = []
+    for root in (bundle_root(), app_root()):
+        n = os.path.normcase(os.path.abspath(root))
+        if n not in roots:
+            roots.append(n)
+    for root in roots:
+        for rel in rel_paths:
+            p = os.path.normpath(os.path.join(root, rel))
+            if os.path.isfile(p):
+                return p
+    return ''
+
+
+LOGIN_LOGOS = (
+    os.path.join('LOGO', 'Logo Golden Asia_Standard Horizontal_Name White.png'),
+    os.path.join('LOGO', 'Logo Golden Asia_White Horizontal.png'),
+    os.path.join('LOGO', 'Logo Golden_Symbol White.png'),
+    os.path.join('LOGO', 'Logo Golden Asia_Symbol_Standard.png'),
+)
+WINDOW_ICONS = (
+    'app_icon.icns',
+    'app_icon.ico',
+    'app_icon_1024.png',
+    os.path.join('LOGO', 'Logo Golden Asia_Symbol_Standard.png'),
+    os.path.join('LOGO', 'Logo Golden_Symbol Premium.png'),
+    os.path.join('LOGO', 'Logo Golden_Symbol Multicolor.png'),
+)
+STAMP_LOGOS = (
+    os.path.join('LOGO', 'Logo Golden Asia_Standard Horizontal.png'),
+    os.path.join('LOGO', 'Logo Golden Asia_Symbol_Standard.png'),
+    os.path.join('LOGO', 'Logo Golden_Symbol Multicolor.png'),
+)
 
 # Project Supabase của hệ thống RP SALES / AutoPPTX (anon key — giống bản 1)
 SUPABASE_URL = "https://jrwsbpbtkopuqipojspl.supabase.co"
@@ -59,7 +110,7 @@ ELEMENT_COLORS = {
     "channel": "#8a2be2",
 }
 
-# Bố cục mặc định (đã căn theo mẫu Golden Asia — giống bản 1)
+# Bố cục mặc định — mẫu báo cáo cũ (avatar + info trái, ảnh giữa)
 DEFAULT_LAYOUT = {
     'title': {'x': 6.63, 'y': 0.27, 'w': 8.02, 'h': 0.43, 'size': 23,
               'align': 'right', 'max_lines': 2, 'min_size': 12, 'upper': True,
@@ -78,6 +129,67 @@ DEFAULT_LAYOUT = {
     'font': {'name': 'Arial', 'bold': True, 'italic': False,
              'color': '#000000', 'path': '', 'index': 0},
 }
+
+# Mẫu BD / SALESKIT — tên trường + khung bảng; nền user tự up
+SALESKIT_LAYOUT = {
+    'title': {'x': 4.20, 'y': 0.18, 'w': 8.80, 'h': 0.48, 'size': 22,
+              'align': 'right', 'max_lines': 2, 'min_size': 12, 'upper': True,
+              'full_width_on_slide': False, 'show_counter': False,
+              'color': '#1B2430', 'opacity': 100, 'tracking': 0, 'font': 'Arial'},
+    'info': {'x': 0.35, 'y': 5.05, 'w': 12.63, 'h': 2.22, 'size': 11,
+             'align': 'left', 'max_lines': 2, 'min_size': 8,
+             'accent_color': '#1E6EE8', 'opacity': 100, 'font': 'Arial'},
+    'image': {'x': 0.35, 'y': 0.78, 'w': 12.63, 'h': 4.12,
+              'fit_mode': 'fill', 'gap': IMG_GAP_IN, 'radius': 0, 'opacity': 100},
+    'avatar': {'x': 0.95, 'y': 1.16, 'w': 2.70, 'ar': 4 / 3, 'radius': 0,
+               'opacity': 100},
+    'channel': {'x': 10.16, 'y': 7.00, 'w': 4.27, 'h': 0.84, 'size': 10,
+                'align': 'left', 'max_lines': 2, 'min_size': 8, 'color': '',
+                'opacity': 100, 'tracking': 0, 'font': ''},
+    'font': {'name': 'Arial', 'bold': True, 'italic': False,
+             'color': '#1B2430', 'path': '', 'index': 0},
+}
+
+BUILTIN_PRESETS = ('Báo cáo', 'SALESKIT')
+DEPT_UI = ('Sales', 'BD')
+
+
+def dept_key(label):
+    return 'bd' if str(label or '').strip() == 'BD' else 'sales'
+
+
+def dept_label(key):
+    return 'BD' if key == 'bd' else 'Sales'
+
+
+def pack_for_dept(dept):
+    return builtin_pack('SALESKIT' if dept == 'bd' else 'Báo cáo')
+
+
+def builtin_pack(name):
+    """Gói bố cục có sẵn: layout + kiểu bảng + ẩn/hiện phần tử."""
+    if name == 'SALESKIT':
+        vis = {n: n not in ('avatar', 'channel') for n in ELEMENT_NAMES}
+        return {
+            'layout': SALESKIT_LAYOUT,
+            'slide_style': 'saleskit',
+            'visible': vis,
+            'channel_enabled': False,
+        }
+    vis = {n: True for n in ELEMENT_NAMES}
+    return {
+        'layout': DEFAULT_LAYOUT,
+        'slide_style': 'report',
+        'visible': vis,
+        'channel_enabled': True,
+    }
+
+TABLE_HEADER_BG = "#1E6EE8"
+TABLE_HEADER_FG = "#FFFFFF"
+TABLE_DATA_BG = "#EDEAF4"
+TABLE_SUB_FG = "#1E6EE8"
+TABLE_LINE = "#D0D4DE"
+TABLE_TEXT = "#1B2430"
 
 # ── Màu giao diện (Golden Asia blue) ──
 ACCENT = "#1774d2"

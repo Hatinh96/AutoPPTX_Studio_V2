@@ -33,6 +33,23 @@ def load_font(name, size_px, bold=False, italic=False, path=None, index=0):
     return ImageFont.load_default()
 
 
+def load_font_for_text(name, size_px, bold=False, italic=False,
+                       path=None, index=0, text=''):
+    """Nạp font; nếu thiếu glyph tiếng Việt thì chuyển Arial / fallback."""
+    fam = FN.safe_family(name, text)
+    use_path = path if fam.lower() == (name or '').lower() else None
+    font = load_font(fam, size_px, bold, italic, use_path, index)
+    if FN.font_covers(font, text):
+        return font
+    for alt in FN.VIET_FALLBACKS:
+        if alt.lower() == fam.lower():
+            continue
+        fb = load_font(alt, size_px, bold, italic, None, 0)
+        if FN.font_covers(fb, text):
+            return fb
+    return font
+
+
 def render_textbox(text, wpx, hpx, *, font_name='Arial', size_px=16,
                    color='#000000', opacity=100, align='left',
                    bold=True, italic=False, tracking_px=0, valign='middle',
@@ -41,7 +58,8 @@ def render_textbox(text, wpx, hpx, *, font_name='Arial', size_px=16,
     wpx, hpx = max(4, int(wpx)), max(4, int(hpx))
     img = Image.new('RGBA', (wpx, hpx), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    font = load_font(font_name, size_px, bold, italic, font_path, font_index)
+    font = load_font_for_text(font_name, size_px, bold, italic,
+                             font_path, font_index, text)
     r, g, b = hex_rgb(color)
     fill = (r, g, b, max(0, min(255, int(round(255 * float(opacity) / 100.0)))))
     pad = 2

@@ -46,7 +46,9 @@ def check(groups, by_code, merged=None):
     rep = QAReport(list_count=len(by_code), photo_groups=len(groups),
                    has_excel=bool(by_code))
     if not by_code:
-        rep.scope_note = 'Chưa có Excel — bỏ qua đối chiếu list.'
+        rep.scope_note = (
+            'Chưa có list đang mở — bỏ qua đối chiếu. '
+            'Đồng bộ hoặc chọn Excel ở tab Nguồn.')
         return rep
 
     covered = set()

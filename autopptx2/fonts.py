@@ -12,9 +12,10 @@ from PIL import Image, ImageDraw, ImageFont
 from .constants import CONFIG_DIR
 
 CACHE_PATH = os.path.join(CONFIG_DIR, "fonts_cache.json")
-VIET_SAMPLE = "ÁÀẢÃẠăâêôơưĐ"
-PINNED = ("Be Vietnam Pro", "Montserrat", "Arial", "Segoe UI", "Calibri",
-          "Tahoma", "Times New Roman")
+VIET_SAMPLE = "ÁÀẢÃẠăâêôơưĐƯỢỘỮỨờợộữự"
+VIET_FALLBACKS = ("Arial", "Be Vietnam Pro", "Segoe UI", "Tahoma", "Calibri")
+PINNED = ("Arial", "Be Vietnam Pro", "Segoe UI", "Tahoma", "Calibri",
+          "Montserrat", "Times New Roman")
 
 _lock = threading.Lock()
 _catalog = None          # list[dict]
@@ -217,6 +218,22 @@ def preview_sample(path, index=0, text="ÁÀẢÃẠ", size=(392, 54)):
     return im
 
 
+def font_covers(font, text):
+    """True nếu font vẽ được mọi ký tự (không để lỗ dấu tiếng Việt)."""
+    if font is None:
+        return False
+    for ch in set(str(text or "")):
+        if ch.isspace():
+            continue
+        try:
+            bb = font.getbbox(ch)
+            if (bb[2] - bb[0]) < 1:
+                return False
+        except Exception:
+            return False
+    return True
+
+
 def resolve_font_file(name, bold=False, italic=False):
     """(path, index) của file .ttf/.otf khớp family + đậm/nghiêng."""
     info = family_info(name)
@@ -238,6 +255,24 @@ def resolve_font_file(name, bold=False, italic=False):
     if p and os.path.isfile(p):
         return p, int(info.get("index", 0) or 0)
     return None, 0
+
+
+def safe_family(name, text=""):
+    """Family dùng được cho chuỗi (Arial nếu Montserrat / thiếu dấu)."""
+    pref = (name or "").strip() or "Arial"
+    if pref.lower() == "montserrat":
+        pref = "Arial"
+    if not text:
+        return pref
+    catalog()
+    info = family_info(pref)
+    if info and info.get("viet"):
+        return pref
+    for fam in VIET_FALLBACKS:
+        inf = family_info(fam)
+        if inf and inf.get("viet"):
+            return fam
+    return "Arial"
 
 
 def search_families(query, limit=80):

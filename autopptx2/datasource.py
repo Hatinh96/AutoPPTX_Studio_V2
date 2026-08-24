@@ -11,25 +11,55 @@ from .constants import IMG_EXTS, CODE_SUFFIX_RE
 
 
 def _norm_header(s):
-    """Chuẩn hoá tên cột: bỏ khoảng trắng/gạch/chéo, thường hoá."""
-    return re.sub(r'[\s_/\-\.]+', '', str(s or '')).strip().lower()
+    """Chuẩn hoá tên cột: bỏ khoảng trắng/gạch/ngoặc/xuống dòng, thường hoá."""
+    s = str(s or '').replace('\n', ' ').replace('\r', ' ')
+    s = re.sub(r"[\s_/\-\.,\(\)']+", '', s)
+    return s.strip().lower()
 
 
 # tên cột chuẩn → các biến thể chấp nhận (đã chuẩn hoá)
 _COLUMN_ALIASES = {
-    'Code_RP': ('coderp', 'code', 'macode', 'mabaocao', 'marp', 'rpcode',
-                'madiadiem', 'madiem', 'storecode', 'storeid', 'siteid'),
-    'Name': ('name', 'ten', 'tendiadiem', 'pointname'),
-    'Address': ('address', 'diachi'),
-    'District': ('district', 'quan', 'quanhuyen'),
+    'Code_RP': ('coderp', 'codereport', 'code', 'macode', 'mabaocao', 'marp',
+                'rpcode', 'madiadiem', 'madiem', 'storecode', 'storeid',
+                'siteid'),
+    'Name': ('name', 'ten', 'tendiadiem', 'pointname', 'truong'),
+    'Location': ('location', 'khuvuc', 'vitri'),
+    'Address': ('address', 'diachi', 'addressmới', 'addressmoi'),
+    'Ward': ('ward', 'phuong', 'wardmới', 'wardmoi'),
+    'City': ('city', 'thanhpho', 'citymới', 'citymoi'),
+    'District': ('district', 'quan', 'quanhuyen', 'distcũ', 'distcu'),
     'Channel': ('channel', 'kenh'),
-    'DP': ('dp',),
-    'LCD': ('lcd',),
-    'GP': ('gp',),
-    'DS': ('ds',),
+    'Type': ('type', 'hinhthuc', 'format'),
+    'Size': ('size', 'kichthuoc', 'inch', 'inches'),
+    'Note': ('note', 'notes', 'ghichu'),
+    'Except': ('except', 'exceptbrand', 'exceptbrandcantadvertised'),
+    'DP': ('dp', 'digitalposterinsideelevator'),
+    'LCD': ('lcd', 'lcdfrontofelevator', 'lcdothers'),
+    'GP': ('gp', 'giantposterinsideelevator', 'giantposteroutsidegroundfloor',
+           'giantposteroutsideparkingfloor', 'giantposterstudyautox2forsale'),
+    'DS': ('ds', 'digitalposterothersdigitalstandee', 'digitalstandee'),
+    'DPS': ('dps', 'digitalposterstair'),
+    'DPF': ('dpf', 'digitalposterinfontoffloor', 'dpfdigitalposterinfontoffloor'),
+    'LED': ('led',),
     'TrafficDay': ('trafficday', 'trafficngay'),
-    'TrafficWeek': ('trafficweek', 'traffictuan'),
+    'TrafficWeek': ('trafficweek', 'traffictuan', 'trafficwk'),
+    'Quantity': ('quantity', 'soluong', 'qty'),
 }
+
+_QTY_KEYS = ('DP', 'LCD', 'GP', 'DS', 'DPS', 'DPF', 'LED')
+_FORM_COLS = (
+    ('DPS', 'DPS'),
+    ('DP', 'DP'),
+    ('DS', 'DS'),
+    ('DPF', 'DPF'),
+    ('LCD', 'LCD'),
+    ('GP', 'GP'),
+    ('LED', 'LED'),
+)
+_FILL_KEYS = ('Code_RP', 'Name', 'Address', 'District', 'Channel',
+              'Ward', 'City', 'TrafficDay', 'TrafficWeek', 'Type', 'Quantity')
+_SUBHEADER_HINTS = ('led', 'digitalposter', 'giantposter', 'lcdfront', 'dpf',
+                    'digitalstandee')
 
 
 def _is_blank(v):
@@ -85,50 +115,88 @@ class ExcelSource:
             self.mtime = os.path.getmtime(path)
             wb = load_workbook(path, read_only=True, data_only=True)
             ws = wb.worksheets[0]
-            header_map = None       # index cột → tên chuẩn
-            for row in ws.iter_rows(max_row=15, values_only=True):
-                cand = self._map_header(row)
-                if cand:
-                    header_map = cand
-                    break
+            all_rows = list(ws.iter_rows(values_only=True))
+            wb.close()
+            header_idx, header_map = None, None
+            for i, row in enumerate(all_rows[:15]):
+                cand = self._map_columns(row, require_code=True)
+                if not cand:
+                    continue
+                header_idx, header_map = i, cand
+                if i + 1 < len(all_rows) and self._looks_like_subheader(all_rows[i + 1]):
+                    extra = self._map_columns(all_rows[i + 1], require_code=False)
+                    for idx, key in extra.items():
+                        header_map.setdefault(idx, key)
+                    header_idx = i + 1
+                break
             if header_map is None:
                 self.error = "Không tìm thấy dòng tiêu đề chứa cột Code_RP."
-                wb.close()
                 return False
-            started = False
-            for row in ws.iter_rows(values_only=True):
-                if not started:
-                    # bỏ qua tới hết dòng tiêu đề
-                    if self._map_header(row):
-                        started = True
+            prev = {}
+            for row in all_rows[header_idx + 1:]:
+                rec = self._row_record(row, header_map)
+                has_code = bool(str(rec.get('Code_RP') or '').strip())
+                has_loc = bool(str(clean(rec.get('Location') or '')).strip())
+                has_qty = any(to_qty(rec.get(k)) > 0 for k in _QTY_KEYS)
+                if not (has_code or has_loc or has_qty):
                     continue
-                rec = {}
-                for idx, key in header_map.items():
-                    rec[key] = row[idx] if idx < len(row) else None
+                for k in _FILL_KEYS:
+                    if _is_blank(rec.get(k)) and not _is_blank(prev.get(k)):
+                        rec[k] = prev[k]
                 code = str(rec.get('Code_RP') or '').strip()
                 if code and code.lower() != 'nan':
                     rec['Code_RP'] = code
                     self.rows.append(rec)
-            wb.close()
+                    prev = rec
             return True
         except Exception as e:
             self.error = str(e)
             return False
 
     @staticmethod
-    def _map_header(row):
-        """Nếu `row` là dòng tiêu đề → {index: tên chuẩn}, ngược lại None."""
+    def _map_columns(row, require_code=True):
+        """{index: tên chuẩn}. require_code=True thì phải có Code_RP."""
         if not row:
-            return None
+            return {} if not require_code else None
         found = {}
         for idx, cell in enumerate(row):
             n = _norm_header(cell)
             if not n:
                 continue
             for canon, aliases in _COLUMN_ALIASES.items():
-                if n in aliases and canon not in found.values():
+                if n == canon.lower() or n in aliases:
                     found[idx] = canon
-        return found if 'Code_RP' in found.values() else None
+                    break
+        if require_code:
+            return found if 'Code_RP' in found.values() else None
+        return found
+
+    @staticmethod
+    def _looks_like_subheader(row):
+        texts = [_norm_header(c) for c in (row or []) if c]
+        if not texts:
+            return False
+        if any(t in ('coderp', 'codereport') for t in texts):
+            return False
+        return any(any(h in t for h in _SUBHEADER_HINTS) for t in texts)
+
+    @staticmethod
+    def _row_record(row, header_map):
+        rec = {}
+        for idx, key in header_map.items():
+            val = row[idx] if row and idx < len(row) else None
+            if key in _QTY_KEYS:
+                rec[key] = to_qty(rec.get(key)) + to_qty(val)
+                continue
+            if key in rec and not _is_blank(rec.get(key)):
+                continue
+            rec[key] = val
+        return rec
+
+    @staticmethod
+    def _map_header(row):
+        """Nếu `row` là dòng tiêu đề → {index: tên chuẩn}, ngược lại None."""
+        return ExcelSource._map_columns(row, require_code=True)
 
     def channels(self):
         seen = []
@@ -139,13 +207,42 @@ class ExcelSource:
         return sorted(seen)
 
     def by_code(self, channel=None):
-        """{CODE (hoa): row} — lọc theo kênh nếu có."""
-        out = {}
+        """{CODE (hoa): row đại diện} — lọc theo kênh nếu có.
+
+        Nhiều dòng cùng mã (từng khu / loại màn) được cộng số lượng vào dòng đầu.
+        """
+        groups = OrderedDict()
         for r in self.rows:
             if channel:
                 if str(clean(r.get('Channel'))).strip().casefold() != channel.casefold():
                     continue
-            out[r['Code_RP'].upper()] = r
+            groups.setdefault(r['Code_RP'].upper(), []).append(r)
+        out = {}
+        for key, rs in groups.items():
+            head = dict(rs[0])
+            for qk in _QTY_KEYS:
+                head[qk] = sum(to_qty(x.get(qk)) for x in rs)
+            if _is_blank(head.get('Quantity')):
+                for x in rs[1:]:
+                    if not _is_blank(x.get('Quantity')):
+                        head['Quantity'] = x.get('Quantity')
+                        break
+            out[key] = head
+        return out
+
+    def rows_of(self, code, channel=None):
+        """Mọi dòng Excel cùng mã (từng khu vực / loại màn)."""
+        key = str(code or '').strip().upper()
+        if not key:
+            return []
+        out = []
+        for r in self.rows:
+            if str(r.get('Code_RP') or '').strip().upper() != key:
+                continue
+            if channel:
+                if str(clean(r.get('Channel'))).strip().casefold() != channel.casefold():
+                    continue
+            out.append(r)
         return out
 
 
@@ -157,8 +254,8 @@ def inspect_excel(path):
     found = set()
     for r in src.rows:
         found.update(r.keys())
-    recommended = ('Name', 'Address', 'District', 'Channel',
-                   'LCD', 'DP', 'DS', 'GP', 'TrafficDay', 'TrafficWeek')
+    recommended = ('Name', 'Address', 'District', 'Location', 'Channel',
+                   'LCD', 'DP', 'DS', 'GP', 'DPS', 'TrafficDay', 'TrafficWeek')
     missing = [k for k in recommended if k not in found]
     sample = []
     for r in src.rows[:8]:
@@ -259,6 +356,10 @@ class ImageLibrary:
         self._cache = (sig, g)
         return g
 
+    def invalidate(self):
+        """Bỏ cache nhóm — gọi sau khi đổi tên file trên đĩa."""
+        self._cache = None
+
     def group_paths(self, code):
         return list(self.groups().get(code, []))
 
@@ -267,13 +368,39 @@ class ImageLibrary:
         return self.folders[0] if self.folders else None
 
 
+# Hậu tố tên file avatar — quy ước V1: {Code_RP}, {Code_RP}A, {Code_RP}AA, {Code_RP}_Ava
+_AVATAR_FILE_SUF = re.compile(r'(_Ava|AA|A)$', re.IGNORECASE)
+# Alias mã block/tháp → ảnh avatar của mã gốc (giống V1, không phải fuzzy).
+_AVATAR_BASE_RE = re.compile(
+    r'(BLOCK|THAP|SANH|KHOI|FLAT|TOWER).*$', re.IGNORECASE)
+# Mã gần giống (TOPAZHOME2BBLOCKB1 ↔ B2). Không đủ gần → None, không lấy file đầu folder.
+_AVATAR_FUZZY_CUTOFF = 0.87
+
+
+def _avatar_alnum(s):
+    return re.sub(r'[^A-Z0-9]', '', str(s or '').upper())
+
+
 class AvatarIndex:
-    """Tìm avatar theo mã điểm (khớp chính xác → chuẩn hoá → gần đúng)."""
+    """Tìm avatar theo Code_RP: khớp chính xác, chuẩn hoá (bỏ dấu/gạch),
+    hậu tố tên file, alias BLOCK/THÁP, rồi gần giống (difflib 0.87).
+
+    Không có file và không có tên gần giống → None. Không lấy ảnh đầu thư mục.
+    """
 
     def __init__(self):
         self.folder = None
         self._exact = {}
         self._loose = {}
+        self._aliases = {}
+
+    def set_aliases(self, mapping):
+        """Bảng alias tùy chọn: {mã_tìm: mã_file}. Không ghi đè khớp chính xác."""
+        self._aliases = {}
+        for src, dst in (mapping or {}).items():
+            a, b = str(src or '').strip().upper(), str(dst or '').strip().upper()
+            if a and b:
+                self._aliases[a] = b
 
     def set_folder(self, folder):
         self.folder = folder
@@ -285,29 +412,68 @@ class AvatarIndex:
                 for fn in files:
                     if not fn.lower().endswith(IMG_EXTS):
                         continue
-                    stem = os.path.splitext(fn)[0].strip()
-                    stem = re.sub(r'(_Ava|AA|A)$', '', stem, flags=re.IGNORECASE).upper()
                     p = os.path.join(root, fn)
-                    self._exact.setdefault(stem, p)
-                    self._loose.setdefault(re.sub(r'[^A-Z0-9]', '', stem), p)
+                    stem = os.path.splitext(fn)[0].strip().upper()
+                    if not stem:
+                        continue
+                    self._put(stem, p)
+                    stripped = _AVATAR_FILE_SUF.sub('', stem).strip()
+                    if stripped and stripped != stem:
+                        self._put(stripped, p)
         except Exception:
             pass
+
+    def _put(self, stem, path):
+        self._exact.setdefault(stem, path)
+        loose = _avatar_alnum(stem)
+        if loose:
+            self._loose.setdefault(loose, path)
+
+    def _lookup(self, key):
+        if not key:
+            return None
+        p = self._exact.get(key)
+        if p:
+            return p
+        return self._loose.get(_avatar_alnum(key))
 
     def find(self, code):
         if not code:
             return None
         key = str(code).strip().upper()
-        p = self._exact.get(key)
-        if p:
-            return p
-        p = self._loose.get(re.sub(r'[^A-Z0-9]', '', key))
-        if p:
-            return p
-        cand = difflib.get_close_matches(key, list(self._exact), n=1, cutoff=0.87)
-        return self._exact[cand[0]] if cand else None
+        if not key:
+            return None
+        seen = set()
+        queue = [key]
+        alias = self._aliases.get(key)
+        if alias:
+            queue.append(alias)
+        base = _AVATAR_BASE_RE.sub('', key).strip()
+        if base and base != key:
+            queue.append(base)
+            alias2 = self._aliases.get(base)
+            if alias2:
+                queue.append(alias2)
+        for k in queue:
+            if k in seen:
+                continue
+            seen.add(k)
+            p = self._lookup(k)
+            if p:
+                return p
+        cand = difflib.get_close_matches(
+            key, list(self._exact), n=1, cutoff=_AVATAR_FUZZY_CUTOFF)
+        if cand:
+            return self._exact[cand[0]]
+        return None
 
-    def first(self):
-        return next(iter(self._exact.values()), None)
+    def resolve(self, *codes):
+        """Thử lần lượt các mã (ảnh, Code_RP Excel). Mã trống bỏ qua."""
+        for c in codes:
+            p = self.find(c)
+            if p:
+                return p
+        return None
 
 
 # ════════════════════════════════════════════════════════════
@@ -354,6 +520,10 @@ def merge_rows(rows):
             except Exception:
                 pass
         base[c] = int(total)
+    qty_vals = [to_qty(r.get('Quantity')) for r in rows
+                if not _is_blank(r.get('Quantity'))]
+    if qty_vals:
+        base['Quantity'] = sum(qty_vals)
     names = [str(r.get('Name', '') or '').strip() for r in rows if r.get('Name')]
     if names:
         common = os.path.commonprefix(names).rstrip(' -–—_')
@@ -361,6 +531,38 @@ def merge_rows(rows):
                         common, flags=re.IGNORECASE).strip()
         base['Name'] = common if len(common) >= 4 else names[0]
     return base
+
+
+def build_photo_rename_plan(groups, mapping):
+    """Lập kế hoạch đổi tên file theo {mã cũ: mã mới}.
+
+    Giữ hậu tố ' (2)' / '_2' và phần mở rộng. Không ghi đè file đã có.
+    groups: {mã: [đường dẫn tuyệt đối]}.
+    Trả (plan, conflicts) — mỗi phần tử (src, dst).
+    """
+    plan, conflicts = [], []
+    planned = set()
+    for old, new in (mapping or {}).items():
+        old = str(old or '').strip()
+        new = str(new or '').strip()
+        if not old or not new:
+            continue
+        for src in groups.get(old, []) or []:
+            folder = os.path.dirname(src)
+            fn = os.path.basename(src)
+            base, ext = os.path.splitext(fn)
+            m = CODE_SUFFIX_RE.search(base)
+            new_fn = '{}{}{}'.format(new, m.group(1) if m else '', ext)
+            if new_fn == fn:
+                continue
+            dst = os.path.join(folder, new_fn)
+            key = os.path.normcase(os.path.normpath(dst))
+            if os.path.exists(dst) or key in planned:
+                conflicts.append((src, dst))
+            else:
+                plan.append((src, dst))
+                planned.add(key)
+    return plan, conflicts
 
 
 def match_row(code, by_code, merged=None):
@@ -385,10 +587,10 @@ def match_row(code, by_code, merged=None):
 #  Khối Thông tin — dựng chung cho preview & export
 # ════════════════════════════════════════════════════════════
 def screen_parts(row):
-    """[(số, nhãn)] các loại màn > 0 — LCD, DP, DS, GP."""
+    """[(số, nhãn)] các loại màn > 0."""
     row = row or {}
     out = []
-    for key, lab in (('LCD', 'LCD'), ('DP', 'DP'), ('DS', 'DS'), ('GP', 'GP')):
+    for key, lab in _FORM_COLS:
         n = to_qty(row.get(key))
         if n > 0:
             out.append((n, lab))
@@ -403,7 +605,10 @@ def screen_parts(row):
 
 
 def screen_qty(row):
-    """Số tivi / màn hình kỳ vọng của 1 điểm (LCD + DP + DS + GP)."""
+    """Số màn tại điểm: LCD + DP + GP + DS (+ DPS/DPF/LED nếu có).
+
+    Không dùng cột Quantity — list khách sạn thường ghi số phòng vào đó.
+    """
     parts = screen_parts(row)
     total = sum(n for n, _ in parts)
     if total <= 0:
@@ -422,28 +627,160 @@ def place_label(row):
     return name or addr or ''
 
 
-def build_info_rows(row, n_files):
-    """[(nhãn, giá trị, là_dòng_nhấn)] cho khối Thông tin.
+# Thứ tự loại màn trong ngoặc Quantity — LCD trước DP như ví dụ V1
+# "8 (2 LCD, 6 DP)"; DS/GP sau; DPS/DPF/LED nếu có.
+_QTY_SHOW_ORDER = ('LCD', 'DP', 'DS', 'GP', 'DPS', 'DPF', 'LED')
 
-    Photos = số ảnh đã chụp. Tivi = số màn trên list Excel (không đếm trong ảnh).
+
+def _quantity_text(row, n_files=0):
+    """Quantity trên slide = tổng màn + tách loại, giống AutoPPTX cũ.
+
+    V1 ghép `{tổng} ({n DP}, {n LCD}, …)` từ cột LCD/DP/GP/DS — không lấy
+    nguyên chuỗi từ cột Quantity. Cột Quantity Excel chỉ dùng khi mọi cột
+    loại màn = 0 (Coffee/Beauty). Không lấy số phòng khi đã có số màn.
     """
     row = row or {}
-    n_files = int(n_files or 0)
-    tvs = screen_qty(row)
     parts = screen_parts(row)
-    detail = ', '.join(f'{n} {lab}' for n, lab in parts)
-    if tvs > 0:
-        tv_txt = f'{tvs}' + (f'  ({detail})' if detail else '')
-    else:
-        tv_txt = '—'
+    n = sum(c for c, _ in parts)
+    if n <= 0:
+        n = to_qty(row.get('so_man_slot'))
+    if n > 0:
+        if parts:
+            rank = {lab: i for i, lab in enumerate(_QTY_SHOW_ORDER)}
+            parts = sorted(parts, key=lambda p: rank.get(p[1], 99))
+            return '{} ({})'.format(
+                n, ', '.join('{} {}'.format(c, lab) for c, lab in parts))
+        return str(n)
+    raw = row.get('Quantity')
+    if not _is_blank(raw) and to_qty(raw) > 0:
+        return fmt_num(raw)
+    try:
+        nf = int(n_files or 0)
+    except (TypeError, ValueError):
+        nf = 0
+    if nf > 0:
+        return str(nf)
+    return '—'
+
+
+def build_info_rows(row, n_files=0):
+    """[(nhãn, giá trị, là_dòng_nhấn)] cho khối Thông tin mẫu báo cáo cũ."""
+    row = row or {}
     return [
         ("Address", str(clean(row.get('Address'))), False),
         ("District", str(clean(row.get('District'))), False),
-        ("Photos", str(n_files), False),
-        ("Tivi / màn", tv_txt, False),
+        ("Quantity", _quantity_text(row, n_files), False),
         ("Traffic / day", fmt_num(row.get('TrafficDay')), True),
         ("Traffic / week", fmt_num(row.get('TrafficWeek')), True),
     ]
+
+
+def _note_text(row):
+    """Note trên bảng: ưu tiên hạn chế (Except). Ẩn trạng thái ON AIR."""
+    row = row or {}
+    exc = str(clean(row.get('Except'))).strip()
+    if exc:
+        return exc
+    note = str(clean(row.get('Note'))).strip()
+    if note.upper().replace('-', ' ') in ('ON AIR', 'OFF AIR', 'ONGOING', 'ON GOING'):
+        return ''
+    return note
+
+
+def _khu_vuc(row):
+    loc = str(clean((row or {}).get('Location'))).strip()
+    if ' - ' in loc:
+        return loc.split(' - ', 1)[1].strip()
+    if loc:
+        return loc
+    return str(clean((row or {}).get('District'))).strip()
+
+
+def _school_short(row):
+    loc = str(clean((row or {}).get('Location'))).strip()
+    if ' - ' in loc:
+        return loc.split(' - ', 1)[0].strip()
+    return str(clean((row or {}).get('Name'))).strip()
+
+
+def _address_line(row):
+    row = row or {}
+    addr = str(clean(row.get('Address'))).strip()
+    ward = str(clean(row.get('Ward') or row.get('District'))).strip()
+    city = str(clean(row.get('City'))).strip()
+    parts = []
+    if addr:
+        parts.append(addr)
+    if ward:
+        wl = ward.lower()
+        if wl[:1].isdigit():
+            parts.append('Quận ' + ward)
+        elif wl.startswith(('phường', 'phuong', 'quận', 'quan', 'p.', 'q.', 'tp')):
+            parts.append(ward)
+        else:
+            parts.append('Phường ' + ward)
+    if city:
+        cl = city.lower()
+        if 'hồ chí minh' in cl or cl in ('hcm', 'tphcm', 'tp.hcm'):
+            parts.append('TP.HCM')
+        else:
+            parts.append(city)
+    return ', '.join(parts)
+
+
+def _fmt_traffic(row):
+    v = (row or {}).get('TrafficWeek')
+    if _is_blank(v):
+        v = (row or {}).get('TrafficDay')
+    v = clean(v)
+    if isinstance(v, (int, float)) and float(v) >= 100:
+        return f'{int(round(float(v))):,}'.replace(',', '.')
+    if v == '':
+        return ''
+    return fmt_num(v)
+
+
+def build_info_table(row, siblings=None):
+    """Khung bảng SALESKIT: TRƯỜNG / ĐỊA CHỈ / TRAFFIC + từng khu-loại màn."""
+    siblings = [r for r in (siblings or []) if r]
+    if not siblings and row:
+        siblings = [row]
+    head = siblings[0] if siblings else (row or {})
+    specs = []
+    for r in siblings:
+        area = _khu_vuc(r)
+        size = str(clean(r.get('Size'))).strip()
+        note = _note_text(r)
+        forms = []
+        for key, lab in _FORM_COLS:
+            n = to_qty(r.get(key))
+            if n > 0:
+                forms.append((lab, n))
+        if forms:
+            for lab, n in forms:
+                specs.append({
+                    'area': area, 'form': lab, 'size': size,
+                    'qty': str(n), 'note': note,
+                })
+        else:
+            qn = to_qty(r.get('Quantity'))
+            if area or size or note or qn > 0:
+                specs.append({
+                    'area': area,
+                    'form': str(clean(r.get('Type'))).strip(),
+                    'size': size,
+                    'qty': str(qn) if qn > 0 else '',
+                    'note': note,
+                })
+    if not specs:
+        specs.append({'area': '', 'form': '', 'size': '', 'qty': '', 'note': ''})
+    school = _school_short(head) or str(clean(head.get('Name'))).strip()
+    return {
+        'school': school,
+        'address': _address_line(head),
+        'traffic': _fmt_traffic(head),
+        'specs': specs,
+    }
 
 
 def channel_text(row, template):

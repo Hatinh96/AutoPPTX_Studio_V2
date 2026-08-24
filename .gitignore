@@ -15,6 +15,18 @@ dist/
 map_cache/
 .autopptx_studio_v2/
 
+# Large data files (not needed for build)
+Data avatar/
+Data background/
+LIST BAN HANG/
+REPORTW32_CUONG/
+Standard_Master_*.xlsx
+SALESKIT.pptx
+*.pptx
+_build_w33_master.py
+_merge_building_w31.py
+_w33_building_merge_summary.txt
+
 # Environment / Secret variables
 .env
 venv/

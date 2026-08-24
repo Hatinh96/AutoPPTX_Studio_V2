@@ -3,7 +3,7 @@ import tkinter as tk
 import customtkinter as ctk
 
 from .constants import ACCENT, ACCENT_HOVER, CARD, TEXT, MUTED, INPUT, BORDER, BG
-from .constants import GA_BLUE_DEEP, GA_BLUE_GLOW
+from .constants import GA_BLUE_DEEP, GA_BLUE_GLOW, find_asset, LOGIN_LOGOS
 from . import cloud as C
 
 
@@ -31,28 +31,24 @@ def build_login(host, app):
     left.pack(side='left', fill='y')
     pad = round(34 * S)
     y = round(180 * S)
-    
-    # ── Draw Logo Image on Canvas ──
+    logo_drawn = False
     try:
-        import os, sys
         from PIL import Image, ImageTk
-        base = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logo_file = os.path.join(base, 'LOGO', 'Logo Golden Asia_Standard Horizontal_Name White.png')
-        if not os.path.exists(logo_file):
-            logo_file = os.path.join(base, 'LOGO', 'Logo Golden Asia_White Horizontal.png')
-        if not os.path.exists(logo_file):
-            logo_file = os.path.join(base, 'LOGO', 'Logo Golden Asia_Symbol_Standard.png')
-
-        if os.path.exists(logo_file):
-            im = Image.open(logo_file)
+        logo_file = find_asset(*LOGIN_LOGOS)
+        if logo_file:
+            im = Image.open(logo_file).convert('RGBA')
             target_w = round(220 * S)
             target_h = max(1, int(im.height * target_w / im.width))
-            im_resized = im.resize((target_w, target_h), Image.Resampling.LANCZOS)
-            photo_logo = ImageTk.PhotoImage(im_resized)
+            im = im.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            photo_logo = ImageTk.PhotoImage(im)
             left.create_image(pad, round(90 * S), image=photo_logo, anchor='nw')
             left._logo_photo = photo_logo
+            app._login_logo_photo = photo_logo
             y = round(90 * S) + target_h + round(24 * S)
+            logo_drawn = True
     except Exception:
+        logo_drawn = False
+    if not logo_drawn:
         left.create_text(pad, y, text='GOLDEN ASIA', anchor='nw', fill='#ffffff',
                          font=('Segoe UI', 20, 'bold'))
         y += round(40 * S)

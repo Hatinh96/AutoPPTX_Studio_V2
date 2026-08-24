@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 from PIL import Image
 
+from . import geometry as G
+
 
 class ThumbCache:
     def __init__(self, max_items=256, max_px=1024):
@@ -51,7 +53,12 @@ class ThumbCache:
                 im.draft('RGB', (self.max_px, self.max_px))
             except Exception:
                 pass
+            im = G.exif_upright(im)
             im = im.convert("RGB")
+            try:
+                im.info.pop('exif', None)
+            except Exception:
+                pass
             if max(im.size) > self.max_px:
                 im.thumbnail((self.max_px, self.max_px),
                              Image.Resampling.LANCZOS)

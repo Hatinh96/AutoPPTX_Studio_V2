@@ -16,6 +16,7 @@ from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont, ImageColor, ImageEnhance, ImageOps, ImageStat, ImageFilter
 
 from .constants import CONFIG_DIR
+from . import geometry as G
 
 OSM_ZOOM = 16
 OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -744,6 +745,7 @@ def check_quality(paths):
     for p in paths:
         try:
             with Image.open(p) as im:
+                im = G.exif_upright(im)
                 im.thumbnail((512, 512))
                 small = im.convert("RGB")
             gray = small.convert("L")
@@ -771,14 +773,17 @@ def process_photo(path, src=None, fx=None, box=None, fit='fill', radius=0,
                   preview=False):
     """src: PIL đã decode (preview). box=(w,h) px đích. Trả RGBA."""
     fx = fx or {}
-    from . import geometry as G
-    im = src.copy() if src is not None else Image.open(path)
     try:
-        if src is None:
+        if src is not None:
+            # Thumbnail đã exif_upright — không transpose lần nữa.
+            im = src.copy()
+        else:
+            im = Image.open(path)
             try:
                 im.draft('RGB', (2048, 2048))
             except Exception:
                 pass
+            im = G.exif_upright(im)
         im = im.convert("RGBA")
     except Exception:
         return None
@@ -789,6 +794,7 @@ def process_photo(path, src=None, fx=None, box=None, fit='fill', radius=0,
     tw = th = None
     if box:
         tw, th = max(4, int(box[0])), max(4, int(box[1]))
+        fit = G.photo_fit_mode(fit, im.width, im.height)
         if fit == 'fill':
             im = G.center_crop_to_ar(im, tw / max(1, th))
 
@@ -845,15 +851,7 @@ def process_photo(path, src=None, fx=None, box=None, fit='fill', radius=0,
                 print('Minimap err:', e)
 
     if tw and th:
-        if fit == 'fill':
-            im = G.center_crop_to_ar(im, tw / max(1, th))
-            if im.size != (tw, th):
-                im = im.resize((tw, th), Image.Resampling.LANCZOS)
-        else:
-            sw, sh = im.size
-            sc = min(tw / sw, th / sh)
-            im = im.resize((max(1, int(sw * sc)), max(1, int(sh * sc))),
-                           Image.Resampling.LANCZOS)
+        im = G.resize_into_box(im, tw, th, fit)
     return im
 
 

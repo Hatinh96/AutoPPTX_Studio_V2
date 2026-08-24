@@ -70,10 +70,14 @@ autopptx2/
 
 ## Đóng gói exe
 
+Dùng file `.spec` (đóng gói `LOGO`, `app_icon.ico`, `app_icon.icns`). Không dùng lệnh `--onefile` trần — logo/icon sẽ mất.
+
 ```bash
 pip install pyinstaller
-pyinstaller --noconsole --onefile --name AutoPPTX_Studio_V2 AutoPPTX_Studio_V2.py
+pyinstaller --noconfirm AutoPPTX_Studio_V2.spec
 ```
+
+Ra `dist/AutoPPTX_Studio_V2.exe` (Windows) hoặc `dist/AutoPPTX_Studio_V2.app` (macOS). Dock macOS lấy `app_icon.icns` vuông 1024px; Windows lấy `app_icon.ico`.
 
 ## Ghi chú
 

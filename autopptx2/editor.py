@@ -22,7 +22,9 @@ from . import geometry as G
 from . import style as ST
 from . import effects as FX
 from .constants import (SLIDE_W_IN, SLIDE_H_IN, ELEMENT_COLORS, GUIDE_COLOR,
-                        SNAP_PX, UNDO_MAX, ACCENT)
+                        SNAP_PX, UNDO_MAX, ACCENT, TABLE_HEADER_BG,
+                        TABLE_HEADER_FG, TABLE_DATA_BG, TABLE_SUB_FG,
+                        TABLE_LINE, TABLE_TEXT)
 
 BASE_PPI = 96                      # px/inch ở zoom 100%
 MIN_SIZE_IN = 0.3
@@ -41,6 +43,34 @@ _DRAW_ORDER = ("image", "avatar", "title", "info", "channel")
 
 def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
+
+
+def _wrap_line(draw, text, font, max_w):
+    text = str(text or '').strip()
+    if not text:
+        return ['']
+    try:
+        if draw.textlength(text, font=font) <= max_w:
+            return [text]
+    except Exception:
+        return [text]
+    words = text.split()
+    if not words:
+        return [text]
+    lines, cur = [], words[0]
+    for w in words[1:]:
+        trial = cur + ' ' + w
+        try:
+            ok = draw.textlength(trial, font=font) <= max_w
+        except Exception:
+            ok = len(trial) < 40
+        if ok:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = w
+    lines.append(cur)
+    return lines or [text]
 
 
 def _lighten(hexv, f=0.45):
@@ -204,7 +234,7 @@ class EditorCanvas(tk.Canvas):
             pw, ph_ = max(4, int(bw * S)), max(4, int(bh * S))
             if i < len(paths):
                 photo = self._cell_photo(paths[i], pw, ph_, radius, fit, opacity,
-                                         apply_fx=True)
+                                         apply_fx=True, auto_portrait_fit=True)
                 if photo is not None:
                     self._photos['image'].append(photo)
                     # 'fit' có thể nhỏ hơn ô → căn giữa
@@ -220,12 +250,15 @@ class EditorCanvas(tk.Canvas):
                 self.create_text(px0 + pw / 2, py0 + ph_ / 2, text='Ảnh',
                                  fill=col, tags=tag)
 
-    def _cell_photo(self, path, w, h, radius_pct, fit, opacity=100, apply_fx=False):
+    def _cell_photo(self, path, w, h, radius_pct, fit, opacity=100, apply_fx=False,
+                    auto_portrait_fit=False):
         """PhotoImage cho 1 ô — resize từ thumbnail RAM, không decode file."""
         src = self.ctrl.thumbs.request(path, self, self._thumb_ready)
         if src is None:
             return None
         try:
+            if auto_portrait_fit:
+                fit = G.photo_fit_mode(fit, src.width, src.height)
             fx = {}
             try:
                 fx = self.ctrl.fx_snapshot()
@@ -241,20 +274,10 @@ class EditorCanvas(tk.Canvas):
                 im = FX.cached_preview(path, src, fx, fit, radius_pct, box_ar)
                 if im is None:
                     return None
-                if fit == 'fill' and im.size != (w, h):
-                    im = im.resize((w, h))
-                elif fit != 'fill':
-                    sw, sh = im.size
-                    sc = min(w / sw, h / sh)
-                    im = im.resize((max(1, int(sw * sc)), max(1, int(sh * sc))))
+                im = G.resize_into_box(im, w, h, fit)
                 self._kick_minimap(path, fx)
             else:
-                if fit == 'fill':
-                    im = G.center_crop_to_ar(src, w / max(1, h)).resize((w, h))
-                else:
-                    sw, sh = src.size
-                    sc = min(w / sw, h / sh)
-                    im = src.resize((max(1, int(sw * sc)), max(1, int(sh * sc))))
+                im = G.resize_into_box(src, w, h, fit)
                 # Lúc kéo resize: chỉ ảnh cache, không bo góc / đóng dấu / map.
                 if radius_pct > 0 and not dragging:
                     im = im.convert('RGBA')
@@ -295,15 +318,17 @@ class EditorCanvas(tk.Canvas):
                 self._photos['avatar'].append(photo)
                 self.create_image(x0, y0, anchor='nw', image=photo, tags=tag)
                 return
-            self.create_rectangle(x0, y0, x0 + w, y0 + h, fill='#e9ecef',
-                                  outline='', tags=tag)
-            return
-        self.create_rectangle(x0, y0, x0 + w, y0 + h, fill='#f1f3f5',
-                              outline=col, width=2, tags=tag)
-        self.create_text(x0 + w / 2, y0 + h / 2, text='Avatar', fill=col,
-                         tags=tag)
+        # Thiếu file: khung trống (không mượn ảnh điểm khác, không chữ trên slide).
+        self.create_rectangle(x0, y0, x0 + w, y0 + h, fill='',
+                              outline=col, width=1, dash=(4, 3), tags=tag)
 
     def _draw_info(self, x0, y0, wpx, hpx, tag, col):
+        if (self._ct or {}).get('slide_style') == 'saleskit':
+            self._draw_info_saleskit(x0, y0, wpx, hpx, tag, col)
+            return
+        self._draw_info_report(x0, y0, wpx, hpx, tag, col)
+
+    def _draw_info_report(self, x0, y0, wpx, hpx, tag, col):
         """Khối Thông tin — mô phỏng đúng bảng 2 cột của file xuất."""
         ct = self._ct
         rows = ct.get('info_rows') or []
@@ -334,11 +359,124 @@ class EditorCanvas(tk.Canvas):
             a = int(255 * op / 100)
             lr, lg, lb = ST.hex_rgb(label_col)
             vr, vg, vb = ST.hex_rgb(accent_col if accent else body_col)
-            lf = ST.load_font(fname, lab_px, False, False, fpath, fidx)
-            vf = ST.load_font(fname, val_px, True, False, fpath, fidx)
+            lf = ST.load_font_for_text(fname, lab_px, False, False, fpath, fidx, label)
+            vf = ST.load_font_for_text(fname, val_px, True, False, fpath, fidx, str(value))
             draw.text((pad, ym), label, font=lf, fill=(lr, lg, lb, a), anchor='lm')
             draw.text((int(wpx) - pad, ym), str(value), font=vf,
                       fill=(vr, vg, vb, a), anchor='rm')
+        ph = ImageTk.PhotoImage(tmp)
+        self._photos['info'].append(ph)
+        self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)
+
+    def _draw_info_saleskit(self, x0, y0, wpx, hpx, tag, col):
+        ct = self._ct
+        table = ct.get('info_table') or {}
+        self.create_rectangle(x0, y0, x0 + wpx, y0 + hpx, outline=col,
+                              width=1, dash=(3, 2), tags=tag)
+        specs = list(table.get('specs') or [{'area': '', 'form': '', 'size': '',
+                                             'qty': '', 'note': ''}])
+        n_rows = 3 + max(1, len(specs))
+        L = self.ctrl.layout
+        fcfg = ct.get('font', {})
+        fname = L['info'].get('font') or fcfg.get('name', 'Arial') or 'Arial'
+        fpath = L['info'].get('font_path') or fcfg.get('path')
+        fidx = int(L['info'].get('font_index', 0) or fcfg.get('index', 0) or 0)
+        base_pt = float(L['info'].get('size', 11))
+        op = int(L['info'].get('opacity', 100) or 100)
+        a = int(255 * op / 100)
+        hdr_bg = ST.hex_rgb(L['info'].get('accent_color') or TABLE_HEADER_BG)
+        W, H = max(8, int(wpx)), max(8, int(hpx))
+        tmp = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(tmp)
+        rh = H / n_rows
+        # 5 cột: TRƯỜNG+ĐỊA CHỈ gộp 2-2, TRAFFIC; hàng dưới đều 5
+        cw = [W * x for x in (0.22, 0.18, 0.22, 0.16, 0.22)]
+        xs = [0]
+        for w in cw[:-1]:
+            xs.append(xs[-1] + w)
+
+        def font(px, bold, text=''):
+            return ST.load_font_for_text(
+                fname, max(7, int(px)), bold, False, fpath, fidx, text)
+
+        def fill_row(i, color):
+            y1, y2 = int(i * rh), int((i + 1) * rh)
+            draw.rectangle([0, y1, W - 1, y2], fill=(*color, a if color else 0))
+
+        def grid():
+            ln = ST.hex_rgb(TABLE_LINE)
+            for i in range(n_rows + 1):
+                y = 0 if i == 0 else (H - 1 if i == n_rows else int(i * rh))
+                draw.line([(0, y), (W - 1, y)], fill=(*ln, a), width=1)
+            draw.line([(0, 0), (0, H - 1)], fill=(*ln, a), width=1)
+            draw.line([(W - 1, 0), (W - 1, H - 1)], fill=(*ln, a), width=1)
+            for i in (0, 1):
+                x = int(xs[2] if i == 0 else xs[4])
+                y2 = int(2 * rh)
+                draw.line([(x, 0), (x, y2)], fill=(*ln, a), width=1)
+            for x in xs[1:]:
+                draw.line([(int(x), int(2 * rh)), (int(x), H - 1)],
+                          fill=(*ln, a), width=1)
+
+        def cell_text(x, y, w, h, text, px, bold, fill, align='left'):
+            if not str(text or '').strip():
+                return
+            f = font(px, bold, text)
+            pad = 4
+            max_w = max(8, int(w) - pad * 2)
+            lines = _wrap_line(draw, str(text), f, max_w)[:2]
+            tot = sum(f.size for _ in lines) if hasattr(f, 'size') else px * len(lines)
+            try:
+                bb = draw.textbbox((0, 0), 'Ag', font=f)
+                lh = bb[3] - bb[1] + 2
+            except Exception:
+                lh = int(px + 2)
+            tot = lh * len(lines)
+            ty = y + (h - tot) / 2
+            rgb = (*fill, a)
+            for line in lines:
+                if align == 'center':
+                    draw.text((x + w / 2, ty), line, font=f, fill=rgb, anchor='mt')
+                elif align == 'right':
+                    draw.text((x + w - pad, ty), line, font=f, fill=rgb, anchor='rt')
+                else:
+                    draw.text((x + pad, ty), line, font=f, fill=rgb, anchor='lt')
+                ty += lh
+
+        fill_row(0, hdr_bg)
+        fill_row(1, ST.hex_rgb(TABLE_DATA_BG))
+        fill_row(2, (255, 255, 255))
+        for i in range(len(specs)):
+            fill_row(3 + i, ST.hex_rgb(TABLE_DATA_BG) if i % 2 == 0 else (255, 255, 255))
+
+        hdr_fg = ST.hex_rgb(TABLE_HEADER_FG)
+        body = ST.hex_rgb(TABLE_TEXT)
+        sub = ST.hex_rgb(L['info'].get('accent_color') or TABLE_SUB_FG)
+        px = max(8, base_pt * self.S / 72)
+        # hàng 0: TRƯỜNG | ĐỊA CHỈ | TRAFFIC
+        cell_text(0, 0, xs[2], rh, 'TRƯỜNG', px, True, hdr_fg)
+        cell_text(xs[2], 0, xs[4] - xs[2], rh, 'ĐỊA CHỈ', px, True, hdr_fg)
+        cell_text(xs[4], 0, W - xs[4], rh, 'TRAFFIC', px, True, hdr_fg, 'center')
+        # hàng 1
+        cell_text(0, rh, xs[2], rh, table.get('school') or '', px, True, body)
+        cell_text(xs[2], rh, xs[4] - xs[2], rh, table.get('address') or '',
+                  px * 0.9, False, body)
+        cell_text(xs[4], rh, W - xs[4], rh, table.get('traffic') or '',
+                  px, True, body, 'center')
+        # hàng 2 subheader
+        labels = ('Khu vực', 'Hình thức', 'Kích thước', 'Số lượng', 'Note')
+        for i, lab in enumerate(labels):
+            x2 = xs[i + 1] if i < 4 else W
+            cell_text(xs[i], 2 * rh, x2 - xs[i], rh, lab, px * 0.85, True, sub,
+                      'center')
+        keys = ('area', 'form', 'size', 'qty', 'note')
+        aligns = ('left', 'center', 'center', 'center', 'left')
+        for si, spec in enumerate(specs):
+            for i, key in enumerate(keys):
+                x2 = xs[i + 1] if i < 4 else W
+                cell_text(xs[i], (3 + si) * rh, x2 - xs[i], rh,
+                          spec.get(key) or '', px * 0.9, False, body, aligns[i])
+        grid()
         ph = ImageTk.PhotoImage(tmp)
         self._photos['info'].append(ph)
         self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)

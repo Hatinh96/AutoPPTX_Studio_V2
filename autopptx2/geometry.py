@@ -7,9 +7,73 @@ file PPTX xuất ra y như vậy (WYSIWYG). Đơn vị mặc định là inch tr
 import math
 from functools import lru_cache
 
-from PIL import ImageFont
+from PIL import Image, ImageFont, ImageOps
 
 from .constants import SLIDE_W_IN
+
+EXIF_ORIENTATION = 0x0112
+
+
+def exif_orientation_value(im):
+    """Tag Orientation trên ảnh đã mở: 1 = đứng sẵn, 2–8 = cần xoay/lật."""
+    try:
+        v = im.getexif().get(EXIF_ORIENTATION, 1)
+        n = int(v or 1)
+        return 1 if n <= 1 else n
+    except Exception:
+        return 1
+
+
+def exif_orientation(path):
+    """Tag Orientation của file. Lỗi đọc → 1 (không xoay)."""
+    try:
+        with Image.open(path) as im:
+            return exif_orientation_value(im)
+    except Exception:
+        return 1
+
+
+def exif_upright(im):
+    """Áp EXIF Orientation đúng một lần. Ảnh đã đứng / không tag thì giữ nguyên.
+
+    Gỡ blob EXIF sau khi xoay để bước sau (convert, save, PowerPoint) không
+    xoay thêm 90°.
+    """
+    if im is None:
+        return im
+    if exif_orientation_value(im) == 1:
+        return im
+    try:
+        out = ImageOps.exif_transpose(im)
+        if out is not None:
+            im = out
+    except Exception:
+        pass
+    try:
+        im.info.pop('exif', None)
+    except Exception:
+        pass
+    try:
+        exif = im.getexif()
+        if exif and EXIF_ORIENTATION in exif:
+            del exif[EXIF_ORIENTATION]
+    except Exception:
+        pass
+    return im
+
+
+def open_upright(path):
+    """Mở ảnh với pixel đúng chiều đứng (cùng nguồn sự thật cho preview + export)."""
+    return exif_upright(Image.open(path))
+
+
+def image_size_upright(path):
+    """(w, h) sau EXIF — header only, không decode pixel."""
+    with Image.open(path) as im:
+        w, h = im.size
+        if exif_orientation_value(im) in (5, 6, 7, 8):
+            return h, w
+        return w, h
 
 
 # ════════════════════════════════════════════════════════════
@@ -83,6 +147,55 @@ def center_crop_to_ar(img, target_ar):
     nh = int(round(w / target_ar))
     y0 = (h - nh) // 2
     return img.crop((0, y0, w, y0 + nh))
+
+
+def is_portrait_size(w, h):
+    """Sau EXIF-upright: cao hơn rộng → ảnh dọc. Không xoay 90°."""
+    try:
+        return int(h) > int(w) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def photo_fit_mode(requested, w, h):
+    """Ảnh dọc luôn contain (giữ tỉ lệ gốc). Ảnh ngang theo chế độ user.
+
+    'fill' trên ảnh dọc từng crop thành 4:3 ngang — mất đỉnh/chân. Ảnh ngang
+    vẫn lấp đầy ô (V1). Chế độ 'fit'/'Vừa khung' giữ nguyên cho mọi ảnh.
+    """
+    if is_portrait_size(w, h):
+        return 'fit'
+    return requested or 'fill'
+
+
+def contain_dims(iw, ih, bw, bh):
+    """(w, h) vừa khít ô, giữ tỉ lệ ảnh, không crop / không méo."""
+    if iw <= 0 or ih <= 0 or bw <= 0 or bh <= 0:
+        return max(0.05, float(bw or 0.05)), max(0.05, float(bh or 0.05))
+    iar = iw / ih
+    box_ar = bw / bh
+    if box_ar > iar:
+        return bh * iar, bh
+    return bw, bw / iar
+
+
+def resize_into_box(img, tw, th, fit='fill'):
+    """Đưa ảnh vào (tw, th) px: fill = crop giữa; fit = contain không crop."""
+    tw, th = max(1, int(tw)), max(1, int(th))
+    if img is None:
+        return img
+    if (fit or 'fill') == 'fill':
+        im = center_crop_to_ar(img, tw / max(1, th))
+        if im.size != (tw, th):
+            return im.resize((tw, th), Image.Resampling.LANCZOS)
+        return im
+    sw, sh = img.size
+    if sw <= 0 or sh <= 0:
+        return img
+    sc = min(tw / sw, th / sh)
+    nw = max(1, int(round(sw * sc)))
+    nh = max(1, int(round(sh * sc)))
+    return img.resize((nw, nh), Image.Resampling.LANCZOS)
 
 
 # ════════════════════════════════════════════════════════════
