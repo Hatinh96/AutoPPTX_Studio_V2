@@ -10,7 +10,7 @@ python3 -m PyInstaller --noconfirm AutoPPTX_Studio_V2.spec
 
 if [ -d "dist/AutoPPTX_Studio_V2.app" ]; then
     echo "Compressing .app bundle to dist/AutoPPTX_Studio_V2-macOS.zip..."
-    ditto -c -k --sequesterRessources --keepParent "dist/AutoPPTX_Studio_V2.app" "dist/AutoPPTX_Studio_V2-macOS.zip"
+    ditto -c -k --sequesterRsrc --keepParent "dist/AutoPPTX_Studio_V2.app" "dist/AutoPPTX_Studio_V2-macOS.zip"
     echo "Build complete! Output: dist/AutoPPTX_Studio_V2-macOS.zip"
 else
     echo "Build complete! Output located in dist/"
