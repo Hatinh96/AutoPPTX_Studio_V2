@@ -221,8 +221,8 @@ class EditorCanvas(tk.Canvas):
     def _draw_image_grid(self, x, y, w, h, tag, col):
         ct = self._ct
         S = self.S
-        n = max(1, ct.get('n', 4))
-        paths = ct.get('images', [])[:n]
+        paths = G.slide_images(ct.get('images') or [], ct.get('n', 0))
+        n = max(1, len(paths))
         cells = G.grid_cells((x, y, w, h), n, ct.get('ar'), ct.get('gap', 0.1))
         self.create_rectangle(x * S, y * S, (x + w) * S, (y + h) * S,
                               outline=col, width=1, dash=(4, 3), tags=tag)
@@ -232,8 +232,9 @@ class EditorCanvas(tk.Canvas):
         for i, (bx, by, bw, bh) in enumerate(cells):
             px0, py0 = bx * S, by * S
             pw, ph_ = max(4, int(bw * S)), max(4, int(bh * S))
-            if i < len(paths):
-                photo = self._cell_photo(paths[i], pw, ph_, radius, fit, opacity,
+            path = paths[i] if i < len(paths) else None
+            if path:
+                photo = self._cell_photo(path, pw, ph_, radius, fit, opacity,
                                          apply_fx=True, auto_portrait_fit=True)
                 if photo is not None:
                     self._photos['image'].append(photo)
@@ -389,7 +390,7 @@ class EditorCanvas(tk.Canvas):
         tmp = Image.new('RGBA', (W, H), (0, 0, 0, 0))
         draw = ImageDraw.Draw(tmp)
         rh = H / n_rows
-        # 5 cột: TRƯỜNG+ĐỊA CHỈ gộp 2-2, TRAFFIC; hàng dưới đều 5
+        # 5 cột: ĐỊA ĐIỂM+ĐỊA CHỈ gộp 2-2, TRAFFIC; hàng dưới đều 5
         cw = [W * x for x in (0.22, 0.18, 0.22, 0.16, 0.22)]
         xs = [0]
         for w in cw[:-1]:
@@ -453,9 +454,9 @@ class EditorCanvas(tk.Canvas):
         body = ST.hex_rgb(TABLE_TEXT)
         sub = ST.hex_rgb(L['info'].get('accent_color') or TABLE_SUB_FG)
         px = max(8, base_pt * self.S / 72)
-        # hàng 0: TRƯỜNG | ĐỊA CHỈ | TRAFFIC
-        cell_text(0, 0, xs[2], rh, 'TRƯỜNG', px, True, hdr_fg)
-        cell_text(xs[2], 0, xs[4] - xs[2], rh, 'ĐỊA CHỈ', px, True, hdr_fg)
+        # hàng 0: ĐỊA ĐIỂM | ĐỊA CHỈ | TRAFFIC
+        cell_text(0, 0, xs[2], rh, 'ĐỊA ĐIỂM', px, True, hdr_fg, 'center')
+        cell_text(xs[2], 0, xs[4] - xs[2], rh, 'ĐỊA CHỈ', px, True, hdr_fg, 'center')
         cell_text(xs[4], 0, W - xs[4], rh, 'TRAFFIC', px, True, hdr_fg, 'center')
         # hàng 1
         cell_text(0, rh, xs[2], rh, table.get('school') or '', px, True, body)

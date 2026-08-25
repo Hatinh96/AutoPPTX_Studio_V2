@@ -66,7 +66,7 @@ class ExportReport:
 
 def estimate(groups, n_per_slide, overview_rows=0):
     """(số nhóm, số slide dự kiến, số file dự kiến)."""
-    n = max(1, n_per_slide)
+    n = G.per_slide_max(n_per_slide)
     slides = sum(math.ceil(len(v) / n) for v in groups.values())
     if overview_rows:
         slides += overview_page_count(overview_rows)
@@ -291,7 +291,7 @@ def _add_info_table(slide, info_rows, ninfo, font_cfg):
 
 
 def _add_saleskit_table(slide, info_table, ninfo, font_cfg):
-    """Khung bảng SALESKIT (5 cột, gộp ô TRƯỜNG/ĐỊA CHỈ/TRAFFIC)."""
+    """Khung bảng SALESKIT (5 cột, gộp ô ĐỊA ĐIỂM/ĐỊA CHỈ/TRAFFIC)."""
     from lxml import etree
     from pptx.oxml.ns import qn
     table = info_table or {}
@@ -355,8 +355,8 @@ def _add_saleskit_table(slide, info_table, ninfo, font_cfg):
         run.font.color.rgb = _hex_rgb(fg)
         _apply_run_alpha(run, op)
 
-    paint(0, 0, 'TRƯỜNG', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True)
-    paint(0, 2, 'ĐỊA CHỈ', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True)
+    paint(0, 0, 'ĐỊA ĐIỂM', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True, align='center')
+    paint(0, 2, 'ĐỊA CHỈ', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True, align='center')
     paint(0, 4, 'TRAFFIC', bg=hdr_bg, fg=TABLE_HEADER_FG, bold=True, align='center')
     paint(1, 0, table.get('school') or '', bg=TABLE_DATA_BG, fg=TABLE_TEXT, bold=True)
     paint(1, 2, table.get('address') or '', bg=TABLE_DATA_BG, fg=TABLE_TEXT,
@@ -858,7 +858,7 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
             if not avatar_path and shown('avatar'):
                 rep.missing_avatars.append(code)
 
-            n = max(1, job.n_per_slide)
+            n = G.per_slide_max(job.n_per_slide)
             batches = [paths[k:k + n] for k in range(0, len(paths), n)]
             K = len(batches)
             for k, batch in enumerate(batches, 1):

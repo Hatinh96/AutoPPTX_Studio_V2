@@ -48,8 +48,47 @@ class QuantityScreensTests(unittest.TestCase):
         }
         table = build_info_table(row, [row])
         qtys = [s['qty'] for s in table['specs']]
-        self.assertEqual(sorted(qtys), ['2', '6'])
+        self.assertEqual(qtys, ['8 (2 LCD, 6 DP)'])
+        self.assertEqual([s['size'] for s in table['specs']], ['32"'])
         self.assertNotIn('60', qtys)
+
+    def test_saleskit_groups_dp_family_and_keeps_gp_separate(self):
+        row = {
+            'Name': 'University A', 'Location': 'Khu A',
+            'Quantity': 27, 'LCD': 3, 'DP': 16,
+            'DPS': 6, 'DPF': 2, 'GP': 4, 'Size': '32"',
+        }
+        table = build_info_table(row, [row])
+        self.assertEqual(
+            [(spec['form'], spec['qty']) for spec in table['specs']],
+            [
+                ('LCD, DP, DPS, DPF', '27 (3 LCD, 16 DP, 6 DPS, 2 DPF)'),
+                ('GP', '4'),
+            ],
+        )
+        self.assertEqual([spec['size'] for spec in table['specs']], ['32"', ''])
+
+    def test_saleskit_uses_university_gp_placement_details(self):
+        row = {
+            'Name': 'University GP', 'Location': 'Khu B',
+            'Channel': 'University (DP.LCD)',
+            'DP': 4, 'LCD': 2, 'GP': 16,
+            'GP_Inside': 2, 'GP_Ground': 2,
+            'GP_Parking': 0, 'GP_Study': 12,
+            'Size': '32" CVĐ',
+        }
+        table = build_info_table(row, [row])
+        self.assertEqual(
+            [(spec['form'], spec['qty']) for spec in table['specs']],
+            [
+                ('LCD, DP', '6 (2 LCD, 4 DP)'),
+                ('GP', '16'),
+            ],
+        )
+        self.assertEqual(
+            [spec['size'] for spec in table['specs']],
+            ['32" CVĐ', ''],
+        )
 
     def test_saleskit_coffee_uses_quantity_column(self):
         row = {
@@ -58,6 +97,26 @@ class QuantityScreensTests(unittest.TestCase):
         }
         table = build_info_table(row, [row])
         self.assertEqual([s['qty'] for s in table['specs']], ['3'])
+
+    def test_saleskit_building_shows_gp_forms(self):
+        row = {
+            'Name': 'Building A', 'District': 'Thủ Đức',
+            'Channel': 'Building', 'Quantity': 3,
+            'GP_Inside': 3, 'GP_Ground': 8,
+            'GP_Facilities': 0, 'GP_Parking': 2,
+            'Size': '27" CVĐ',
+            'GP_Size': '120 x 180 cm',
+        }
+        table = build_info_table(row, [row])
+        self.assertEqual(
+            [(spec['form'], spec['qty']) for spec in table['specs']],
+            [('GP', '13')],
+        )
+        self.assertEqual(
+            [spec['size'] for spec in table['specs']],
+            ['120 x 180 cm'],
+        )
+        self.assertEqual(screen_qty(row), 13)
 
 
 if __name__ == '__main__':

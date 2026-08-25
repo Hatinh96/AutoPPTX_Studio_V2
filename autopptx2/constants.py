@@ -130,7 +130,7 @@ DEFAULT_LAYOUT = {
              'color': '#000000', 'path': '', 'index': 0},
 }
 
-# Mẫu BD / SALESKIT — tên trường + khung bảng; nền user tự up
+# Mẫu BD / SALESKIT — tên trường + khung bảng + avatar góc trái; nền user tự up
 SALESKIT_LAYOUT = {
     'title': {'x': 4.20, 'y': 0.18, 'w': 8.80, 'h': 0.48, 'size': 22,
               'align': 'right', 'max_lines': 2, 'min_size': 12, 'upper': True,
@@ -141,7 +141,8 @@ SALESKIT_LAYOUT = {
              'accent_color': '#1E6EE8', 'opacity': 100, 'font': 'Arial'},
     'image': {'x': 0.35, 'y': 0.78, 'w': 12.63, 'h': 4.12,
               'fit_mode': 'fill', 'gap': IMG_GAP_IN, 'radius': 0, 'opacity': 100},
-    'avatar': {'x': 0.95, 'y': 1.16, 'w': 2.70, 'ar': 4 / 3, 'radius': 0,
+    # Cùng cỡ Sales (2.70″ · 4:3); góc trên-trái, bên trái tiêu đề, không đè bảng
+    'avatar': {'x': 0.35, 'y': 0.14, 'w': 2.70, 'ar': 4 / 3, 'radius': 0,
                'opacity': 100},
     'channel': {'x': 10.16, 'y': 7.00, 'w': 4.27, 'h': 0.84, 'size': 10,
                 'align': 'left', 'max_lines': 2, 'min_size': 8, 'color': '',
@@ -169,7 +170,7 @@ def pack_for_dept(dept):
 def builtin_pack(name):
     """Gói bố cục có sẵn: layout + kiểu bảng + ẩn/hiện phần tử."""
     if name == 'SALESKIT':
-        vis = {n: n not in ('avatar', 'channel') for n in ELEMENT_NAMES}
+        vis = {n: n != 'channel' for n in ELEMENT_NAMES}
         return {
             'layout': SALESKIT_LAYOUT,
             'slide_style': 'saleskit',

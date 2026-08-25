@@ -68,16 +68,32 @@ autopptx2/
   app.py          # cửa sổ chính, sidebar 3 tab, timeline
 ```
 
-## Đóng gói exe
+## Đóng gói (Windows .exe & macOS .app)
 
-Dùng file `.spec` (đóng gói `LOGO`, `app_icon.ico`, `app_icon.icns`). Không dùng lệnh `--onefile` trần — logo/icon sẽ mất.
+### 1. Tự động build qua Git (GitHub Actions)
+Dự án đã được cấu hình CI/CD tự động trong `.github/workflows/build.yml`.
+- **Tự động build khi push code:** Mỗi khi push lên nhánh `master`/`main`, GitHub Actions sẽ tự động dựng file `AutoPPTX_Studio_V2.exe` (Windows) và `AutoPPTX_Studio_V2-macOS.zip` (macOS).
+- **Tải bản build:** Vào tab **Actions** trên GitHub repository để tải bản Artifacts mới nhất.
+- **Tự động tạo Release:** Push tag phiên bản (ví dụ: `git tag v1.0.0 && git push origin v1.0.0`) sẽ tự động tạo GitHub Release kèm file đính kèm cho cả Windows và macOS.
 
-```bash
-pip install pyinstaller
-pyinstaller --noconfirm AutoPPTX_Studio_V2.spec
-```
+### 2. Build thủ công trên máy cục bộ
+Dùng file `.spec` (đóng gói `LOGO`, `app_icon.ico`, `app_icon.icns`).
 
-Ra `dist/AutoPPTX_Studio_V2.exe` (Windows) hoặc `dist/AutoPPTX_Studio_V2.app` (macOS). Dock macOS lấy `app_icon.icns` vuông 1024px; Windows lấy `app_icon.ico`.
+- **Trên Windows:**
+  Chạy file `build_win.bat` hoặc lệnh:
+  ```cmd
+  build_win.bat
+  ```
+  File `.exe` sẽ được tạo tại `dist/AutoPPTX_Studio_V2.exe`.
+
+- **Trên macOS:**
+  Chạy file `build_mac.sh` hoặc lệnh:
+  ```bash
+  chmod +x build_mac.sh
+  ./build_mac.sh
+  ```
+  File `.app` và `.zip` sẽ được tạo tại `dist/AutoPPTX_Studio_V2-macOS.zip`.
+
 
 ## Ghi chú
 

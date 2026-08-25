@@ -47,7 +47,7 @@ def check(groups, by_code, merged=None):
                    has_excel=bool(by_code))
     if not by_code:
         rep.scope_note = (
-            'Chưa có list đang mở — bỏ qua đối chiếu. '
+            'Chưa có FILE TỔNG / MASTER đang mở — bỏ qua đối chiếu. '
             'Đồng bộ hoặc chọn Excel ở tab Nguồn.')
         return rep
 

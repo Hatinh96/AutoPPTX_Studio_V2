@@ -79,13 +79,62 @@ def image_size_upright(path):
 # ════════════════════════════════════════════════════════════
 #  Lưới ảnh
 # ════════════════════════════════════════════════════════════
+# 0 / "Tự" = căn ô theo số ảnh thật, tối đa 4 (trang sau nếu nhiều hơn)
+AUTO_PER_SLIDE = 0
+AUTO_PER_SLIDE_CAP = 4
+
+
+def per_slide_max(n_per_slide):
+    """Số ảnh tối đa một slide. Tự (0) → 4."""
+    if n_per_slide in (None, '', 'auto', 'Tự', 'tự', 'tu'):
+        return AUTO_PER_SLIDE_CAP
+    try:
+        n = int(n_per_slide)
+    except (TypeError, ValueError):
+        return AUTO_PER_SLIDE_CAP
+    if n <= 0:
+        return AUTO_PER_SLIDE_CAP
+    return max(1, min(9, n))
+
+
+def parse_n_per_slide(v, default=AUTO_PER_SLIDE):
+    """Config → int; Tự / auto / 0 = tự căn."""
+    if v in (None, '', 'auto', 'Tự', 'tự', 'tu'):
+        return AUTO_PER_SLIDE
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return default
+    return 0 if n <= 0 else max(1, min(9, n))
+
+
+def n_per_slide_label(n_per_slide):
+    n = parse_n_per_slide(n_per_slide)
+    return 'Tự' if n <= 0 else str(n)
+
+
+def slide_images(paths, n_per_slide):
+    """Ảnh trang đầu (preview): cắt theo tối đa, không pad ô trống."""
+    cap = per_slide_max(n_per_slide)
+    return [p for p in (paths or []) if p][:cap]
+
+
 def grid_dims(n):
-    """(cột, hàng) cho n ảnh/slide."""
+    """(cột, hàng) cho n ảnh thật trên slide — không chừa ô trống."""
+    try:
+        n = int(n or 1)
+    except (TypeError, ValueError):
+        n = 1
+    n = max(1, n)
     if n <= 1:
         return 1, 1
     if n == 2:
         return 2, 1
-    return 2, 2
+    if n <= 4:
+        return 2, 2
+    if n <= 6:
+        return 3, 2
+    return 3, 3
 
 
 def fit_cell(area_w, area_h, cols, rows, ar):

@@ -29,7 +29,8 @@ from . import geometry as G
 from .datasource import (ExcelSource, ImageLibrary, AvatarIndex, match_row,
                          build_merged_groups, build_info_rows, build_info_table,
                          channel_text, clean, build_overview, screen_qty,
-                         place_label, inspect_excel, build_photo_rename_plan)
+                         place_label, inspect_excel, build_photo_rename_plan,
+                         compare_list_with_master)
 from .thumbs import ThumbCache
 from .editor import EditorCanvas
 from . import exporter
@@ -167,13 +168,14 @@ class App(ctk.CTk):
                 style = 'report'
         self.opts = {
             'excel_path': o.get('excel_path', ''),
+            'compare_list_path': o.get('compare_list_path', ''),
             'image_folder': folders[0] if folders else '',
             'image_folders': folders,
             'scan_subfolders': bool(o.get('scan_subfolders', True)),
             'avatar_folder': o.get('avatar_folder', ''),
             'bg_mode': o.get('bg_mode', 'white'),          # white | image
             'bg_path': o.get('bg_path', ''),
-            'n_per_slide': int(o.get('n_per_slide', 4)),
+            'n_per_slide': G.parse_n_per_slide(o.get('n_per_slide', 0)),
             'ar_label': o.get('ar_label', '4:3'),
             'channel_filter': o.get('channel_filter', ALL_CHANNELS),
             'channel_enabled': bool(o.get('channel_enabled', True)),
@@ -195,6 +197,27 @@ class App(ctk.CTk):
         for rec in (self.opts.get('dept_state') or {}).values():
             if isinstance(rec, dict):
                 _use_arial_layout(rec.get('layout'))
+        # Pack BD cũ ẩn avatar. Bật một lần; không đụng bố cục Sales.
+        if not o.get('bd_show_avatar'):
+            self.opts['bd_show_avatar'] = True
+            bd_av = copy.deepcopy(pack_for_dept('bd')['layout']['avatar'])
+            if self.opts.get('dept') == 'bd':
+                self.opts['visible']['avatar'] = True
+                if not (o.get('visible') or {}).get('avatar', False):
+                    self.layout['avatar'] = _deep_merge(
+                        self.layout.get('avatar') or {}, bd_av)
+            bd_st = (self.opts.get('dept_state') or {}).get('bd')
+            if isinstance(bd_st, dict):
+                vis = bd_st.setdefault('visible', {})
+                was_on = bool(vis.get('avatar'))
+                vis['avatar'] = True
+                if not was_on and isinstance(bd_st.get('layout'), dict):
+                    bd_st['layout']['avatar'] = _deep_merge(
+                        bd_st['layout'].get('avatar') or {}, bd_av)
+        # Lưới cũ luôn vẽ đủ 2–4 ô (khung "Ảnh" trống). Chuyển mặc định sang Tự.
+        if not o.get('auto_grid_v1'):
+            self.opts['n_per_slide'] = 0
+            self.opts['auto_grid_v1'] = True
         if int(cfg.get('layout_version') or 0) == 2 and not o.get('dept') and not o.get('slide_style'):
             pack = pack_for_dept('sales')
             self.layout = copy.deepcopy(pack['layout'])
@@ -972,7 +995,7 @@ class App(ctk.CTk):
         head = ctk.CTkFrame(sc, fg_color='transparent')
         head.pack(fill='x', padx=10, pady=(8, 0))
         ctk.CTkLabel(
-            head, text='Làm lần lượt 1 → 2 → 3 rồi Xuất.',
+            head, text='Làm 1 → 2 → 3 để xuất; Bước 4 chỉ dùng khi cần so sánh.',
             text_color=MUTED, font=ctk.CTkFont(size=11),
             wraplength=300, justify='left', anchor='w'
         ).pack(side='left', fill='x', expand=True)
@@ -984,6 +1007,7 @@ class App(ctk.CTk):
         self._build_step_sync(sc)
         self._build_step_list(sc)
         self._build_step_photos(sc)
+        self._build_step_compare_list(sc)
         self._build_step_export_hint(sc)
         av = self._collapsible(sc, 'avatar', 'Avatar (bấm nếu cần đổi thư mục)')
         self._build_extra_avatar(av)
@@ -997,12 +1021,15 @@ class App(ctk.CTk):
     def _show_nguon_guide(self):
         messagebox.showinfo(
             'Thứ tự thao tác',
-            '1. Đồng bộ — Đám mây: bấm Đồng bộ để lấy list + avatar công ty.\n'
+            '1. FILE TỔNG / MASTER — Đám mây: bấm Đồng bộ để lấy file tổng + avatar công ty.\n'
             '   Máy này: bỏ qua bước này nếu đã có file.\n\n'
-            '2. Up list Excel — file chuẩn cột Code_RP. App đối chiếu mã trên '
-            'tên ảnh với list.\n\n'
+            '2. FILE TỔNG / MASTER — chọn file chuẩn có cột Code_RP; có thể chỉ dùng '
+            'trên máy hoặc đẩy lên Cloud.\n\n'
             '3. Thư mục ảnh — chọn folder ảnh báo cáo (kéo-thả được).\n\n'
-            '4. Xuất — nút Xuất PPTX trên thanh trên (cạnh tài khoản). Tùy chọn checklist: nút ⚙.\n\n'
+            '4. FILE SO SÁNH CODE — chỉ đọc Code_RP để đối chiếu với FILE TỔNG / MASTER; '
+            'không thay Master và không dùng để chạy PPTX. Nếu đã chọn thư mục ảnh, '
+            'phần mềm kiểm tra thêm ảnh thiếu theo kênh.\n\n'
+            '5. Xuất — nút Xuất PPTX trên thanh trên (cạnh tài khoản). Tùy chọn checklist: nút ⚙.\n\n'
             'GPS / Map: tab GPS bên trái, hoặc chip trên thanh canvas.\n'
             'Ngày giờ: tab Dấu.\n'
             'Nền slide / mẫu Cloud: tab Mẫu — tải lên và bấm ảnh để chọn.\n\n'
@@ -1016,8 +1043,8 @@ class App(ctk.CTk):
 
     def _build_step_sync(self, tab):
         f = self._step_card(
-            tab, 1, 'Đồng bộ',
-            'Đám mây: bấm Đồng bộ để lấy list + avatar công ty. Máy này: bỏ qua, sang bước 2.')
+            tab, 1, 'FILE TỔNG / MASTER — Đồng bộ',
+            'Đám mây: tải file tổng chuẩn + avatar công ty. Máy này: bỏ qua, sang bước 2.')
         self.seg_mode = self._seg_btn(
             f, ['Đám mây công ty', 'Máy này'], 'Đám mây công ty',
             command=self._on_app_mode,
@@ -1030,13 +1057,13 @@ class App(ctk.CTk):
                      font=ctk.CTkFont(size=11), justify='left',
                      anchor='w').pack(fill='x', padx=10, pady=(0, 6))
         self.btn_sync_cloud = ctk.CTkButton(
-            f, text='Đồng bộ Excel + Avatar', height=40,
+            f, text='Tải FILE TỔNG + Avatar từ Cloud', height=40,
             font=ctk.CTkFont(size=13, weight='bold'),
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             command=lambda: self._sync_all_cloud(silent=False))
         self.btn_sync_cloud.pack(fill='x', padx=10, pady=(0, 6))
         self.lbl_excel_sync = ctk.CTkLabel(
-            f, text='List: ' + self.cloud.excel_status_text(),
+            f, text='File tổng: ' + self.cloud.excel_status_text(),
             text_color=MUTED, font=ctk.CTkFont(size=11),
             anchor='w', wraplength=270)
         self.lbl_excel_sync.pack(fill='x', padx=10)
@@ -1075,11 +1102,11 @@ class App(ctk.CTk):
 
     def _build_step_list(self, tab):
         f = self._step_card(
-            tab, 2, 'Up list Excel',
-            'File chuẩn cột Code_RP. List đang mở (đồng bộ Cloud hoặc file máy) '
-            'là list dùng để so sánh mã ảnh — không cần chọn Excel lần nữa.')
+            tab, 2, 'FILE TỔNG / MASTER',
+            'File dữ liệu chuẩn có cột Code_RP. Đây là nguồn chính để tạo slide '
+            'và đối chiếu ảnh; không phải FILE LIST SO SÁNH.')
         self.btn_up_list = ctk.CTkButton(
-            f, text='Up list Excel…', height=40,
+            f, text='Chọn / Up FILE TỔNG (MASTER)…', height=40,
             font=ctk.CTkFont(size=13, weight='bold'),
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             command=self.up_sales_list)
@@ -1095,10 +1122,10 @@ class App(ctk.CTk):
         self.om_channel.pack(side='left', padx=6)
         loc = self._collapsible(
             f, 'local_excel',
-            'Dùng file sẵn trên máy — không đẩy Cloud (bấm)',
+            'Chỉ dùng FILE TỔNG trên máy — không đẩy Cloud (bấm)',
             padx=10, pady=(0, 8))
         self.btn_excel = ctk.CTkButton(
-            loc, text='Chọn file trên máy…', height=30,
+            loc, text='Chọn FILE TỔNG trên máy…', height=30,
             fg_color=CARD, hover_color=BORDER, text_color=TEXT,
             command=self.select_excel)
         self.btn_excel.pack(fill='x', padx=10, pady=(8, 10))
@@ -1106,8 +1133,8 @@ class App(ctk.CTk):
     def _build_step_photos(self, tab):
         f = self._step_card(
             tab, 3, 'Thư mục ảnh',
-            'Tên file trùng Code_RP trên list đang mở (đã đồng bộ / đã chọn ở Nguồn). '
-            'Lệch mã thì bấm Sửa mã ảnh — không cần chọn Excel khác.')
+            'Tên ảnh trùng Code_RP trên FILE TỔNG / MASTER đang mở. '
+            'Lệch mã thì bấm Sửa mã ảnh; FILE SO SÁNH CODE nằm ở Bước 4 riêng.')
         row = ctk.CTkFrame(f, fg_color='transparent')
         row.pack(fill='x', padx=10, pady=2)
         ctk.CTkButton(row, text='Thêm thư mục ảnh…', height=40, fg_color=ACCENT,
@@ -1129,10 +1156,10 @@ class App(ctk.CTk):
         self._refresh_folder_list()
         cov = self._collapsible(
             f, 'coverage',
-            'So sánh với list đang mở — thiếu ảnh, lệch mã, đổi tên file',
+            'ẢNH ↔ FILE TỔNG / MASTER — thiếu ảnh, lệch mã, đổi tên file',
             padx=10, pady=(0, 8))
         ctk.CTkButton(
-            cov, text='So sánh với list đang mở…', height=32,
+            cov, text='So sánh ẢNH với FILE TỔNG…', height=32,
             fg_color=CARD, hover_color=BORDER, text_color=TEXT,
             command=self._show_coverage
         ).pack(fill='x', padx=10, pady=(8, 4))
@@ -1147,10 +1174,26 @@ class App(ctk.CTk):
             wraplength=260, justify='left', anchor='w')
         self.lbl_compare_list.pack(fill='x', padx=10, pady=(0, 10))
 
+    def _build_step_compare_list(self, tab):
+        f = self._step_card(
+            tab, 4, 'FILE SO SÁNH CODE',
+            'Chỉ đọc Code_RP để đối chiếu với FILE TỔNG / MASTER. File này '
+            'không thay Master và không được dùng để chạy PPTX.')
+        ctk.CTkButton(
+            f, text='Chọn FILE SO SÁNH CODE…', height=40,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=self._choose_list_for_master_compare
+        ).pack(fill='x', padx=10, pady=(0, 4))
+        self.lbl_list_master_compare = ctk.CTkLabel(
+            f, text=self._list_master_compare_caption(),
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+            wraplength=260, justify='left', anchor='w')
+        self.lbl_list_master_compare.pack(fill='x', padx=10, pady=(0, 10))
+
     def _build_step_export_hint(self, tab):
         f = self._step_card(
-            tab, 4, 'Xuất PPTX',
-            'Khi đã có list + ảnh, bấm Xuất PPTX trên thanh trên.')
+            tab, 5, 'Xuất PPTX',
+            'PPTX luôn chạy từ FILE TỔNG / MASTER ở Bước 2 và thư mục ảnh ở Bước 3.')
         ctk.CTkButton(
             f, text='Xuất PPTX', height=36,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -1326,10 +1369,16 @@ class App(ctk.CTk):
         row.pack(fill='x', padx=10, pady=2)
         ctk.CTkLabel(row, text='Ảnh/slide:', text_color=MUTED).pack(side='left')
         self.seg_n = self._seg_btn(
-            row, ['1', '2', '3', '4'], str(self.opts['n_per_slide']),
-            command=self._on_n, width=150,
+            row, ['Tự', '1', '2', '3', '4'],
+            G.n_per_slide_label(self.opts['n_per_slide']),
+            command=self._on_n, width=190,
             selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
         self.seg_n.pack(side='left', padx=8)
+        ctk.CTkLabel(
+            f, text='Tự: số ô = số ảnh (tối đa 4). 1 ảnh lấp cả vùng, không để khung trống.',
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=240, justify='left', anchor='w'
+        ).pack(fill='x', padx=10, pady=(0, 2))
         row = ctk.CTkFrame(f, fg_color='transparent')
         row.pack(fill='x', padx=10, pady=2)
         ctk.CTkLabel(row, text='Tỉ lệ ô:', text_color=MUTED).pack(side='left')
@@ -1808,9 +1857,10 @@ class App(ctk.CTk):
         elif self._by_code:
             row = next(iter(self._by_code.values()))
         name_val = str(clean(row.get('Name'))).strip() if row else ''
-        name_val = name_val or code or 'TÊN TRƯỜNG'
+        name_val = name_val or code or 'TÊN ĐỊA ĐIỂM'
         n = self.opts['n_per_slide']
-        K = max(1, math.ceil(len(paths) / max(1, n))) if paths else 1
+        cap = G.per_slide_max(n)
+        K = max(1, math.ceil(len(paths) / cap)) if paths else 1
         avatar = self._resolve_avatar(code, row=row, mcode=mcode, kind=kind)
         code_key = str((row or {}).get('Code_RP') or code or '').upper()
         sibs = self.excel.rows_of(code_key) if code_key else []
@@ -2600,7 +2650,7 @@ class App(ctk.CTk):
         self._schedule_save()
 
     def _on_n(self, v):
-        self.opts['n_per_slide'] = int(v)
+        self.opts['n_per_slide'] = G.parse_n_per_slide(v)
         self._invalidate()
         self._update_estimate()
 
@@ -2844,9 +2894,9 @@ class App(ctk.CTk):
             self._load_excel_async(p)
 
     def up_sales_list(self):
-        """Up list chuẩn: kiểm tra Code_RP → dùng máy / đẩy Cloud."""
+        """Chọn file tổng/Master: kiểm tra Code_RP → dùng máy / đẩy Cloud."""
         p = filedialog.askopenfilename(
-            title='Up list Excel chuẩn (cột Code_RP)',
+            title='Chọn FILE TỔNG / MASTER chuẩn (cột Code_RP)',
             filetypes=[('Excel', '*.xlsx *.xlsm')])
         if not p:
             return
@@ -2870,13 +2920,13 @@ class App(ctk.CTk):
             pass
         if not info.get('ok'):
             messagebox.showerror(
-                'Up list',
-                'Không nhận được list chuẩn.\n\n'
+                'FILE TỔNG / MASTER',
+                'Không nhận được file tổng chuẩn.\n\n'
                 f"{info.get('error') or ''}\n\n"
                 'Cần cột Code_RP (hoặc Code / Mã báo cáo) ở sheet đầu.')
             return
         win = ctk.CTkToplevel(self)
-        win.title('Up list Excel')
+        win.title('FILE TỔNG / MASTER')
         win.geometry('520x460')
         win.attributes('-topmost', True)
         ctk.CTkLabel(
@@ -2906,8 +2956,8 @@ class App(ctk.CTk):
             ).pack(fill='x', padx=16, pady=(4, 8))
         tb = ctk.CTkTextbox(win, height=90, font=ctk.CTkFont(size=12))
         tb.pack(fill='x', padx=16, pady=(0, 8))
-        tb.insert('1.0', 'List chuẩn. Ảnh tên file trùng Code_RP sẽ gắn đúng điểm.\n'
-                  'Up lên Cloud thì máy khác đồng bộ được cùng list.')
+        tb.insert('1.0', 'Đây là FILE TỔNG / MASTER dùng để tạo slide và gắn ảnh theo Code_RP.\n'
+                  'Đẩy lên Cloud thì máy khác đồng bộ được cùng file tổng.')
         tb.configure(state='disabled')
 
         def use_local():
@@ -2932,8 +2982,8 @@ class App(ctk.CTk):
                 messagebox.showwarning('Cloud', 'Chỉ quản trị mới đẩy list cho mọi tài khoản.')
                 return
             if not messagebox.askyesno(
-                    'Up list',
-                    f'Đẩy «{os.path.basename(path)}» ({n} điểm) cho TẤT CẢ tài khoản?'):
+                    'FILE TỔNG / MASTER',
+                    f'Đẩy FILE TỔNG «{os.path.basename(path)}» ({n} điểm) cho TẤT CẢ tài khoản?'):
                 return
             try:
                 win.destroy()
@@ -2982,6 +3032,11 @@ class App(ctk.CTk):
             text=f'{os.path.basename(path)} — {len(self.excel.rows)} dòng, '
                  f'{len(chans) - 1} kênh')
         self.log(f'Đã đọc {len(self.excel.rows)} dòng Excel.')
+        try:
+            self.lbl_list_master_compare.configure(
+                text=self._list_master_compare_caption())
+        except Exception:
+            pass
         self._invalidate()
         self._update_coverage_label()
         self._update_estimate()
@@ -3531,26 +3586,26 @@ class App(ctk.CTk):
         n = len(self._excel_code_list())
         name = self._current_list_name()
         if not self._list_is_loaded() or not n:
-            return 'Chưa có list đang mở — đồng bộ hoặc chọn Excel ở tab Nguồn.'
+            return 'Chưa có FILE TỔNG / MASTER — đồng bộ hoặc chọn ở tab Nguồn.'
         if name:
-            return f'So sánh với list đang mở: {name}  ·  {n} mã Code_RP'
-        return f'So sánh với list đang mở  ·  {n} mã Code_RP'
+            return f'FILE TỔNG / MASTER đang dùng: {name}  ·  {n} mã Code_RP'
+        return f'FILE TỔNG / MASTER đang dùng  ·  {n} mã Code_RP'
 
-    def _need_loaded_list(self, title='So sánh với list đang mở'):
-        """True nếu đã có list trong bộ nhớ. Không mở hộp thoại chọn Excel khác."""
+    def _need_loaded_list(self, title='So sánh ảnh với FILE TỔNG / MASTER'):
+        """True nếu đã có file tổng trong bộ nhớ. Không mở hộp thoại chọn file khác."""
         if self._list_is_loaded() and self._excel_code_list():
             return True
         messagebox.showinfo(
             title,
-            'Chưa có list đang mở để so sánh với ảnh.\n\n'
+            'Chưa có FILE TỔNG / MASTER để so sánh với ảnh.\n\n'
             'Vào tab Nguồn:\n'
-            '• Đám mây: bấm Đồng bộ Excel + Avatar\n'
-            '• Máy này: Up list Excel hoặc Chọn file trên máy\n\n'
-            'App dùng đúng list đó — không cần chọn file Excel khác.')
+            '• Đám mây: bấm Tải FILE TỔNG + Avatar từ Cloud\n'
+            '• Máy này: Chọn / Up FILE TỔNG (MASTER)\n\n'
+            'Đây là file tổng chính, không phải FILE LIST SO SÁNH.')
         return False
 
     def _suggest_from_list(self, img_code, codes=None):
-        """Gợi ý Code_RP gần đúng trên list đang mở (không đổi tên)."""
+        """Gợi ý Code_RP gần đúng trên file tổng đang mở (không đổi tên)."""
         import difflib
         codes = list(codes if codes is not None else self._excel_code_list())
         up_map = {c.upper(): c for c in codes}
@@ -3602,14 +3657,14 @@ class App(ctk.CTk):
     def _show_coverage(self):
         groups = self.imglib.groups()
         if not groups:
-            messagebox.showinfo('So sánh với list đang mở', 'Chưa chọn thư mục ảnh.')
+            messagebox.showinfo('So sánh ảnh với FILE TỔNG', 'Chưa chọn thư mục ảnh.')
             return
-        if not self._need_loaded_list('So sánh với list đang mở'):
+        if not self._need_loaded_list('So sánh ảnh với FILE TỔNG'):
             return
         cov = self._coverage()
         ov = build_overview(groups, self._by_code, self._merged)
         win = ctk.CTkToplevel(self)
-        win.title('So sánh với list đang mở')
+        win.title('So sánh ẢNH với FILE TỔNG / MASTER')
         win.geometry('720x520')
         win.attributes('-topmost', True)
         tb = ctk.CTkTextbox(win, font=ctk.CTkFont(family='Consolas', size=12))
@@ -3646,11 +3701,11 @@ class App(ctk.CTk):
             lines += [f'   {c}' for c in ov['excel_no_photo'][:40]]
         if cov['fuzzy']:
             lines.append('')
-            lines.append('— Khớp gần đúng với list đang mở (kiểm tra tên file):')
+            lines.append('— Khớp gần đúng với FILE TỔNG / MASTER (kiểm tra tên ảnh):')
             lines += [f'   {a}  ≈  {b}' for a, b in cov['fuzzy']]
         if cov['none']:
             lines.append('')
-            lines.append('— Tên file không khớp mã trên list đang mở:')
+            lines.append('— Tên ảnh không khớp mã trên FILE TỔNG / MASTER:')
             lines += [f'   {c}' for c, _ in cov['none'][:40]]
             if len(cov['none']) > 40:
                 lines.append(f'   … còn {len(cov["none"]) - 40} nhóm')
@@ -3674,9 +3729,202 @@ class App(ctk.CTk):
                 command=lambda: (win.destroy(), self._show_fix_codes_dialog())
             ).pack(side='right', padx=(0, 8))
 
+    def _list_master_compare_caption(self):
+        path = str((self.opts or {}).get('compare_list_path') or '').strip()
+        master = self._current_list_name()
+        if path and os.path.isfile(path):
+            return (f'FILE SO SÁNH CODE: {os.path.basename(path)}\n'
+                    f'FILE MASTER CHẠY PPTX: {master or "chưa mở"}\n'
+                    'Hai file độc lập; file so sánh không ghi đè Master.')
+        return (f'FILE MASTER CHẠY PPTX: {master or "chưa mở"}.\n'
+                'Chọn một file khác có cột Code_RP để đối chiếu; '
+                'file này không thay đổi Master.')
+
+    def _choose_list_for_master_compare(self):
+        if not getattr(self.excel, 'rows', None):
+            messagebox.showinfo(
+                'FILE SO SÁNH CODE',
+                'Chưa có FILE TỔNG / MASTER đang mở.\n\n'
+                'Vào Bước 1 để đồng bộ Cloud hoặc Bước 2 để chọn FILE TỔNG.')
+            return
+        folders = list(getattr(self.imglib, 'folders', None) or [])
+        path = filedialog.askopenfilename(
+            title='Chọn FILE SO SÁNH CODE với FILE TỔNG / MASTER',
+            filetypes=[('Excel', '*.xlsx *.xlsm')])
+        if not path:
+            return
+
+        busy = ctk.CTkToplevel(self)
+        busy.title('Đang đối chiếu…')
+        busy.geometry('360x120')
+        busy.attributes('-topmost', True)
+        busy_text = ('Đang đọc FILE SO SÁNH CODE và kiểm tra thư mục ảnh…'
+                     if folders else
+                     'Đang đọc FILE SO SÁNH CODE và đối chiếu Code_RP…')
+        ctk.CTkLabel(
+            busy, text=busy_text,
+            font=ctk.CTkFont(size=13, weight='bold'),
+            wraplength=320).pack(padx=18, pady=34)
+
+        master_by_code = self.excel.by_code(None)
+        merged = build_merged_groups(master_by_code)
+        recursive = bool(getattr(self.imglib, 'recursive', True))
+        master_name = self._current_list_name()
+
+        def work():
+            src = ExcelSource()
+            if not src.load_compare_list(path):
+                self.after(0, lambda: self._after_list_master_compare(
+                    busy, path, master_name, None,
+                    src.error or 'Không đọc được FILE SO SÁNH CODE.'))
+                return
+            groups = {}
+            if folders:
+                library = ImageLibrary()
+                library.set_folders(folders, recursive=recursive)
+                groups = library.groups()
+            report = compare_list_with_master(
+                src.rows, master_by_code, groups, merged,
+                check_images=bool(folders))
+            self.after(0, lambda: self._after_list_master_compare(
+                busy, path, master_name, report, ''))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _after_list_master_compare(self, busy, path, master_name, report, error):
+        try:
+            busy.destroy()
+        except Exception:
+            pass
+        if error:
+            messagebox.showerror(
+                'FILE SO SÁNH CODE',
+                f'Không đọc được FILE SO SÁNH CODE:\n{error}\n\n'
+                'File cần có cột Code_RP (hoặc Code / Mã báo cáo).')
+            return
+        self.opts['compare_list_path'] = path
+        self._schedule_save()
+        try:
+            self.lbl_list_master_compare.configure(
+                text=self._list_master_compare_caption())
+        except Exception:
+            pass
+        self._show_list_master_compare_report(path, master_name, report or {})
+
+    def _show_list_master_compare_report(self, list_path, master_name, report):
+        win = ctk.CTkToplevel(self)
+        images_checked = bool(report.get('images_checked'))
+        win.title('So sánh CODE với FILE MASTER')
+        win.geometry('920x650')
+        win.attributes('-topmost', True)
+        tb = ctk.CTkTextbox(win, font=ctk.CTkFont(family='Consolas', size=12))
+        tb.pack(fill='both', expand=True, padx=10, pady=(10, 4))
+        lines = [
+            'ĐỐI CHIẾU FILE SO SÁNH CODE VỚI FILE TỔNG / MASTER',
+            f'FILE SO SÁNH CODE : {os.path.basename(list_path)}',
+            f'FILE TỔNG / MASTER: {master_name or "—"}',
+            '',
+            f'Tổng mã cần kiểm tra : {report.get("n_list", 0)}',
+            f'Khớp file tổng       : {report.get("n_master_matches", 0)}',
+            f'Không có trong tổng  : {report.get("n_not_in_master", 0)}',
+        ]
+        if images_checked:
+            lines += [
+                f'Điểm đủ ảnh          : {report.get("n_ok_sites", 0)}',
+                f'Điểm thiếu ảnh       : {report.get("n_missing_sites", 0)}',
+                f'Tổng ảnh yêu cầu     : {report.get("n_required", 0)}',
+                f'Tổng ảnh đã có       : {report.get("n_photos", 0)}',
+                f'Tổng ảnh còn thiếu   : {report.get("n_missing_images", 0)}',
+                '',
+                'TỔNG HỢP THEO KÊNH',
+                '-' * 92,
+                f'{"Kênh":<30} {"Điểm":>6} {"Đủ":>6} {"Thiếu":>7} '
+                f'{"Ngoài tổng":>11} {"Ảnh thiếu":>10}',
+                '-' * 92,
+            ]
+        else:
+            lines += [
+                '',
+                'Lưu ý: Chưa chọn thư mục ảnh — báo cáo này chỉ so sánh Code_RP.',
+                'Muốn kiểm tra ảnh thiếu, chọn thư mục ảnh ở Bước 3 rồi chạy lại Bước 4.',
+                '',
+                'TỔNG HỢP THEO KÊNH',
+                '-' * 76,
+                f'{"Kênh":<38} {"Mã list":>9} {"Khớp Master":>12} {"Ngoài Master":>13}',
+                '-' * 76,
+            ]
+        for item in report.get('channels') or []:
+            if images_checked:
+                channel = str(item.get('channel') or '')[:30]
+                lines.append(
+                    f'{channel:<30} {item.get("sites", 0):>6} '
+                    f'{item.get("ok_sites", 0):>6} {item.get("missing_sites", 0):>7} '
+                    f'{item.get("not_in_master", 0):>11} {item.get("missing", 0):>10}')
+            else:
+                channel = str(item.get('channel') or '')[:38]
+                sites = item.get('sites', 0)
+                outside = item.get('not_in_master', 0)
+                lines.append(
+                    f'{channel:<38} {sites:>9} {sites - outside:>12} {outside:>13}')
+
+        if images_checked:
+            detail = [r for r in (report.get('rows') or [])
+                      if r.get('status') != 'ok']
+        else:
+            detail = [r for r in (report.get('rows') or [])
+                      if r.get('status') == 'not_in_master']
+        if detail:
+            lines += ['', 'CHI TIẾT CẦN XỬ LÝ']
+            current_channel = None
+            for item in detail:
+                channel = item.get('channel') or 'Không xác định'
+                if channel != current_channel:
+                    current_channel = channel
+                    lines += [
+                        '', f'[{channel}]',
+                        f'{"Mã Code_RP":<20} {"Cần":>5} {"Có":>5} '
+                        f'{"Thiếu":>6}  Kết luận / Địa điểm',
+                        '-' * 92,
+                    ]
+                if item.get('status') == 'not_in_master':
+                    conclusion = 'KHÔNG CÓ TRONG FILE TỔNG'
+                else:
+                    conclusion = 'THIẾU ẢNH'
+                place = item.get('name') or item.get('district') or ''
+                if place:
+                    conclusion += ' · ' + str(place)
+                lines.append(
+                    f'{str(item.get("code") or "")[:20]:<20} '
+                    f'{item.get("required", 0):>5} {item.get("photos", 0):>5} '
+                    f'{item.get("missing", 0):>6}  {conclusion}')
+        elif images_checked:
+            lines += ['', '✓ Tất cả mã trong FILE SO SÁNH đã đủ ảnh.']
+        else:
+            lines += ['', '✓ Tất cả mã trong FILE SO SÁNH đều có trong FILE MASTER.']
+
+        report_text = '\n'.join(lines)
+        tb.insert('1.0', report_text)
+        tb.configure(state='disabled')
+        bar = ctk.CTkFrame(win, fg_color='transparent')
+        bar.pack(fill='x', padx=10, pady=(0, 12))
+
+        def copy_report():
+            self.clipboard_clear()
+            self.clipboard_append(report_text)
+            messagebox.showinfo('FILE SO SÁNH CODE', 'Đã sao chép báo cáo.')
+
+        ctk.CTkButton(
+            bar, text='Sao chép báo cáo', height=32,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=copy_report).pack(side='right', padx=(8, 0))
+        ctk.CTkButton(
+            bar, text='Đóng', width=90, height=32,
+            fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
+            command=win.destroy).pack(side='right')
+
     # ════════════════════════ SỬA MÃ ẢNH / ĐỔI TÊN FILE ════════════════════════
     def _excel_code_list(self):
-        """Code_RP trên list đang mở (Excel đã nạp / đã đồng bộ)."""
+        """Code_RP trên FILE TỔNG / MASTER đang mở."""
         out, seen = [], set()
 
         def add(s):
@@ -3713,10 +3961,10 @@ class App(ctk.CTk):
         return os.path.basename(path)
 
     def _pick_excel_code(self, img_code, codes):
-        """Chọn Code_RP trên list đang mở: gợi ý gần giống lên đầu + ô tìm."""
+        """Chọn Code_RP trên FILE TỔNG / MASTER: gợi ý gần giống lên đầu."""
         import difflib
         win = ctk.CTkToplevel(self)
-        win.title('Chọn mã trên list đang mở')
+        win.title('Chọn mã trên FILE TỔNG / MASTER')
         win.geometry('460x520')
         win.attributes('-topmost', True)
         try:
@@ -3728,19 +3976,19 @@ class App(ctk.CTk):
         up_map = {c.upper(): c for c in codes}
         sugg = [up_map[s] for s in difflib.get_close_matches(
             str(img_code).upper(), list(up_map.keys()), n=8, cutoff=0.3)]
-        list_name = self._current_list_name() or 'list đang mở'
+        list_name = self._current_list_name() or 'FILE TỔNG / MASTER'
 
         ctk.CTkLabel(
             win, text=f'Ảnh: {img_code}',
             font=ctk.CTkFont(size=13, weight='bold'), text_color=TEXT
         ).pack(anchor='w', padx=14, pady=(12, 2))
         ctk.CTkLabel(
-            win, text=f'Chọn Code_RP trên list đang mở: {list_name}',
+            win, text=f'Chọn Code_RP trên FILE TỔNG / MASTER: {list_name}',
             text_color=MUTED, font=ctk.CTkFont(size=11),
             wraplength=420, justify='left', anchor='w'
         ).pack(anchor='w', padx=14, pady=(0, 4))
         ent = ctk.CTkEntry(
-            win, placeholder_text='Gõ để tìm mã trên list đang mở…', height=32)
+            win, placeholder_text='Gõ để tìm mã trên FILE TỔNG / MASTER…', height=32)
         ent.pack(fill='x', padx=14, pady=(4, 6))
         lst = ctk.CTkScrollableFrame(win, fg_color=INPUT, corner_radius=8)
         lst.pack(fill='both', expand=True, padx=14, pady=(0, 4))
@@ -3786,7 +4034,7 @@ class App(ctk.CTk):
                 ).pack(fill='x', padx=6, pady=1)
             info.configure(
                 text=(f'Hiện {maxn}/{len(pool)} mã — gõ thêm để lọc bớt'
-                      if len(pool) > maxn else f'{len(pool)} mã trên list đang mở'))
+                      if len(pool) > maxn else f'{len(pool)} mã trên FILE TỔNG / MASTER'))
 
         ent.bind('<KeyRelease>', render)
         render()
@@ -3799,7 +4047,7 @@ class App(ctk.CTk):
         return result['code']
 
     def _show_fix_codes_dialog(self):
-        """Liệt kê ảnh lệch mã / khớp gần đúng trên list đang mở, xác nhận rồi đổi tên."""
+        """Liệt kê ảnh lệch mã / khớp gần đúng trên FILE TỔNG, xác nhận rồi đổi tên."""
         groups = self.imglib.groups()
         if not groups:
             messagebox.showinfo('Sửa mã ảnh', 'Chưa chọn thư mục ảnh.')
@@ -3811,11 +4059,11 @@ class App(ctk.CTk):
         if not items:
             messagebox.showinfo(
                 'Sửa mã ảnh',
-                'Không có mã ảnh nào cần sửa — tất cả đã khớp chính xác với list đang mở.')
+                'Không có mã ảnh nào cần sửa — tất cả đã khớp chính xác với FILE TỔNG / MASTER.')
             return
 
         win = ctk.CTkToplevel(self)
-        win.title('Sửa mã ảnh · list đang mở')
+        win.title('Sửa mã ảnh · FILE TỔNG / MASTER')
         win.geometry('640x580')
         win.attributes('-topmost', True)
         try:
@@ -3862,8 +4110,8 @@ class App(ctk.CTk):
                 font=ctk.CTkFont(size=12, weight='bold'), text_color=TEXT,
                 anchor='w'
             ).pack(anchor='w')
-            sub = (f"gợi ý từ list đang mở: {fuzzy_to}" if fuzzy_to
-                   else 'không có trên list đang mở')
+            sub = (f"gợi ý từ FILE TỔNG / MASTER: {fuzzy_to}" if fuzzy_to
+                   else 'không có trên FILE TỔNG / MASTER')
             lbl_new = ctk.CTkLabel(
                 left, text=sub, text_color=MUTED,
                 font=ctk.CTkFont(size=10), anchor='w')
@@ -4045,7 +4293,7 @@ class App(ctk.CTk):
 
     def _show_qa_gate(self, qa, on_continue):
         win = ctk.CTkToplevel(self)
-        win.title('Đối chiếu với list đang mở')
+        win.title('Đối chiếu ảnh với FILE TỔNG / MASTER')
         win.geometry('720x560')
         win.attributes('-topmost', True)
         try:
@@ -4299,12 +4547,12 @@ class App(ctk.CTk):
         try:
             if hasattr(self, 'btn_sync_cloud'):
                 self.btn_sync_cloud.configure(
-                    text='Đồng bộ Excel + Avatar' if cloud
+                    text='Tải FILE TỔNG + Avatar từ Cloud' if cloud
                     else 'Đồng bộ Cloud (tuỳ chọn)')
             if hasattr(self, 'btn_excel'):
                 self.btn_excel.configure(
                     state='disabled' if cloud else 'normal',
-                    text='Excel lấy từ Cloud — dùng Up list ở bước 2' if cloud
+                    text='FILE TỔNG lấy từ Cloud — dùng Bước 2 để thay file' if cloud
                     else 'Chọn file trên máy…')
             if hasattr(self, 'btn_up_list'):
                 self.btn_up_list.configure(state='normal')
@@ -4637,11 +4885,13 @@ class App(ctk.CTk):
             def done():
                 self.log('☁ ' + res.get('msg', ''))
                 if res.get('ok'):
-                    messagebox.showinfo('Up list', res.get('msg', 'Đã đẩy list.'))
+                    messagebox.showinfo('FILE TỔNG / MASTER',
+                                        res.get('msg', 'Đã đẩy FILE TỔNG lên Cloud.'))
                     if then_load:
                         self._load_excel_async(path)
                 else:
-                    messagebox.showerror('Up list', res.get('msg', 'Không đẩy được.'))
+                    messagebox.showerror('FILE TỔNG / MASTER',
+                                         res.get('msg', 'Không đẩy được FILE TỔNG.'))
             self.after(0, done)
 
         threading.Thread(target=work, daemon=True).start()

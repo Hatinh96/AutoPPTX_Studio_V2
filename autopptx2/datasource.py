@@ -19,10 +19,10 @@ def _norm_header(s):
 
 # tên cột chuẩn → các biến thể chấp nhận (đã chuẩn hoá)
 _COLUMN_ALIASES = {
-    'Code_RP': ('coderp', 'codereport', 'code', 'macode', 'mabaocao', 'marp',
+    'Code_RP': ('coderp', 'codereport', 'reportcode', 'code', 'macode', 'mabaocao', 'marp',
                 'rpcode', 'madiadiem', 'madiem', 'storecode', 'storeid',
                 'siteid'),
-    'Name': ('name', 'ten', 'tendiadiem', 'pointname', 'truong'),
+    'Name': ('name', 'ten', 'tendiadiem', 'pointname', 'truong', 'nameofblock'),
     'Location': ('location', 'khuvuc', 'vitri'),
     'Address': ('address', 'diachi', 'addressmới', 'addressmoi'),
     'Ward': ('ward', 'phuong', 'wardmới', 'wardmoi'),
@@ -31,12 +31,19 @@ _COLUMN_ALIASES = {
     'Channel': ('channel', 'kenh'),
     'Type': ('type', 'hinhthuc', 'format'),
     'Size': ('size', 'kichthuoc', 'inch', 'inches'),
+    'GP_Size': ('gpsize', 'sizegp', 'kichthuocgp', 'giantpostersize'),
     'Note': ('note', 'notes', 'ghichu'),
     'Except': ('except', 'exceptbrand', 'exceptbrandcantadvertised'),
     'DP': ('dp', 'digitalposterinsideelevator'),
     'LCD': ('lcd', 'lcdfrontofelevator', 'lcdothers'),
     'GP': ('gp', 'giantposterinsideelevator', 'giantposteroutsidegroundfloor',
            'giantposteroutsideparkingfloor', 'giantposterstudyautox2forsale'),
+    'GP_Inside': ('gpinside', 'qtyofgpinside', 'giantposterinsideelevator'),
+    'GP_Ground': ('gpground', 'qtyofgpground', 'giantposteroutsidegroundfloor'),
+    'GP_Facilities': ('gpfacilities', 'qtyofgpfacilitiesfloor'),
+    'GP_Parking': ('gpparking', 'qtyofgpparkingfloor',
+                   'giantposteroutsideparkingfloor'),
+    'GP_Study': ('gpstudy', 'giantposterstudy', 'giantposterstudyautox2forsale'),
     'DS': ('ds', 'digitalposterothersdigitalstandee', 'digitalstandee'),
     'DPS': ('dps', 'digitalposterstair'),
     'DPF': ('dpf', 'digitalposterinfontoffloor', 'dpfdigitalposterinfontoffloor'),
@@ -46,7 +53,10 @@ _COLUMN_ALIASES = {
     'Quantity': ('quantity', 'soluong', 'qty'),
 }
 
-_QTY_KEYS = ('DP', 'LCD', 'GP', 'DS', 'DPS', 'DPF', 'LED')
+_QTY_KEYS = (
+    'DP', 'LCD', 'GP', 'DS', 'DPS', 'DPF', 'LED',
+    'GP_Inside', 'GP_Ground', 'GP_Facilities', 'GP_Parking', 'GP_Study',
+)
 _FORM_COLS = (
     ('DPS', 'DPS'),
     ('DP', 'DP'),
@@ -55,6 +65,13 @@ _FORM_COLS = (
     ('LCD', 'LCD'),
     ('GP', 'GP'),
     ('LED', 'LED'),
+)
+_GP_FORM_COLS = (
+    ('GP_Inside', 'GP in'),
+    ('GP_Ground', 'GP đất'),
+    ('GP_Facilities', 'GP tiện ích'),
+    ('GP_Parking', 'GP gửi xe'),
+    ('GP_Study', 'GP study'),
 )
 _FILL_KEYS = ('Code_RP', 'Name', 'Address', 'District', 'Channel',
               'Ward', 'City', 'TrafficDay', 'TrafficWeek', 'Type', 'Quantity')
@@ -115,43 +132,78 @@ class ExcelSource:
             self.mtime = os.path.getmtime(path)
             wb = load_workbook(path, read_only=True, data_only=True)
             ws = wb.worksheets[0]
-            all_rows = list(ws.iter_rows(values_only=True))
+            self.rows = self._worksheet_rows(ws)
             wb.close()
-            header_idx, header_map = None, None
-            for i, row in enumerate(all_rows[:15]):
-                cand = self._map_columns(row, require_code=True)
-                if not cand:
-                    continue
-                header_idx, header_map = i, cand
-                if i + 1 < len(all_rows) and self._looks_like_subheader(all_rows[i + 1]):
-                    extra = self._map_columns(all_rows[i + 1], require_code=False)
-                    for idx, key in extra.items():
-                        header_map.setdefault(idx, key)
-                    header_idx = i + 1
-                break
-            if header_map is None:
+            if not self.rows:
                 self.error = "Không tìm thấy dòng tiêu đề chứa cột Code_RP."
                 return False
-            prev = {}
-            for row in all_rows[header_idx + 1:]:
-                rec = self._row_record(row, header_map)
-                has_code = bool(str(rec.get('Code_RP') or '').strip())
-                has_loc = bool(str(clean(rec.get('Location') or '')).strip())
-                has_qty = any(to_qty(rec.get(k)) > 0 for k in _QTY_KEYS)
-                if not (has_code or has_loc or has_qty):
-                    continue
-                for k in _FILL_KEYS:
-                    if _is_blank(rec.get(k)) and not _is_blank(prev.get(k)):
-                        rec[k] = prev[k]
-                code = str(rec.get('Code_RP') or '').strip()
-                if code and code.lower() != 'nan':
-                    rec['Code_RP'] = code
-                    self.rows.append(rec)
-                    prev = rec
             return True
         except Exception as e:
             self.error = str(e)
             return False
+
+    def load_compare_list(self, path):
+        """Đọc file đối chiếu; ưu tiên gộp mọi sheet có chữ ``List``.
+
+        File nguồn University/Building thường tách ``University List`` và
+        ``Building List``. Nếu file không có quy ước đó, dùng sheet đầu như
+        luồng Excel thông thường để tránh kéo nhầm sheet Summary/AP OFF.
+        """
+        from openpyxl import load_workbook
+        self.path, self.rows, self.error = path, [], None
+        try:
+            self.mtime = os.path.getmtime(path)
+            wb = load_workbook(path, read_only=True, data_only=True)
+            selected = [ws for ws in wb.worksheets if 'list' in ws.title.casefold()]
+            if not selected and wb.worksheets:
+                selected = [wb.worksheets[0]]
+            for ws in selected:
+                for rec in self._worksheet_rows(ws):
+                    rec['_SourceSheet'] = ws.title
+                    self.rows.append(rec)
+            wb.close()
+            if not self.rows:
+                self.error = "Không tìm thấy dữ liệu Code_RP trong các sheet danh sách."
+                return False
+            return True
+        except Exception as e:
+            self.error = str(e)
+            return False
+
+    def _worksheet_rows(self, ws):
+        """Chuẩn hoá các dòng dữ liệu từ một worksheet."""
+        all_rows = list(ws.iter_rows(values_only=True))
+        header_idx, header_map = None, None
+        for i, row in enumerate(all_rows[:15]):
+            cand = self._map_columns(row, require_code=True)
+            if not cand:
+                continue
+            header_idx, header_map = i, cand
+            if i + 1 < len(all_rows) and self._looks_like_subheader(all_rows[i + 1]):
+                extra = self._map_columns(all_rows[i + 1], require_code=False)
+                for idx, key in extra.items():
+                    header_map.setdefault(idx, key)
+                header_idx = i + 1
+            break
+        if header_map is None:
+            return []
+        rows, prev = [], {}
+        for row in all_rows[header_idx + 1:]:
+            rec = self._row_record(row, header_map)
+            has_code = bool(str(rec.get('Code_RP') or '').strip())
+            has_loc = bool(str(clean(rec.get('Location') or '')).strip())
+            has_qty = any(to_qty(rec.get(k)) > 0 for k in _QTY_KEYS)
+            if not (has_code or has_loc or has_qty):
+                continue
+            for k in _FILL_KEYS:
+                if _is_blank(rec.get(k)) and not _is_blank(prev.get(k)):
+                    rec[k] = prev[k]
+            code = str(rec.get('Code_RP') or '').strip()
+            if code and code.lower() != 'nan':
+                rec['Code_RP'] = code
+                rows.append(rec)
+                prev = rec
+        return rows
 
     @staticmethod
     def _map_columns(row, require_code=True):
@@ -590,17 +642,22 @@ def screen_parts(row):
     """[(số, nhãn)] các loại màn > 0."""
     row = row or {}
     out = []
+    gp_parts = []
+    for key, lab in _GP_FORM_COLS:
+        n = to_qty(row.get(key))
+        if n > 0:
+            gp_parts.append((n, lab))
+    is_building = 'building' in str(clean(row.get('Channel'))).strip().casefold()
+    # Building's generic LCD/GP fields are legacy aggregates (LCD is often
+    # lifts and GP is the AP total), so placement-level GP is authoritative.
+    if is_building and gp_parts:
+        return gp_parts
     for key, lab in _FORM_COLS:
         n = to_qty(row.get(key))
         if n > 0:
             out.append((n, lab))
     if not out:
-        for key, lab in (('GP_Inside', 'GP in'), ('GP_Ground', 'GP đất'),
-                         ('GP_Facilities', 'GP tiện ích'),
-                         ('GP_Parking', 'GP gửi xe')):
-            n = to_qty(row.get(key))
-            if n > 0:
-                out.append((n, lab))
+        out = gp_parts
     return out
 
 
@@ -630,6 +687,29 @@ def place_label(row):
 # Thứ tự loại màn trong ngoặc Quantity — LCD trước DP như ví dụ V1
 # "8 (2 LCD, 6 DP)"; DS/GP sau; DPS/DPF/LED nếu có.
 _QTY_SHOW_ORDER = ('LCD', 'DP', 'DS', 'GP', 'DPS', 'DPF', 'LED')
+
+
+def _combined_screen_parts(row):
+    """Return non-GP screen forms in the same order as Sales Quantity."""
+    row = row or {}
+    rank = {label: index for index, label in enumerate(_QTY_SHOW_ORDER)}
+    parts = []
+    for key, label in _FORM_COLS:
+        if key == 'GP':
+            continue
+        qty = to_qty(row.get(key))
+        if qty > 0:
+            parts.append((label, qty))
+    return sorted(parts, key=lambda item: rank.get(item[0], 99))
+
+
+def _combined_screen_summary(parts):
+    """Format DP/LCD-family forms as one Quantity-style table value."""
+    if not parts:
+        return ''
+    total = sum(qty for _, qty in parts)
+    detail = ', '.join(f'{qty} {label}' for label, qty in parts)
+    return f'{total} ({detail})'
 
 
 def _quantity_text(row, n_files=0):
@@ -741,7 +821,7 @@ def _fmt_traffic(row):
 
 
 def build_info_table(row, siblings=None):
-    """Khung bảng SALESKIT: TRƯỜNG / ĐỊA CHỈ / TRAFFIC + từng khu-loại màn."""
+    """Khung bảng SALESKIT: ĐỊA ĐIỂM / ĐỊA CHỈ / TRAFFIC + từng khu-loại màn."""
     siblings = [r for r in (siblings or []) if r]
     if not siblings and row:
         siblings = [row]
@@ -749,29 +829,40 @@ def build_info_table(row, siblings=None):
     specs = []
     for r in siblings:
         area = _khu_vuc(r)
-        size = str(clean(r.get('Size'))).strip()
+        screen_size = str(clean(r.get('Size'))).strip()
+        gp_size = str(clean(r.get('GP_Size'))).strip()
         note = _note_text(r)
-        forms = []
-        for key, lab in _FORM_COLS:
-            n = to_qty(r.get(key))
-            if n > 0:
-                forms.append((lab, n))
-        if forms:
-            for lab, n in forms:
-                specs.append({
-                    'area': area, 'form': lab, 'size': size,
-                    'qty': str(n), 'note': note,
-                })
-        else:
-            qn = to_qty(r.get('Quantity'))
-            if area or size or note or qn > 0:
-                specs.append({
-                    'area': area,
-                    'form': str(clean(r.get('Type'))).strip(),
-                    'size': size,
-                    'qty': str(qn) if qn > 0 else '',
-                    'note': note,
-                })
+        detailed_gp = sum(to_qty(r.get(key)) for key, _ in _GP_FORM_COLS)
+        gp_qty = to_qty(r.get('GP')) or detailed_gp
+        screen_forms = _combined_screen_parts(r)
+        if screen_forms:
+            # Match the Sales Quantity presentation: all digital formats use
+            # one row and share the screen Size from the master.
+            specs.append({
+                'area': area,
+                'form': ', '.join(label for label, _ in screen_forms),
+                'size': screen_size,
+                'qty': _combined_screen_summary(screen_forms),
+                'note': note,
+            })
+        if gp_qty > 0:
+            # All GP placements are intentionally presented as one sale type.
+            specs.append({
+                'area': area, 'form': 'GP', 'size': gp_size,
+                'qty': str(gp_qty), 'note': note,
+            })
+        if screen_forms or gp_qty > 0:
+            continue
+        qn = to_qty(r.get('Quantity'))
+        if area or screen_size or note or qn > 0:
+            fallback_form = str(clean(r.get('Type'))).strip()
+            specs.append({
+                'area': area,
+                'form': fallback_form,
+                'size': gp_size if fallback_form.upper() == 'GP' else screen_size,
+                'qty': str(qn) if qn > 0 else '',
+                'note': note,
+            })
     if not specs:
         specs.append({'area': '', 'form': '', 'size': '', 'qty': '', 'note': ''})
     school = _school_short(head) or str(clean(head.get('Name'))).strip()
@@ -856,4 +947,128 @@ def build_overview(groups, by_code, merged=None):
         'n_thua': sum(1 for r in rows if r['status'] == 'thua'),
         'n_chua_excel': sum(1 for r in rows if r['status'] == 'chua_excel'),
         'excel_no_photo': excel_no_photo,
+    }
+
+
+_QUANTITY_IS_SCREEN_CHANNELS = (
+    'coffee', 'cafe', 'cà phê', 'milk tea', 'milktea', 'trà sữa',
+    'fastfood', 'fast food', 'beauty', 'salon', '30shine',
+)
+
+
+def expected_photo_count(row):
+    """Số ảnh tối thiểu cần có cho một điểm trong báo cáo đối chiếu.
+
+    Ưu tiên tổng số màn chuẩn. Với các kênh cửa hàng nơi ``Quantity`` là số
+    màn, dùng ``Quantity`` nếu file không tách DP/LCD/GP. Các kênh còn lại vẫn
+    yêu cầu ít nhất một ảnh để không bỏ sót điểm chỉ có thông tin định tính.
+    """
+    row = row or {}
+    n = screen_qty(row)
+    if n > 0:
+        return n
+    channel = str(clean(row.get('Channel'))).strip().casefold()
+    if any(token in channel for token in _QUANTITY_IS_SCREEN_CHANNELS):
+        n = to_qty(row.get('Quantity'))
+        if n > 0:
+            return n
+    return 1
+
+
+def compare_list_with_master(list_rows, master_by_code, image_groups, merged=None,
+                             check_images=True):
+    """Đối chiếu một file list với file tổng và ảnh, nhóm kết quả theo kênh.
+
+    ``list_rows`` chỉ xác định các mã cần kiểm tra. ``master_by_code`` là file
+    tổng đang mở/đã đồng bộ và cung cấp Channel, Name, số màn. ``image_groups``
+    là kết quả quét thư mục ảnh hiện tại. Khi ``check_images`` là ``False``,
+    chỉ đối chiếu Code_RP và không kết luận thiếu ảnh.
+    """
+    master_by_code = {
+        str(code or '').strip().upper(): row
+        for code, row in (master_by_code or {}).items()
+        if str(code or '').strip()
+    }
+    merged = merged or {}
+    unique = OrderedDict()
+    for rec in list_rows or []:
+        code = str((rec or {}).get('Code_RP') or '').strip()
+        if code:
+            unique.setdefault(code.upper(), rec or {})
+
+    direct_photos = {}
+    master_photos = {}
+    for image_code, paths in (image_groups or {}).items():
+        key = str(image_code or '').strip().upper()
+        count = len(paths or [])
+        if key:
+            direct_photos[key] = direct_photos.get(key, 0) + count
+        _row, matched, _kind = match_row(key, master_by_code, merged)
+        if matched:
+            mk = str(matched).strip().upper()
+            master_photos[mk] = master_photos.get(mk, 0) + count
+
+    rows = []
+    channel_map = {}
+    for code, list_row in unique.items():
+        master_row, matched, kind = match_row(code, master_by_code, merged)
+        has_master = bool(master_row) and kind != 'none'
+        source = master_row if has_master else list_row
+        canonical = str(matched or code).strip().upper()
+        if check_images:
+            photos = max(direct_photos.get(code, 0), master_photos.get(canonical, 0))
+            required = expected_photo_count(source)
+            missing = max(required - photos, 0)
+        else:
+            photos = required = missing = 0
+        channel = str(clean((source or {}).get('Channel'))).strip() or 'Không xác định'
+        name = str(clean((source or {}).get('Name'))).strip()
+        district = str(clean((source or {}).get('District'))).strip()
+        status = 'not_in_master' if not has_master else ('missing' if missing else 'ok')
+        item = {
+            'code': code,
+            'matched_code': canonical if has_master else '',
+            'name': name,
+            'district': district,
+            'channel': channel,
+            'required': required,
+            'photos': photos,
+            'missing': missing,
+            'status': status,
+            'match_kind': kind,
+        }
+        rows.append(item)
+        summary = channel_map.setdefault(channel, {
+            'channel': channel, 'sites': 0, 'ok_sites': 0,
+            'missing_sites': 0, 'not_in_master': 0,
+            'required': 0, 'photos': 0, 'missing': 0,
+        })
+        summary['sites'] += 1
+        summary['required'] += required
+        summary['photos'] += photos
+        summary['missing'] += missing
+        if status == 'ok':
+            summary['ok_sites'] += 1
+        else:
+            if missing:
+                summary['missing_sites'] += 1
+            if status == 'not_in_master':
+                summary['not_in_master'] += 1
+
+    order = {'missing': 0, 'not_in_master': 1, 'ok': 2}
+    rows.sort(key=lambda r: (
+        r['channel'].casefold(), order.get(r['status'], 9), r['code']))
+    channels = sorted(channel_map.values(), key=lambda r: r['channel'].casefold())
+    return {
+        'images_checked': bool(check_images),
+        'rows': rows,
+        'channels': channels,
+        'n_list': len(rows),
+        'n_master_matches': sum(1 for r in rows if r['status'] != 'not_in_master'),
+        'n_not_in_master': sum(1 for r in rows if r['status'] == 'not_in_master'),
+        'n_ok_sites': sum(1 for r in rows if r['status'] == 'ok'),
+        'n_missing_sites': sum(1 for r in rows if r['missing'] > 0),
+        'n_required': sum(r['required'] for r in rows),
+        'n_photos': sum(r['photos'] for r in rows),
+        'n_missing_images': sum(r['missing'] for r in rows),
     }
