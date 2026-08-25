@@ -10,6 +10,7 @@ from functools import lru_cache
 from PIL import Image, ImageFont, ImageOps
 
 from .constants import SLIDE_W_IN
+from . import fonts as FN
 
 EXIF_ORIENTATION = 0x0112
 
@@ -252,6 +253,12 @@ def resize_into_box(img, tw, th, fit='fill'):
 # ════════════════════════════════════════════════════════════
 @lru_cache(maxsize=1)
 def _ref_font():
+    fp, idx = FN.fallback_font_file()
+    if fp:
+        try:
+            return ImageFont.truetype(fp, 100, index=idx)
+        except Exception:
+            pass
     for name in ("arial.ttf", "segoeui.ttf", "tahoma.ttf", "DejaVuSans.ttf"):
         try:
             return ImageFont.truetype(name, 100)

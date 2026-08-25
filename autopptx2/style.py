@@ -25,6 +25,9 @@ def load_font(name, size_px, bold=False, italic=False, path=None, index=0):
     fp, idx = FN.resolve_font_file(name, bold, italic)
     if fp:
         return FN.pil_font(fp, size_px, idx)
+    fp, idx = FN.fallback_font_file(bold, italic)
+    if fp:
+        return FN.pil_font(fp, size_px, idx)
     for fn in ('arial.ttf', 'segoeui.ttf', r'C:\Windows\Fonts\arial.ttf'):
         try:
             return ImageFont.truetype(fn, size_px)

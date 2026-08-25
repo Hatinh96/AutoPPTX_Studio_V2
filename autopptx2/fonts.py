@@ -1,9 +1,10 @@
-"""Danh mục font Windows — không phụ thuộc Tkinter.
+"""Danh mục font hệ thống Windows/macOS/Linux — không phụ thuộc Tkinter.
 
 Preview (PIL) và PPTX dùng cùng family + cùng file .ttf khi có trên máy.
 """
 import os
 import json
+import sys
 import threading
 from functools import lru_cache
 
@@ -13,9 +14,15 @@ from .constants import CONFIG_DIR
 
 CACHE_PATH = os.path.join(CONFIG_DIR, "fonts_cache.json")
 VIET_SAMPLE = "ÁÀẢÃẠăâêôơưĐƯỢỘỮỨờợộữự"
-VIET_FALLBACKS = ("Arial", "Be Vietnam Pro", "Segoe UI", "Tahoma", "Calibri")
+VIET_FALLBACKS = (
+    "Arial", "Helvetica Neue", "Helvetica", "Be Vietnam Pro",
+    "Segoe UI", "Tahoma", "Calibri", "DejaVu Sans", "Noto Sans",
+)
 PINNED = ("Arial", "Be Vietnam Pro", "Segoe UI", "Tahoma", "Calibri",
-          "Montserrat", "Times New Roman")
+          "Helvetica Neue", "Helvetica", "Montserrat", "Times New Roman")
+
+_SCAN_VERSION = 2
+_FONT_EXTS = (".ttf", ".otf", ".ttc", ".otc", ".dfont")
 
 _lock = threading.Lock()
 _catalog = None          # list[dict]
@@ -23,13 +30,36 @@ _by_family = None        # {family.lower(): {regular, bold, italic, bolditalic}}
 
 
 def font_dirs():
-    dirs = []
-    windir = os.environ.get("WINDIR", r"C:\Windows")
-    dirs.append(os.path.join(windir, "Fonts"))
-    local = os.environ.get("LOCALAPPDATA") or ""
-    if local:
-        dirs.append(os.path.join(local, "Microsoft", "Windows", "Fonts"))
-    return [d for d in dirs if os.path.isdir(d)]
+    """Các thư mục font chuẩn theo hệ điều hành, giữ thứ tự ưu tiên."""
+    if sys.platform == "win32":
+        windir = os.environ.get("WINDIR", r"C:\Windows")
+        dirs = [os.path.join(windir, "Fonts")]
+        local = os.environ.get("LOCALAPPDATA") or ""
+        if local:
+            dirs.append(os.path.join(local, "Microsoft", "Windows", "Fonts"))
+    elif sys.platform == "darwin":
+        dirs = [
+            os.path.expanduser("~/Library/Fonts"),
+            "/Library/Fonts",
+            "/System/Library/Fonts/Supplemental",
+            "/System/Library/Fonts",
+            "/Network/Library/Fonts",
+        ]
+    else:
+        dirs = [
+            os.path.expanduser("~/.local/share/fonts"),
+            os.path.expanduser("~/.fonts"),
+            "/usr/local/share/fonts",
+            "/usr/share/fonts",
+        ]
+    out, seen = [], set()
+    for folder in dirs:
+        folder = os.path.abspath(os.path.expanduser(folder))
+        key = os.path.normcase(folder)
+        if key not in seen and os.path.isdir(folder):
+            seen.add(key)
+            out.append(folder)
+    return out
 
 
 def _dirs_sig():
@@ -71,49 +101,47 @@ def _scan():
     items = []
     families = {}
     for folder in font_dirs():
-        try:
-            names = os.listdir(folder)
-        except Exception:
-            continue
-        for fn in names:
-            ext = os.path.splitext(fn)[1].lower()
-            if ext not in (".ttf", ".otf", ".ttc"):
-                continue
-            path = os.path.join(folder, fn)
-            if path in seen_files:
-                continue
-            seen_files.add(path)
-            max_idx = 8 if ext == ".ttc" else 1
-            for idx in range(max_idx):
-                try:
-                    fnt = ImageFont.truetype(path, 22, index=idx)
-                except Exception:
-                    break
-                try:
-                    family, style = fnt.getname()
-                except Exception:
-                    family, style = os.path.splitext(fn)[0], "Regular"
-                family = (family or "").strip()
-                if not family:
+        for root, _dirs, names in os.walk(folder):
+            for fn in names:
+                ext = os.path.splitext(fn)[1].lower()
+                if ext not in _FONT_EXTS:
                     continue
-                rec = {
-                    "family": family,
-                    "style": style or "Regular",
-                    "path": path,
-                    "index": idx,
-                    "viet": _has_viet(fnt),
-                    "key": _style_key(style),
-                }
-                items.append(rec)
-                slot = families.setdefault(family.lower(), {
-                    "family": family, "regular": None, "bold": None,
-                    "italic": None, "bolditalic": None, "viet": False,
-                })
-                slot["viet"] = slot["viet"] or rec["viet"]
-                if slot[rec["key"]] is None:
-                    slot[rec["key"]] = rec
-                if rec["key"] == "regular":
-                    slot["family"] = family
+                path = os.path.join(root, fn)
+                file_key = os.path.normcase(os.path.realpath(path))
+                if file_key in seen_files:
+                    continue
+                seen_files.add(file_key)
+                max_idx = 64 if ext in (".ttc", ".otc", ".dfont") else 1
+                for idx in range(max_idx):
+                    try:
+                        fnt = ImageFont.truetype(path, 22, index=idx)
+                    except Exception:
+                        break
+                    try:
+                        family, style = fnt.getname()
+                    except Exception:
+                        family, style = os.path.splitext(fn)[0], "Regular"
+                    family = (family or "").strip()
+                    if not family:
+                        continue
+                    rec = {
+                        "family": family,
+                        "style": style or "Regular",
+                        "path": path,
+                        "index": idx,
+                        "viet": _has_viet(fnt),
+                        "key": _style_key(style),
+                    }
+                    items.append(rec)
+                    slot = families.setdefault(family.lower(), {
+                        "family": family, "regular": None, "bold": None,
+                        "italic": None, "bolditalic": None, "viet": False,
+                    })
+                    slot["viet"] = slot["viet"] or rec["viet"]
+                    if slot[rec["key"]] is None:
+                        slot[rec["key"]] = rec
+                    if rec["key"] == "regular":
+                        slot["family"] = family
     # family list: pinned first, then A–Z, one row per family (prefer Regular)
     rows = []
     used = set()
@@ -148,7 +176,10 @@ def _family_row(slot):
 
 
 def _sig_key():
-    return [[d, mt] for d, mt in _dirs_sig()]
+    return {
+        "version": _SCAN_VERSION,
+        "dirs": [[d, mt] for d, mt in _dirs_sig()],
+    }
 
 
 def _load_cache():
@@ -210,10 +241,15 @@ def preview_sample(path, index=0, text="ÁÀẢÃẠ", size=(392, 54)):
         except Exception:
             fnt = None
     if fnt is None:
-        try:
-            fnt = ImageFont.truetype(r"C:\Windows\Fonts\arial.ttf", 28)
-        except Exception:
-            fnt = ImageFont.load_default()
+        fallback_path, fallback_index = fallback_font_file()
+        if fallback_path:
+            try:
+                fnt = ImageFont.truetype(
+                    fallback_path, 28, index=int(fallback_index or 0))
+            except Exception:
+                fnt = None
+    if fnt is None:
+        fnt = ImageFont.load_default()
     draw.text((12, 10), text, font=fnt, fill=fg)
     return im
 
@@ -257,6 +293,24 @@ def resolve_font_file(name, bold=False, italic=False):
     return None, 0
 
 
+def fallback_family():
+    """Family hệ thống ưu tiên có đủ dấu tiếng Việt."""
+    rows = catalog()
+    for family in VIET_FALLBACKS:
+        info = family_info(family)
+        if info and info.get("viet"):
+            return info.get("family") or family
+    for row in rows:
+        if row.get("viet"):
+            return row.get("family") or "Arial"
+    return "Arial"
+
+
+def fallback_font_file(bold=False, italic=False):
+    """File font Unicode dùng khi font đã chọn không tồn tại trên máy hiện tại."""
+    return resolve_font_file(fallback_family(), bold, italic)
+
+
 def safe_family(name, text=""):
     """Family dùng được cho chuỗi (Arial nếu Montserrat / thiếu dấu)."""
     pref = (name or "").strip() or "Arial"
@@ -271,8 +325,8 @@ def safe_family(name, text=""):
     for fam in VIET_FALLBACKS:
         inf = family_info(fam)
         if inf and inf.get("viet"):
-            return fam
-    return "Arial"
+            return inf.get("family") or fam
+    return fallback_family()
 
 
 def search_families(query, limit=80):

@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageColor, ImageEnhance, ImageOps,
 
 from .constants import CONFIG_DIR
 from . import geometry as G
+from . import fonts as FN
 
 OSM_ZOOM = 16
 OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -89,6 +90,9 @@ def needed(fx):
 @lru_cache(maxsize=48)
 def _font(size):
     size = max(6, int(size))
+    fp, idx = FN.fallback_font_file()
+    if fp:
+        return FN.pil_font(fp, size, idx)
     win = os.path.join(os.environ.get('WINDIR', r'C:\Windows'), 'Fonts')
     for fp in (os.path.join(win, 'arial.ttf'), os.path.join(win, 'segoeui.ttf'),
                os.path.join(win, 'tahoma.ttf'), 'arial.ttf', 'DejaVuSans.ttf'):
