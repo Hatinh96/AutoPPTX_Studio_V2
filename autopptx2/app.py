@@ -3408,17 +3408,11 @@ class App(ctk.CTk):
             self._update_estimate()
 
     # ════════════════════════ TIMELINE ════════════════════════
-    def _bd_city_order(self):
-        return (self.opts.get('dept') == 'bd'
-                or self.opts.get('slide_style') == 'saleskit')
-
     def _ordered_codes(self):
-        """Sales: tên file. BD: tỉnh/thành Bắc → Nam."""
+        """Sales và BD: tỉnh/thành Bắc → Nam, rồi quận, rồi tên."""
         codes = list(self.imglib.groups())
-        if self._bd_city_order():
-            return sort_codes_by_city(
-                codes, self._by_code, getattr(self, '_merged', None))
-        return codes
+        return sort_codes_by_city(
+            codes, self._by_code, getattr(self, '_merged', None))
 
     def _filtered_codes(self):
         codes = self._ordered_codes()
@@ -3613,8 +3607,7 @@ class App(ctk.CTk):
         if hasattr(self, 'tl'):
             self._rebuild_timeline()
         if log_name:
-            extra = ' · slide theo tỉnh/thành Bắc → Nam' if style == 'saleskit' else ''
-            self.log(f'Đã áp mẫu "{log_name}"{extra}.')
+            self.log(f'Đã áp mẫu "{log_name}" · slide theo tỉnh/thành Bắc → Nam, rồi quận.')
 
     def _save_preset(self):
         dlg = ctk.CTkInputDialog(text='Tên preset:', title='Lưu bố cục')
@@ -4213,6 +4206,7 @@ class App(ctk.CTk):
         body.pack(fill='both', expand=True, padx=16, pady=(0, 8))
 
         chosen = {}
+        sug_rows = []
         lbl_bottom = ctk.CTkLabel(
             win, text='Chưa chọn mã nào.', text_color=MUTED,
             font=ctk.CTkFont(size=11))
@@ -4221,6 +4215,21 @@ class App(ctk.CTk):
             lbl_bottom.configure(
                 text=(f'Đã chọn {len(chosen)} nhóm sẽ đổi tên.'
                       if chosen else 'Chưa chọn mã nào.'))
+
+        def use_all_suggestions():
+            n = 0
+            for c, sug, lb in sug_rows:
+                if not sug:
+                    continue
+                chosen[c] = sug
+                n += 1
+                try:
+                    lb.configure(text=f'→ sẽ đổi thành: {sug}', text_color=ACCENT)
+                except Exception:
+                    pass
+            update_bottom()
+            if n:
+                self.log(f'Đã chọn {n} gợi ý FILE TỔNG / MASTER (chưa đổi tên).')
 
         for img_code, fuzzy_to in items:
             n_files = len(groups.get(img_code, []))
@@ -4263,6 +4272,7 @@ class App(ctk.CTk):
                 fg_color=ACCENT, hover_color=ACCENT_HOVER, command=pick
             ).pack(side='right')
             if fuzzy_to:
+                sug_rows.append((img_code, fuzzy_to, lbl_new))
                 ctk.CTkButton(
                     btns, text='Dùng gợi ý', width=96, height=30, corner_radius=8,
                     font=ctk.CTkFont(size=11),
@@ -4324,6 +4334,14 @@ class App(ctk.CTk):
 
         bar = ctk.CTkFrame(win, fg_color='transparent')
         bar.pack(fill='x', padx=16, pady=(4, 12))
+        if sug_rows:
+            ctk.CTkButton(
+                bar, text=f'Chọn tất cả dùng gợi ý ({len(sug_rows)})',
+                height=34, corner_radius=8,
+                fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+                font=ctk.CTkFont(size=12),
+                command=use_all_suggestions
+            ).pack(side='left')
         ctk.CTkButton(
             bar, text='Đổi tên file', height=34, corner_radius=8,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -4544,9 +4562,8 @@ class App(ctk.CTk):
         # Đường dẫn đã tuyệt đối (nhiều thư mục)
         groups = OrderedDict(
             (code, list(files)) for code, files in groups_rel.items())
-        if self._bd_city_order():
-            groups = order_groups_by_city(
-                groups, self._by_code, getattr(self, '_merged', None))
+        groups = order_groups_by_city(
+            groups, self._by_code, getattr(self, '_merged', None))
         avatar_map = {}
         for code in groups:
             p = self._resolve_avatar(code)

@@ -844,10 +844,8 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
             except Exception as e:
                 log(f"Lỗi overview: {e}")
 
-        groups = job.groups
-        if (job.slide_style or 'report') == 'saleskit':
-            groups = order_groups_by_city(groups, job.excel_by_code, merged)
-            log("Thứ tự BD: tỉnh/thành Bắc → Nam.")
+        groups = order_groups_by_city(job.groups, job.excel_by_code, merged)
+        log("Thứ tự slide: tỉnh/thành Bắc → Nam, rồi quận.")
 
         for code, paths in groups.items():
             if cancel is not None and cancel.is_set():

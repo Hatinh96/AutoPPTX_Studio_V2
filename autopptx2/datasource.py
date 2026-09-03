@@ -96,7 +96,7 @@ def clean(v):
     return v
 
 
-# Tỉnh/thành Bắc → Nam (sales kit BD). Khóa đã bỏ dấu.
+# Tỉnh/thành Bắc → Nam (Sales + BD). Khóa đã bỏ dấu.
 _CITY_NS = (
     'ha giang', 'cao bang', 'bac kan', 'tuyen quang', 'lao cai', 'dien bien',
     'lai chau', 'son la', 'yen bai', 'hoa binh', 'thai nguyen', 'lang son',
@@ -184,7 +184,7 @@ def sort_codes_by_city(codes, by_code, merged=None):
 
 
 def order_groups_by_city(groups, by_code, merged=None):
-    """OrderedDict nhóm ảnh theo tỉnh/thành (BD sales kit)."""
+    """OrderedDict nhóm ảnh theo tỉnh/thành (Sales + BD)."""
     groups = groups or {}
     codes = sort_codes_by_city(groups.keys(), by_code, merged)
     return OrderedDict((c, groups[c]) for c in codes if c in groups)
@@ -420,6 +420,56 @@ def inspect_excel(path):
 # ════════════════════════════════════════════════════════════
 #  Ảnh & avatar
 # ════════════════════════════════════════════════════════════
+# Hậu tố vị trí dán trên tên file — không thuộc Code_RP.
+# GP*: decal GP từng mặt/tầng (GPI trong thang, GPG đất, GPF tiện ích/mặt thang,
+# GPP gửi xe, GPS study). LCD/DP/DS/LED cùng kiểu đặt tên.
+# Ví dụ CDCONGNGHETHUDUCGPG.jpg → CDCONGNGHETHUDUC.
+_PLACE_SUFFIX_RE = re.compile(
+    r'[\s_\-\.]?('
+    r'GPSTUDY|GPINSIDE|GPGROUND|GPFACILITIES|GPPARKING|'
+    r'DPS|DPF|LCD|LED|'
+    r'GP[\s._-]?[SGPIF]|'
+    r'GPS|GPG|GPF|GPI|GPP|GP|'
+    r'DS|DP'
+    r')\d*$',
+    re.IGNORECASE,
+)
+_PLACE_BASE_MIN = 5
+
+
+def strip_place_suffix(code):
+    """Bỏ hậu tố vị trí (GPG/GPF/GPI…). Trả (mã gốc, hậu tố)."""
+    raw = str(code or '').strip()
+    if not raw:
+        return '', ''
+    m = _PLACE_SUFFIX_RE.search(raw)
+    if not m:
+        return raw, ''
+    base = raw[:m.start()]
+    if len(base) < _PLACE_BASE_MIN:
+        return raw, ''
+    return base, raw[m.start():]
+
+
+def split_image_stem(stem):
+    """'SCHOOLGPF (2)' → ('SCHOOL', 'GPF (2)')."""
+    stem = str(stem or '')
+    copy = ''
+    m = CODE_SUFFIX_RE.search(stem)
+    if m:
+        copy = m.group(1)
+        stem = stem[:m.start()]
+    base, place = strip_place_suffix(stem)
+    return base, f'{place}{copy}'
+
+
+def image_group_code(path):
+    """Mã nhóm ảnh từ tên file: bỏ (1)/_1 và hậu tố GP/LCD…"""
+    stem = os.path.splitext(os.path.basename(str(path or '')))[0]
+    base, _extra = split_image_stem(stem)
+    return base
+
+
 class ImageLibrary:
     """Quét một hoặc nhiều thư mục ảnh, nhóm theo mã. Đường dẫn tuyệt đối."""
 
@@ -497,7 +547,9 @@ class ImageLibrary:
             return self._cache[1]
         g = OrderedDict()
         for path in sorted(self._iter_images(), key=lambda p: os.path.basename(p).casefold()):
-            code = CODE_SUFFIX_RE.sub('', os.path.splitext(os.path.basename(path))[0])
+            code = image_group_code(path)
+            if not code:
+                continue
             g.setdefault(code, []).append(path)
         self._cache = (sig, g)
         return g
@@ -682,8 +734,8 @@ def merge_rows(rows):
 def build_photo_rename_plan(groups, mapping):
     """Lập kế hoạch đổi tên file theo {mã cũ: mã mới}.
 
-    Giữ hậu tố ' (2)' / '_2' và phần mở rộng. Không ghi đè file đã có.
-    groups: {mã: [đường dẫn tuyệt đối]}.
+    Giữ hậu tố vị trí (GPG/GPF…) + ' (2)' / '_2' và phần mở rộng.
+    Không ghi đè file đã có. groups: {mã: [đường dẫn tuyệt đối]}.
     Trả (plan, conflicts) — mỗi phần tử (src, dst).
     """
     plan, conflicts = [], []
@@ -697,8 +749,8 @@ def build_photo_rename_plan(groups, mapping):
             folder = os.path.dirname(src)
             fn = os.path.basename(src)
             base, ext = os.path.splitext(fn)
-            m = CODE_SUFFIX_RE.search(base)
-            new_fn = '{}{}{}'.format(new, m.group(1) if m else '', ext)
+            _code, extra = split_image_stem(base)
+            new_fn = '{}{}{}'.format(new, extra, ext)
             if new_fn == fn:
                 continue
             dst = os.path.join(folder, new_fn)
@@ -719,11 +771,21 @@ def match_row(code, by_code, merged=None):
     if not by_code:
         return {}, None, 'none'
     key = str(code or '').strip().upper()
+    if not key:
+        return {}, None, 'none'
     if key in by_code:
         return by_code[key], key, 'exact'
+    base, sfx = strip_place_suffix(key)
+    base = str(base or '').strip().upper()
+    if sfx and base in by_code:
+        return by_code[base], base, 'exact'
     if merged and key in merged:
         return merge_rows(merged[key]), key, 'merged'
+    if merged and sfx and base in merged:
+        return merge_rows(merged[base]), base, 'merged'
     cand = difflib.get_close_matches(key, list(by_code), n=1, cutoff=0.84)
+    if not cand and sfx and base:
+        cand = difflib.get_close_matches(base, list(by_code), n=1, cutoff=0.84)
     if cand:
         return by_code[cand[0]], cand[0], 'fuzzy'
     return {}, None, 'none'
