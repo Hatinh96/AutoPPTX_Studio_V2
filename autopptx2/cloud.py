@@ -160,6 +160,25 @@ class CloudClient:
                 self._client = None
         return self._client
 
+    def _select_all(self, table, columns='*', page=1000):
+        """Đọc hết hàng. PostgREST mặc định cắt 1000 — phải lật trang."""
+        sb = self.client()
+        if not sb:
+            return []
+        out, start = [], 0
+        page = max(100, int(page or 1000))
+        while True:
+            res = (sb.table(table)
+                   .select(columns)
+                   .range(start, start + page - 1)
+                   .execute())
+            chunk = list(res.data or [])
+            out.extend(chunk)
+            if len(chunk) < page:
+                break
+            start += page
+        return out
+
     # ── Auth ──
     def login(self, email, password):
         """Trả (ok, message). ok=True kể cả chế độ local-only (không có package)."""
@@ -330,8 +349,8 @@ class CloudClient:
         if progress:
             progress(0, 1, 'Đang kiểm tra kho avatar…')
         try:
-            rows = (sb.table('avatar_files')
-                    .select('storage_path, file_name, updated_at').execute().data) or []
+            rows = self._select_all(
+                'avatar_files', 'storage_path, file_name, updated_at')
         except Exception as e:
             return {'ok': False, 'msg': f'Lỗi kết nối kho avatar: {e}'}
         cache = avatar_cache_dir()
@@ -378,7 +397,8 @@ class CloudClient:
         meta['files'] = files_meta
         meta['synced_at'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
         _write_json(self.avatar_meta_path(), meta)
-        msg = f'Avatar: tải {downloaded} mới, sẵn có {skipped}' + (f', {errors} lỗi' if errors else '')
+        msg = (f'Avatar: kho Cloud {len(rows)} · tải {downloaded} mới, '
+               f'sẵn có {skipped}' + (f', {errors} lỗi' if errors else ''))
         if progress:
             progress(1, 1, msg)
         return {'ok': True, 'path': cache, 'downloaded': downloaded,
@@ -391,11 +411,12 @@ class CloudClient:
         files = []
         for root, _ds, fns in os.walk(folder):
             for fn in fns:
-                if fn.lower().endswith(('.png', '.jpg', '.jpeg')):
+                if fn.lower().endswith(IMG_EXTS):
                     files.append(os.path.join(root, fn))
         if not files:
             return {'ok': False, 'msg': 'Thư mục không có ảnh avatar.'}
-        ctype = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg'}
+        ctype = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                 '.webp': 'image/webp'}
         ok = err = 0
         for i, path in enumerate(files, 1):
             fn = os.path.basename(path)
@@ -537,9 +558,10 @@ class CloudClient:
         if not sb:
             return []
         try:
-            res = sb.table('profiles').select('id, full_name, role').order('full_name').execute()
+            rows = self._select_all('profiles', 'id, full_name, role')
+            rows.sort(key=lambda r: str(r.get('full_name') or '').casefold())
             return [{'id': r.get('id'), 'name': r.get('full_name'), 'role': r.get('role')}
-                    for r in (res.data or [])]
+                    for r in rows]
         except Exception as e:
             print('Fetch profiles err:', e)
             return []
