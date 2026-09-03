@@ -6,6 +6,7 @@ import sys
 # ── Slide 16:9 chuẩn ──
 SLIDE_W_IN = 13.33
 SLIDE_H_IN = 7.5
+# Gợi ý cắt file (preset 200). Xuất thật dùng opts['slides_per_file'] (0 = một file).
 MAX_SLIDES_PER_FILE = 200
 
 IMG_EXTS = ('.png', '.jpg', '.jpeg', '.webp')

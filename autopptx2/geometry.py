@@ -114,6 +114,56 @@ def n_per_slide_label(n_per_slide):
     return 'Tự' if n <= 0 else str(n)
 
 
+# 0 = gộp một PPTX. Số dương = cắt file khi đủ số slide đó.
+SLIDES_PER_FILE_PRESETS = ('Một file', '100', '200', '300', '500')
+AUTO_SLIDES_PER_FILE = 0
+
+
+def parse_slides_per_file(v, default=AUTO_SLIDES_PER_FILE):
+    """Config / UI → số slide mỗi file. 0 = không cắt (một file)."""
+    if v in (None, 'Một file', 'Mot file', 'một file', 'khong', 'không',
+             'all', 'unlimited', 'gộp', 'gop'):
+        return AUTO_SLIDES_PER_FILE
+    if v == '':
+        return default
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return default
+    if n <= 0:
+        return AUTO_SLIDES_PER_FILE
+    return max(1, min(10000, n))
+
+
+def slides_per_file_label(n):
+    n = parse_slides_per_file(n)
+    return 'Một file' if n <= 0 else str(n)
+
+
+def slides_per_file_menu_values(n):
+    presets = list(SLIDES_PER_FILE_PRESETS)
+    n = parse_slides_per_file(n)
+    if n > 0 and str(n) not in presets:
+        presets.append(str(n))
+    return presets
+
+
+def file_part_limit(n):
+    """Ngưỡng cắt file. 0 = không cắt."""
+    return parse_slides_per_file(n)
+
+
+def file_part_count(slides, slides_per_file):
+    """Số file PPTX dự kiến từ tổng slide."""
+    cap = file_part_limit(slides_per_file)
+    slides = max(0, int(slides or 0))
+    if slides <= 0:
+        return 1
+    if cap <= 0:
+        return 1
+    return max(1, math.ceil(slides / cap))
+
+
 def slide_images(paths, n_per_slide):
     """Ảnh trang đầu (preview): cắt theo tối đa, không pad ô trống."""
     cap = per_slide_max(n_per_slide)

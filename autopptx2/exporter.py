@@ -19,7 +19,7 @@ from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN, MSO_ANCHOR
 from pptx.dml.color import RGBColor
 
-from .constants import (SLIDE_W_IN, SLIDE_H_IN, MAX_SLIDES_PER_FILE,
+from .constants import (SLIDE_W_IN, SLIDE_H_IN,
                         TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_DATA_BG,
                         TABLE_SUB_FG, TABLE_LINE, TABLE_TEXT)
 from . import geometry as G
@@ -27,7 +27,7 @@ from . import effects as FX
 from . import fonts as FN
 from .datasource import (match_row, build_merged_groups, build_info_rows,
                          build_info_table, channel_text, clean, build_overview,
-                         place_label)
+                         place_label, order_groups_by_city)
 
 
 class ExportCancelled(Exception):
@@ -42,6 +42,7 @@ class ExportJob:
     avatar_map: dict                  # {MÃ: đường dẫn avatar} dựng sẵn ở main thread
     out_path: str
     n_per_slide: int = 4
+    slides_per_file: int = 0          # 0 = một file; >0 = cắt mỗi N slide
     img_ar: float | None = 4 / 3      # None = Tự do
     bg_image: str | None = None
     channel_enabled: bool = True
@@ -64,13 +65,13 @@ class ExportReport:
     cancelled: bool = False
 
 
-def estimate(groups, n_per_slide, overview_rows=0):
+def estimate(groups, n_per_slide, overview_rows=0, slides_per_file=0):
     """(số nhóm, số slide dự kiến, số file dự kiến)."""
     n = G.per_slide_max(n_per_slide)
     slides = sum(math.ceil(len(v) / n) for v in groups.values())
     if overview_rows:
         slides += overview_page_count(overview_rows)
-    parts = max(1, math.ceil(slides / MAX_SLIDES_PER_FILE))
+    parts = G.file_part_count(slides, slides_per_file)
     return len(groups), slides, parts
 
 
@@ -809,13 +810,15 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
         ov = build_overview(job.groups, job.excel_by_code, merged)
         n_ov = overview_page_count(len(ov['rows']))
     _, total_slides, _ = estimate(job.groups, job.n_per_slide,
-                                  overview_rows=len(ov['rows']) if ov else 0)
+                                  overview_rows=len(ov['rows']) if ov else 0,
+                                  slides_per_file=job.slides_per_file)
     stem, ext = os.path.splitext(job.out_path)
     ext = ext or ".pptx"
 
     prs = _new_prs()
     layout_slide = _blank_layout(prs)
     slide_count, part, done = 0, 1, 0
+    part_cap = G.file_part_limit(job.slides_per_file)
 
     def save_part(last=False):
         nonlocal prs, layout_slide, slide_count, part
@@ -825,6 +828,10 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
         log(f"Đã lưu: {out}")
 
     try:
+        if part_cap:
+            log(f"Chia file mỗi {part_cap} slide.")
+        else:
+            log("Gộp mọi slide vào một file PPTX.")
         if fx.get('dashboard'):
             try:
                 n_add = _add_overview_slides(prs, layout_slide, job, temp_dir)
@@ -837,7 +844,12 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
             except Exception as e:
                 log(f"Lỗi overview: {e}")
 
-        for code, paths in job.groups.items():
+        groups = job.groups
+        if (job.slide_style or 'report') == 'saleskit':
+            groups = order_groups_by_city(groups, job.excel_by_code, merged)
+            log("Thứ tự BD: tỉnh/thành Bắc → Nam.")
+
+        for code, paths in groups.items():
             if cancel is not None and cancel.is_set():
                 raise ExportCancelled()
             paths = sorted(paths)
@@ -864,7 +876,7 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
             for k, batch in enumerate(batches, 1):
                 if cancel is not None and cancel.is_set():
                     raise ExportCancelled()
-                if slide_count >= MAX_SLIDES_PER_FILE:
+                if part_cap > 0 and slide_count >= part_cap:
                     save_part()
                     part += 1
                     prs = _new_prs()

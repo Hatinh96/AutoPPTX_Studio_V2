@@ -30,7 +30,8 @@ from .datasource import (ExcelSource, ImageLibrary, AvatarIndex, match_row,
                          build_merged_groups, build_info_rows, build_info_table,
                          channel_text, clean, build_overview, screen_qty,
                          place_label, inspect_excel, build_photo_rename_plan,
-                         compare_list_with_master)
+                         compare_list_with_master,
+                         sort_codes_by_city, order_groups_by_city)
 from .thumbs import ThumbCache
 from .editor import EditorCanvas
 from . import exporter
@@ -176,6 +177,7 @@ class App(ctk.CTk):
             'bg_mode': o.get('bg_mode', 'white'),          # white | image
             'bg_path': o.get('bg_path', ''),
             'n_per_slide': G.parse_n_per_slide(o.get('n_per_slide', 0)),
+            'slides_per_file': G.parse_slides_per_file(o.get('slides_per_file', 0)),
             'ar_label': o.get('ar_label', '4:3'),
             'channel_filter': o.get('channel_filter', ALL_CHANNELS),
             'channel_enabled': bool(o.get('channel_enabled', True)),
@@ -971,7 +973,7 @@ class App(ctk.CTk):
                 pass
         win = ctk.CTkToplevel(self)
         win.title('Tùy chọn xuất')
-        win.geometry('400x560')
+        win.geometry('400x700')
         win.attributes('-topmost', True)
         try:
             win.transient(self)
@@ -1199,6 +1201,17 @@ class App(ctk.CTk):
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             command=self.export
         ).pack(fill='x', padx=10, pady=(0, 4))
+        row = ctk.CTkFrame(f, fg_color='transparent')
+        row.pack(fill='x', padx=10, pady=(0, 4))
+        ctk.CTkLabel(row, text='Chia file:', text_color=MUTED).pack(side='left')
+        self.om_spf_step = ctk.CTkOptionMenu(
+            row,
+            values=G.slides_per_file_menu_values(self.opts.get('slides_per_file', 0)),
+            width=128, height=26, fg_color=CARD,
+            button_color=CARD, button_hover_color=BORDER,
+            text_color=TEXT, command=self._on_spf)
+        self.om_spf_step.set(G.slides_per_file_label(self.opts.get('slides_per_file', 0)))
+        self.om_spf_step.pack(side='left', padx=8)
         ctk.CTkButton(
             f, text='Tùy chọn xuất…', height=30,
             fg_color=CARD, hover_color=BORDER, text_color=TEXT,
@@ -1791,6 +1804,36 @@ class App(ctk.CTk):
                       hover_color=BORDER, text_color=TEXT,
                       command=self._update_estimate).pack(fill='x', padx=10,
                                                           pady=(0, 8))
+        f_split = self._card(tab, 'Chia file PPTX')
+        row = ctk.CTkFrame(f_split, fg_color='transparent')
+        row.pack(fill='x', padx=10, pady=2)
+        ctk.CTkLabel(row, text='Mỗi file:', text_color=MUTED).pack(side='left')
+        self.om_spf = ctk.CTkOptionMenu(
+            row,
+            values=G.slides_per_file_menu_values(self.opts.get('slides_per_file', 0)),
+            width=140, height=26, fg_color=CARD,
+            button_color=CARD, button_hover_color=BORDER,
+            text_color=TEXT, command=self._on_spf)
+        self.om_spf.set(G.slides_per_file_label(self.opts.get('slides_per_file', 0)))
+        self.om_spf.pack(side='left', padx=8)
+        row2 = ctk.CTkFrame(f_split, fg_color='transparent')
+        row2.pack(fill='x', padx=10, pady=2)
+        ctk.CTkLabel(row2, text='Hoặc nhập:', text_color=MUTED).pack(side='left')
+        self.ent_spf = ctk.CTkEntry(row2, width=80, height=26, fg_color=CARD)
+        n_spf = G.parse_slides_per_file(self.opts.get('slides_per_file', 0))
+        self.ent_spf.insert(0, '0' if n_spf <= 0 else str(n_spf))
+        self.ent_spf.pack(side='left', padx=8)
+        self.ent_spf.bind('<Return>', self._on_spf_custom)
+        self.ent_spf.bind('<FocusOut>', self._on_spf_custom)
+        ctk.CTkLabel(row2, text='(0 = một file)', text_color=MUTED,
+                     font=ctk.CTkFont(size=11)).pack(side='left')
+        ctk.CTkLabel(
+            f_split,
+            text='Một file = gộp hết slide. Số khác = cắt file khi đủ số slide đó. '
+                 'File rất lớn có thể chậm khi mở PowerPoint.',
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=360, justify='left', anchor='w'
+        ).pack(fill='x', padx=10, pady=(0, 8))
         self.sw_open = ctk.CTkSwitch(tab, text='Mở thư mục sau khi xuất',
                                      command=self._on_open_after,
                                      progress_color=ACCENT)
@@ -1822,9 +1865,10 @@ class App(ctk.CTk):
                       font=ctk.CTkFont(size=15, weight='bold'),
                       fg_color=ACCENT, hover_color=ACCENT_HOVER,
                       command=self.export).pack(fill='x', padx=8, pady=8)
-        ctk.CTkLabel(tab, text='Tự chia file mỗi 200 slide. Có thể huỷ giữa chừng.',
-                     text_color=MUTED,
-                     font=ctk.CTkFont(size=11)).pack(padx=8)
+        self.lbl_export_split = ctk.CTkLabel(
+            tab, text=self._spf_hint_text(),
+            text_color=MUTED, font=ctk.CTkFont(size=11))
+        self.lbl_export_split.pack(padx=8)
 
     # ════════════════════════ CONTROLLER (EditorCanvas gọi) ════════════════════════
     def _resolve_avatar(self, code, row=None, mcode=None, kind=None):
@@ -1845,7 +1889,7 @@ class App(ctk.CTk):
         if self._content_cache is not None:
             return self._content_cache
         groups = self.imglib.groups()
-        codes = list(groups)
+        codes = self._ordered_codes()
         code, paths = None, []
         if codes:
             self.group_idx = max(0, min(self.group_idx, len(codes) - 1))
@@ -1906,8 +1950,7 @@ class App(ctk.CTk):
         return fx
 
     def _excel_location_label(self):
-        groups = self.imglib.groups()
-        codes = list(groups)
+        codes = self._ordered_codes()
         if not codes:
             return ''
         code = codes[max(0, min(self.group_idx, len(codes) - 1))]
@@ -2654,6 +2697,72 @@ class App(ctk.CTk):
         self._invalidate()
         self._update_estimate()
 
+    def _spf_hint_text(self):
+        n = G.parse_slides_per_file(self.opts.get('slides_per_file', 0))
+        if n <= 0:
+            return 'Gộp mọi slide vào một file. Có thể huỷ giữa chừng.'
+        return f'Tự chia file mỗi {n} slide. Có thể huỷ giữa chừng.'
+
+    def _refresh_spf_ui(self):
+        n = G.parse_slides_per_file(self.opts.get('slides_per_file', 0))
+        label = G.slides_per_file_label(n)
+        values = G.slides_per_file_menu_values(n)
+        for attr in ('om_spf', 'om_spf_step'):
+            w = getattr(self, attr, None)
+            if w is None:
+                continue
+            try:
+                if not w.winfo_exists():
+                    continue
+                w.configure(values=values)
+                if w.get() != label:
+                    w.set(label)
+            except Exception:
+                pass
+        ent = getattr(self, 'ent_spf', None)
+        if ent is not None:
+            try:
+                if ent.winfo_exists():
+                    want = '0' if n <= 0 else str(n)
+                    if ent.get().strip() != want:
+                        ent.delete(0, 'end')
+                        ent.insert(0, want)
+            except Exception:
+                pass
+        hint = getattr(self, 'lbl_export_split', None)
+        if hint is not None:
+            try:
+                if hint.winfo_exists():
+                    hint.configure(text=self._spf_hint_text())
+            except Exception:
+                pass
+
+    def _on_spf(self, v):
+        n = G.parse_slides_per_file(v)
+        if G.parse_slides_per_file(self.opts.get('slides_per_file', 0)) == n:
+            return
+        self.opts['slides_per_file'] = n
+        self._schedule_save()
+        self._update_estimate()
+        self._refresh_spf_ui()
+
+    def _on_spf_custom(self, _e=None):
+        ent = getattr(self, 'ent_spf', None)
+        if ent is None:
+            return
+        try:
+            raw = ent.get().strip()
+        except Exception:
+            return
+        if raw == '':
+            return
+        n = G.parse_slides_per_file(
+            raw, default=G.parse_slides_per_file(self.opts.get('slides_per_file', 0)))
+        self.opts['slides_per_file'] = n
+        self._schedule_save()
+        self._update_estimate()
+        self._refresh_spf_ui()
+
     def _on_ar(self, v):
         self.opts['ar_label'] = v
         self._invalidate()
@@ -3299,8 +3408,20 @@ class App(ctk.CTk):
             self._update_estimate()
 
     # ════════════════════════ TIMELINE ════════════════════════
-    def _filtered_codes(self):
+    def _bd_city_order(self):
+        return (self.opts.get('dept') == 'bd'
+                or self.opts.get('slide_style') == 'saleskit')
+
+    def _ordered_codes(self):
+        """Sales: tên file. BD: tỉnh/thành Bắc → Nam."""
         codes = list(self.imglib.groups())
+        if self._bd_city_order():
+            return sort_codes_by_city(
+                codes, self._by_code, getattr(self, '_merged', None))
+        return codes
+
+    def _filtered_codes(self):
+        codes = self._ordered_codes()
         q = self._search.strip().upper()
         if q:
             codes = [c for c in codes if q in c.upper()]
@@ -3322,7 +3443,7 @@ class App(ctk.CTk):
         except Exception:
             pass
         groups = self.imglib.groups()
-        all_codes = list(groups)
+        all_codes = self._ordered_codes()
         codes = self._filtered_codes()
         x = 8
         for code in codes:
@@ -3383,7 +3504,7 @@ class App(ctk.CTk):
                 return
 
     def _select_group(self, idx):
-        codes = list(self.imglib.groups())
+        codes = self._ordered_codes()
         if not codes:
             return
         self.group_idx = max(0, min(idx, len(codes) - 1))
@@ -3489,8 +3610,11 @@ class App(ctk.CTk):
         self._invalidate()
         if hasattr(self, 'editor'):
             self.editor.render()
+        if hasattr(self, 'tl'):
+            self._rebuild_timeline()
         if log_name:
-            self.log(f'Đã áp mẫu "{log_name}".')
+            extra = ' · slide theo tỉnh/thành Bắc → Nam' if style == 'saleskit' else ''
+            self.log(f'Đã áp mẫu "{log_name}"{extra}.')
 
     def _save_preset(self):
         dlg = ctk.CTkInputDialog(text='Tên preset:', title='Lưu bố cục')
@@ -4222,8 +4346,10 @@ class App(ctk.CTk):
             if self.opts.get('fx', {}).get('dashboard', True):
                 ov = build_overview(groups, self._by_code, self._merged)
                 n_ov = len(ov['rows'])
-            ng, ns, np_ = exporter.estimate(groups, self.opts['n_per_slide'],
-                                            overview_rows=n_ov)
+            ng, ns, np_ = exporter.estimate(
+                groups, self.opts['n_per_slide'],
+                overview_rows=n_ov,
+                slides_per_file=self.opts.get('slides_per_file', 0))
             extra = ''
             qa = QA.check(groups, self._by_code, self._merged)
             if qa.missing:
@@ -4235,7 +4361,14 @@ class App(ctk.CTk):
             short = f'{ng} nhóm · ~{ns} slide'
             if qa.missing:
                 short += f' · thiếu {len(qa.missing)} ảnh'
-            full = f'• {ng} nhóm ảnh\n• ~{ns} slide\n• {np_} file PPTX{extra}'
+            cap = G.file_part_limit(self.opts.get('slides_per_file', 0))
+            if np_ <= 1 and cap <= 0:
+                files_txt = '1 file PPTX (gộp hết)'
+            elif np_ <= 1:
+                files_txt = f'1 file PPTX (ngưỡng {cap} slide)'
+            else:
+                files_txt = f'{np_} file PPTX (mỗi {cap} slide)'
+            full = f'• {ng} nhóm ảnh\n• ~{ns} slide\n• {files_txt}{extra}'
         try:
             self.lbl_est.configure(text=short)
         except Exception:
@@ -4265,11 +4398,18 @@ class App(ctk.CTk):
         if self.opts.get('fx', {}).get('dashboard', True):
             ov = build_overview(groups_rel, self._by_code, self._merged)
             n_ov = len(ov['rows'])
-        ng, ns, np_ = exporter.estimate(groups_rel, self.opts['n_per_slide'],
-                                        overview_rows=n_ov)
+        ng, ns, np_ = exporter.estimate(
+            groups_rel, self.opts['n_per_slide'],
+            overview_rows=n_ov,
+            slides_per_file=self.opts.get('slides_per_file', 0))
+        cap = G.file_part_limit(self.opts.get('slides_per_file', 0))
+        if np_ <= 1:
+            split_txt = '1 file'
+        else:
+            split_txt = f'chia {np_} file, mỗi {cap} slide'
         if confirm and not messagebox.askyesno(
                 'Xác nhận xuất',
-                f'{ng} nhóm ảnh → khoảng {ns} slide ({np_} file).\nTiếp tục?'):
+                f'{ng} nhóm ảnh → khoảng {ns} slide ({split_txt}).\nTiếp tục?'):
             return
         folders = self.opts.get('image_folders') or []
         init_dir = folders[0] if folders else None
@@ -4404,6 +4544,9 @@ class App(ctk.CTk):
         # Đường dẫn đã tuyệt đối (nhiều thư mục)
         groups = OrderedDict(
             (code, list(files)) for code, files in groups_rel.items())
+        if self._bd_city_order():
+            groups = order_groups_by_city(
+                groups, self._by_code, getattr(self, '_merged', None))
         avatar_map = {}
         for code in groups:
             p = self._resolve_avatar(code)
@@ -4418,6 +4561,8 @@ class App(ctk.CTk):
             avatar_map=avatar_map,
             out_path=out,
             n_per_slide=self.opts['n_per_slide'],
+            slides_per_file=G.parse_slides_per_file(
+                self.opts.get('slides_per_file', 0)),
             img_ar=AR_CHOICES.get(self.opts['ar_label'], 4 / 3),
             bg_image=(self.opts['bg_path']
                       if self.opts['bg_mode'] == 'image' else None),

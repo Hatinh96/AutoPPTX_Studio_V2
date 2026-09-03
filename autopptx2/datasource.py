@@ -96,6 +96,100 @@ def clean(v):
     return v
 
 
+# Tỉnh/thành Bắc → Nam (sales kit BD). Khóa đã bỏ dấu.
+_CITY_NS = (
+    'ha giang', 'cao bang', 'bac kan', 'tuyen quang', 'lao cai', 'dien bien',
+    'lai chau', 'son la', 'yen bai', 'hoa binh', 'thai nguyen', 'lang son',
+    'quang ninh', 'bac giang', 'phu tho', 'vinh phuc', 'bac ninh', 'ha noi',
+    'hai duong', 'hai phong', 'hung yen', 'thai binh', 'ha nam', 'nam dinh',
+    'ninh binh',
+    'thanh hoa', 'nghe an', 'ha tinh', 'quang binh', 'quang tri', 'hue',
+    'da nang', 'quang nam', 'quang ngai', 'binh dinh', 'phu yen', 'khanh hoa',
+    'gia lai', 'kon tum', 'dak lak', 'dak nong', 'lam dong',
+    'ninh thuan', 'binh thuan', 'phan thiet',
+    'binh phuoc', 'tay ninh', 'binh duong', 'dong nai', 'ba ria vung tau',
+    'ho chi minh',
+    'long an', 'tien giang', 'ben tre', 'tra vinh', 'vinh long', 'dong thap',
+    'an giang', 'kien giang', 'can tho', 'hau giang', 'soc trang', 'bac lieu',
+    'ca mau',
+)
+_CITY_INDEX = {name: i for i, name in enumerate(_CITY_NS)}
+_CITY_STRIP = re.compile(
+    r'^(thanh pho|tinh|tp\.?)\s+', re.IGNORECASE)
+_VI_ASCII = str.maketrans({
+    'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a',
+    'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a',
+    'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
+    'è': 'e', 'é': 'e', 'ẹ': 'e', 'ẻ': 'e', 'ẽ': 'e',
+    'ê': 'e', 'ề': 'e', 'ế': 'e', 'ệ': 'e', 'ể': 'e', 'ễ': 'e',
+    'ì': 'i', 'í': 'i', 'ị': 'i', 'ỉ': 'i', 'ĩ': 'i',
+    'ò': 'o', 'ó': 'o', 'ọ': 'o', 'ỏ': 'o', 'õ': 'o',
+    'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ộ': 'o', 'ổ': 'o', 'ỗ': 'o',
+    'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ợ': 'o', 'ở': 'o', 'ỡ': 'o',
+    'ù': 'u', 'ú': 'u', 'ụ': 'u', 'ủ': 'u', 'ũ': 'u',
+    'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ự': 'u', 'ử': 'u', 'ữ': 'u',
+    'ỳ': 'y', 'ý': 'y', 'ỵ': 'y', 'ỷ': 'y', 'ỹ': 'y',
+    'đ': 'd',
+})
+_CITY_ALIAS = {
+    'hcm': 'ho chi minh',
+    'tphcm': 'ho chi minh',
+    'tp hcm': 'ho chi minh',
+    'sai gon': 'ho chi minh',
+    'hn': 'ha noi',
+    'ha noi': 'ha noi',
+    'thanh pho hue': 'hue',
+    'ba ria - vung tau': 'ba ria vung tau',
+    'brvt': 'ba ria vung tau',
+    'vung tau': 'ba ria vung tau',
+    'da lat': 'lam dong',
+    'nha trang': 'khanh hoa',
+}
+
+
+def norm_city(city):
+    """Tên tỉnh/thành để sắp xếp: bỏ dấu, bỏ tiền tố TP/Tỉnh."""
+    s = str(clean(city) or '').strip().casefold().translate(_VI_ASCII)
+    s = _CITY_STRIP.sub('', s)
+    s = re.sub(r'[\s_\-./]+', ' ', s).strip()
+    return _CITY_ALIAS.get(s, s)
+
+
+def city_sort_key(city):
+    """(có_tên, thứ_tự Bắc→Nam, tên). Thành phố trống xếp cuối."""
+    key = norm_city(city)
+    if not key:
+        return (1, 999, '')
+    return (0, _CITY_INDEX.get(key, 800), key)
+
+
+def sort_codes_by_city(codes, by_code, merged=None):
+    """Mã ảnh / Code_RP theo tỉnh-thành Bắc → Nam, rồi quận, tên."""
+    codes = list(codes or [])
+    by_code = by_code or {}
+    if merged is None:
+        merged = build_merged_groups(by_code)
+
+    def key(code):
+        row, _, _ = match_row(code, by_code, merged)
+        row = row or {}
+        return (
+            city_sort_key(row.get('City')),
+            str(clean(row.get('District')) or '').casefold(),
+            str(clean(row.get('Name')) or '').casefold(),
+            str(code or '').upper(),
+        )
+
+    return sorted(codes, key=key)
+
+
+def order_groups_by_city(groups, by_code, merged=None):
+    """OrderedDict nhóm ảnh theo tỉnh/thành (BD sales kit)."""
+    groups = groups or {}
+    codes = sort_codes_by_city(groups.keys(), by_code, merged)
+    return OrderedDict((c, groups[c]) for c in codes if c in groups)
+
+
 def fmt_num(v):
     """Hiển thị số có phân tách hàng nghìn; chuỗi giữ nguyên."""
     v = clean(v)
