@@ -9,6 +9,7 @@ if ROOT not in sys.path:
 
 from autopptx2.datasource import (
     _quantity_text, build_info_rows, build_info_table, screen_qty,
+    format_district_display, wrap_info_cell, info_row_weights,
 )
 
 
@@ -117,6 +118,21 @@ class QuantityScreensTests(unittest.TestCase):
             ['120 x 180 cm'],
         )
         self.assertEqual(screen_qty(row), 13)
+
+
+class InfoTableDisplayTests(unittest.TestCase):
+    def test_district_strips_quan_prefix(self):
+        self.assertEqual(format_district_display('Quận 9'), '9')
+        self.assertEqual(format_district_display('Q. 1'), '1')
+        self.assertEqual(build_info_rows({'District': 'Quận 9'})[1],
+                         ('District', '9', False))
+
+    def test_address_wraps_long_text(self):
+        addr = '50 Lê Văn Việt, Khu công nghệ cao, TP. Thủ Đức'
+        lines = wrap_info_cell(addr, max_chars=18)
+        self.assertGreater(len(lines), 1)
+        weights = info_row_weights([('Address', addr, False)], 3.0)
+        self.assertGreater(weights[0], 1.0)
 
 
 if __name__ == '__main__':

@@ -5,6 +5,7 @@ Không import Tkinter — mọi hàm gọi được từ worker thread.
 import os
 import re
 import difflib
+import textwrap
 from collections import OrderedDict
 
 from .constants import IMG_EXTS, CODE_SUFFIX_RE
@@ -989,12 +990,51 @@ def _quantity_text(row, n_files=0):
     return '—'
 
 
+def format_district_display(val):
+    """Bảng Thông tin: bỏ tiền tố Quận/Q. — chỉ hiện số hoặc tên."""
+    s = str(clean(val)).strip()
+    if not s:
+        return ''
+    m = re.match(r'^(?:quận|quan|q\.)\s*(.+)$', s, flags=re.I)
+    if m:
+        return m.group(1).strip()
+    return s
+
+
+def _info_value_wrap_chars(col_w_in):
+    """Ước lượng số ký tự mỗi dòng theo chiều rộng cột giá trị (inch)."""
+    return max(10, int(float(col_w_in or 0) * 0.58 * 7.5))
+
+
+def wrap_info_cell(text, max_chars=24):
+    s = str(text or '').strip()
+    if not s:
+        return ['']
+    lines = textwrap.wrap(
+        s, width=max(8, int(max_chars)),
+        break_long_words=False, break_on_hyphens=False)
+    return lines or [s]
+
+
+def info_row_weights(rows, total_w_in=3.0):
+    """Trọng số chiều cao — Address dài được nhiều dòng hơn."""
+    max_chars = _info_value_wrap_chars(total_w_in)
+    weights = []
+    for label, value, _ in rows:
+        if label == 'Address':
+            n = len(wrap_info_cell(value, max_chars))
+            weights.append(max(1.0, n * 1.12))
+        else:
+            weights.append(1.0)
+    return weights
+
+
 def build_info_rows(row, n_files=0):
     """[(nhãn, giá trị, là_dòng_nhấn)] cho khối Thông tin mẫu báo cáo cũ."""
     row = row or {}
     return [
         ("Address", str(clean(row.get('Address'))), False),
-        ("District", str(clean(row.get('District'))), False),
+        ("District", format_district_display(row.get('District')), False),
         ("Quantity", _quantity_text(row, n_files), False),
         ("Traffic / day", fmt_num(row.get('TrafficDay')), True),
         ("Traffic / week", fmt_num(row.get('TrafficWeek')), True),

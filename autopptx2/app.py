@@ -382,6 +382,8 @@ class App(ctk.CTk):
         self._insp_visible = False
         self._rail_btns = {}
         self._export_win = None
+        self._sync_busy = False
+        self._sync_prog_jobs = {}
         self._loc_mode_labels = {
             'gps': 'Theo toạ độ EXIF',
             'auto': 'Mã Excel → GPS',
@@ -393,8 +395,8 @@ class App(ctk.CTk):
         self.shell = ctk.CTkFrame(self, fg_color='transparent')
         self.shell.pack(fill='both', expand=True)
         self.protocol('WM_DELETE_WINDOW', self._on_close)
-        self._set_app_window_icon()
         self.show_login()
+        self.after(50, self._set_app_window_icon)
 
         if windnd is not None:
             try:
@@ -406,10 +408,19 @@ class App(ctk.CTk):
         def _apply():
             try:
                 if sys.platform == 'darwin':
-                    icns = find_asset('app_icon.icns')
-                    if icns:
-                        self.iconbitmap(icns)
-                        return
+                    # iconbitmap(.icns) có thể treo Tk/PyInstaller trên macOS — dùng PNG.
+                    png = find_asset('app_icon_1024.png')
+                    if not png:
+                        pngs = tuple(p for p in WINDOW_ICONS if p.lower().endswith('.png'))
+                        png = find_asset(*pngs)
+                    if png:
+                        from PIL import Image, ImageTk
+                        im = Image.open(png).convert('RGBA')
+                        im = im.resize((256, 256), Image.Resampling.LANCZOS)
+                        photo = ImageTk.PhotoImage(im)
+                        self.iconphoto(True, photo)
+                        self._app_icon_photo = photo
+                    return
                 ico = find_asset('app_icon.ico')
                 png = find_asset('app_icon_1024.png')
                 if not png:
@@ -436,8 +447,9 @@ class App(ctk.CTk):
                 pass
 
         _apply()
-        self.after(50, _apply)
-        self.after(200, _apply)
+        if sys.platform != 'darwin':
+            self.after(50, _apply)
+            self.after(200, _apply)
 
     # ════════════════════════ CONFIG ════════════════════════
     @staticmethod
@@ -5533,12 +5545,37 @@ class App(ctk.CTk):
     def _show_cloud_settings(self):
         self._show_settings()
 
+    def _sync_ui_busy(self, busy):
+        self._sync_busy = bool(busy)
+        try:
+            st = 'disabled' if busy else 'normal'
+            self.btn_sync_cloud.configure(
+                state=st,
+                text='Đang đồng bộ…' if busy else 'Tải FILE TỔNG + Avatar từ Cloud')
+        except Exception:
+            pass
+
+    def _sync_prog_throttled(self, key, handler, *args):
+        """Gom cập nhật progress — tránh flood after(0) làm treo UI (macOS)."""
+        self._sync_prog_jobs[key] = args
+        job = getattr(self, f'_sync_prog_job_{key}', None)
+        if job is not None:
+            return
+        def _flush():
+            setattr(self, f'_sync_prog_job_{key}', None)
+            pending = self._sync_prog_jobs.pop(key, None)
+            if pending is not None:
+                handler(*pending)
+        jid = self.after(100, _flush)
+        setattr(self, f'_sync_prog_job_{key}', jid)
+
     def _excel_prog(self, frac, text=''):
         try:
             if text:
                 self._show_sync_progress(True)
             self.excel_progress.set(max(0.0, min(1.0, float(frac))))
             self.lbl_excel_prog.configure(text=text)
+            self.update_idletasks()
         except Exception:
             pass
 
@@ -5548,26 +5585,46 @@ class App(ctk.CTk):
                 self._show_sync_progress(True)
             self.avatar_progress.set(cur / max(1, total))
             self.lbl_avatar_prog.configure(text=text)
+            self.update_idletasks()
         except Exception:
             pass
 
     def _sync_all_cloud(self, silent=True):
+        if getattr(self, '_sync_busy', False):
+            return
         if not self.cloud.logged_in():
             if not silent:
                 messagebox.showwarning('Cloud', 'Cần đăng nhập tài khoản công ty.')
             return
+        self._sync_ui_busy(True)
         self._show_sync_progress(True)
+        self.log('☁ Đang đồng bộ FILE TỔNG + Avatar…')
 
         def work():
-            def ep(frac, text):
-                self.after(0, lambda: self._excel_prog(frac, text))
-            ex = self.cloud.sync_excel(progress=ep, force=not silent)
+            try:
+                def ep(frac, text):
+                    self.after(0, lambda f=frac, t=text: self._sync_prog_throttled(
+                        'excel', self._excel_prog, f, t))
+                ex = self.cloud.sync_excel(progress=ep, force=not silent)
 
-            def ap(cur, total, text):
-                self.after(0, lambda: self._avatar_prog(cur, total, text))
-            av = self.cloud.sync_avatars(progress=ap)
-            self.after(0, lambda: self._after_cloud_sync(ex, av, silent))
+                def ap(cur, total, text):
+                    self.after(0, lambda c=cur, n=total, t=text: self._sync_prog_throttled(
+                        'avatar', self._avatar_prog, c, n, t))
+                av = self.cloud.sync_avatars(progress=ap)
+                self.after(0, lambda: self._after_cloud_sync(ex, av, silent))
+            except Exception as e:
+                err = str(e)
+                self.after(0, lambda m=err: self._sync_failed(m, silent))
         threading.Thread(target=work, daemon=True).start()
+
+    def _sync_failed(self, msg, silent):
+        self._sync_ui_busy(False)
+        self.log('☁ Lỗi đồng bộ: ' + msg)
+        if not silent:
+            messagebox.showwarning('Đám mây', msg or 'Đồng bộ thất bại.')
+        self.after(500, lambda: (
+            self._excel_prog(0, ''), self._avatar_prog(0, 1, ''),
+            self._show_sync_progress(False)))
 
     def _after_cloud_sync(self, ex, av, silent):
         if ex.get('ok') and ex.get('path'):
@@ -5585,15 +5642,32 @@ class App(ctk.CTk):
             pass
         if av.get('ok') and av.get('path'):
             self.opts['avatar_folder'] = av['path']
-            self.avatars.set_folder(av['path'])
-            try:
-                self.lbl_avatars.configure(text='☁ Cache Cloud: ' + av['path'])
-                self.lbl_avatar_sync.configure(text='👤 ' + self.cloud.avatar_status_text())
-            except Exception:
-                pass
-            self._invalidate()
-        msg = ' · '.join(x.get('msg', '') for x in (ex, av) if x)
-        self.log('☁ ' + msg)
+            cache_path = av['path']
+
+            def _scan_avatars():
+                try:
+                    self.avatars.set_folder(cache_path)
+                except Exception:
+                    pass
+                self.after(0, lambda p=cache_path, s=silent, e=ex, a=av: self._avatars_index_ready(p, s, e, a))
+
+            threading.Thread(target=_scan_avatars, daemon=True).start()
+        else:
+            self._sync_finish(ex, av, silent)
+
+    def _avatars_index_ready(self, cache_path, silent, ex, av):
+        try:
+            self.lbl_avatars.configure(text='☁ Cache Cloud: ' + cache_path)
+            self.lbl_avatar_sync.configure(text='👤 ' + self.cloud.avatar_status_text())
+        except Exception:
+            pass
+        self._invalidate()
+        self._sync_finish(ex, av, silent)
+
+    def _sync_finish(self, ex, av, silent):
+        self._sync_ui_busy(False)
+        msg = ' · '.join(x.get('msg', '') for x in (ex, av) if x and x.get('msg'))
+        self.log('☁ ' + (msg or 'Đồng bộ xong.'))
         if not silent:
             if ex.get('ok') and av.get('ok'):
                 messagebox.showinfo('Đám mây', msg)
@@ -5929,7 +6003,17 @@ class App(ctk.CTk):
 
 
 def main():
+    if getattr(sys, 'frozen', False):
+        import multiprocessing
+        multiprocessing.freeze_support()
+    if sys.platform == 'darwin':
+        os.environ.setdefault('OBJC_DISABLE_INITIALIZE_FORK_SAFETY', 'YES')
     app = App()
+    try:
+        app.update_idletasks()
+        app.update()
+    except Exception:
+        pass
     app.mainloop()
 
 

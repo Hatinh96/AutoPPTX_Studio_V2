@@ -1,4 +1,5 @@
 """Màn hình đăng nhập Golden Asia — Supabase Auth."""
+import threading
 import tkinter as tk
 import customtkinter as ctk
 
@@ -146,13 +147,31 @@ def build_login(host, app):
     for w in (ent_email, ent_pw):
         w.bind('<Return>', _go)
 
-    saved = C.load_saved_creds()
-    if saved:
-        ent_email.insert(0, saved.get('email', ''))
-        ent_pw.insert(0, saved.get('pw', ''))
-        remember.set(True)
-        host.after(120, ent_pw.focus_set)
-    else:
-        host.after(120, ent_email.focus_set)
+    host.after(120, ent_email.focus_set)
+
+    def _apply_saved(saved):
+        if not saved:
+            return
+        try:
+            if not host.winfo_exists():
+                return
+            ent_email.insert(0, saved.get('email', ''))
+            ent_pw.insert(0, saved.get('pw', ''))
+            remember.set(True)
+            ent_pw.focus_set()
+        except Exception:
+            pass
+
+    def _load_saved_async():
+        try:
+            saved = C.load_saved_creds()
+        except Exception:
+            saved = None
+        try:
+            host.after(0, lambda: _apply_saved(saved))
+        except Exception:
+            pass
+
+    threading.Thread(target=_load_saved_async, daemon=True).start()
 
     return widgets

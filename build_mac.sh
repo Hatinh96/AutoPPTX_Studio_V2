@@ -9,6 +9,8 @@ python3 -m pip install pyinstaller
 python3 -m PyInstaller --noconfirm AutoPPTX_Studio_V2.spec
 
 if [ -d "dist/AutoPPTX_Studio_V2.app" ]; then
+    echo "Removing quarantine xattr (Gatekeeper)..."
+    xattr -cr "dist/AutoPPTX_Studio_V2.app" 2>/dev/null || true
     echo "Compressing .app bundle to dist/AutoPPTX_Studio_V2-macOS.zip..."
     ditto -c -k --sequesterRsrc --keepParent "dist/AutoPPTX_Studio_V2.app" "dist/AutoPPTX_Studio_V2-macOS.zip"
     echo "Build complete! Output: dist/AutoPPTX_Studio_V2-macOS.zip"

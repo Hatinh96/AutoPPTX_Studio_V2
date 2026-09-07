@@ -29,6 +29,7 @@ from . import effects as FX
 from . import fonts as FN
 from .datasource import (match_row, build_merged_groups, build_info_rows,
                          build_info_table, channel_text, clean, build_overview,
+                         wrap_info_cell, info_row_weights, _info_value_wrap_chars,
                          place_label, order_groups, filter_groups_by_geo,
                          group_export_chunks, screen_qty)
 
@@ -276,13 +277,18 @@ def _add_info_table(slide, info_rows, ninfo, font_cfg):
     label_rgb = RGBColor(*[int(c + (255 - c) * 0.45) for c in (vr[0], vr[1], vr[2])])
     accent_rgb = _hex_rgb(ninfo.get('accent_color') or '#2563eb', (37, 99, 235))
     size_pt = float(ninfo.get('size', 12))
+    op = ninfo.get('opacity', 100)
 
-    row_h = Inches(max(0.18, h / len(rows)))
-    for i, (label, value, accent) in enumerate(rows):
+    weights = info_row_weights(rows, w)
+    tot_w = sum(weights) or 1.0
+    wrap_chars = _info_value_wrap_chars(w)
+
+    for i, wt in enumerate(weights):
         try:
-            table.rows[i].height = row_h
+            table.rows[i].height = Inches(max(0.16, h * wt / tot_w))
         except Exception:
             pass
+    for i, (label, value, accent) in enumerate(rows):
         c0, c1 = table.cell(i, 0), table.cell(i, 1)
         for c in (c0, c1):
             c.fill.background()
@@ -300,17 +306,21 @@ def _add_info_table(slide, info_rows, ninfo, font_cfg):
         f0.size = Pt(max(6, size_pt * 0.85))
         f0.bold = False
         f0.color.rgb = label_rgb
-        p1 = c1.text_frame.paragraphs[0]
-        p1.text = value
-        p1.alignment = PP_ALIGN.RIGHT
-        f1 = _p_run(p1).font
-        f1.name = FN.safe_family(fname, value)
-        f1.bold = True
-        f1.size = Pt(max(7, size_pt * (1.5 if accent else 1.0)))
-        f1.color.rgb = accent_rgb if accent else vr
-        op = ninfo.get('opacity', 100)
         _apply_run_alpha(_p_run(p0), op)
-        _apply_run_alpha(_p_run(p1), op)
+        tf1 = c1.text_frame
+        lines = (wrap_info_cell(value, wrap_chars) if label == 'Address'
+                 else [str(value)])
+        tf1.clear()
+        for j, line in enumerate(lines):
+            p1 = tf1.paragraphs[0] if j == 0 else tf1.add_paragraph()
+            p1.text = line
+            p1.alignment = PP_ALIGN.RIGHT
+            f1 = _p_run(p1).font
+            f1.name = FN.safe_family(fname, line)
+            f1.bold = True
+            f1.size = Pt(max(7, size_pt * (1.5 if accent else 1.0)))
+            f1.color.rgb = accent_rgb if accent else vr
+            _apply_run_alpha(_p_run(p1), op)
 
 
 def _add_saleskit_table(slide, info_table, ninfo, font_cfg):

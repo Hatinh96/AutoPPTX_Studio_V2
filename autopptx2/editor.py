@@ -18,6 +18,7 @@ import tkinter as tk
 
 from PIL import Image, ImageTk, ImageDraw
 
+from .datasource import wrap_info_cell, info_row_weights, _info_value_wrap_chars
 from . import geometry as G
 from . import style as ST
 from . import effects as FX
@@ -348,12 +349,17 @@ class EditorCanvas(tk.Canvas):
         accent_col = L['info'].get('accent_color') or '#2563eb'
         op = int(L['info'].get('opacity', 100) or 100)
         S = self.S
-        rh = hpx / len(rows)
         pad = 3
+        w_in = float(L['info'].get('w') or wpx / max(S, 1))
+        wrap_chars = _info_value_wrap_chars(w_in)
+        weights = info_row_weights(rows, w_in)
+        tot_w = sum(weights) or 1.0
         tmp = Image.new('RGBA', (max(4, int(wpx)), max(4, int(hpx))), (0, 0, 0, 0))
         draw = ImageDraw.Draw(tmp)
+        y_cur = 0.0
         for i, (label, value, accent) in enumerate(rows):
-            ym = int(i * rh + rh / 2)
+            rh = hpx * weights[i] / tot_w
+            ym = y_cur + rh / 2
             lab_px = max(7, int(round(base_pt * 0.85 * S / 72)))
             val_pt = base_pt * (1.5 if accent else 1.0)
             val_px = max(7, int(round(val_pt * S / 72)))
@@ -361,10 +367,17 @@ class EditorCanvas(tk.Canvas):
             lr, lg, lb = ST.hex_rgb(label_col)
             vr, vg, vb = ST.hex_rgb(accent_col if accent else body_col)
             lf = ST.load_font_for_text(fname, lab_px, False, False, fpath, fidx, label)
-            vf = ST.load_font_for_text(fname, val_px, True, False, fpath, fidx, str(value))
             draw.text((pad, ym), label, font=lf, fill=(lr, lg, lb, a), anchor='lm')
-            draw.text((int(wpx) - pad, ym), str(value), font=vf,
-                      fill=(vr, vg, vb, a), anchor='rm')
+            lines = (wrap_info_cell(value, wrap_chars) if label == 'Address'
+                     else [str(value)])
+            vf = ST.load_font_for_text(fname, val_px, True, False, fpath, fidx,
+                                       '\n'.join(lines))
+            line_h = max(val_px + 2, int(rh / max(1, len(lines))))
+            start_y = ym - (len(lines) - 1) * line_h / 2
+            for j, line in enumerate(lines):
+                draw.text((int(wpx) - pad, int(start_y + j * line_h)), line,
+                          font=vf, fill=(vr, vg, vb, a), anchor='rm')
+            y_cur += rh
         ph = ImageTk.PhotoImage(tmp)
         self._photos['info'].append(ph)
         self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)

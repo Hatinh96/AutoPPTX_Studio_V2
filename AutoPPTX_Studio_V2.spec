@@ -16,6 +16,10 @@ _mac_icon = 'app_icon.icns' if os.path.exists('app_icon.icns') else _win_icon
 
 block_cipher = None
 
+_rthooks = []
+if sys.platform == 'darwin':
+    _rthooks.append(os.path.join('hooks', 'rthook_darwin.py'))
+
 # Chỉ đóng gói logo login/icon. KHÔNG nhét Data avatar (hàng trăm MB, tải lúc đồng bộ).
 datas = [(ctk_path, 'customtkinter')]
 _logo_names = (
@@ -78,7 +82,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=_rthooks,
     excludes=excludes,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

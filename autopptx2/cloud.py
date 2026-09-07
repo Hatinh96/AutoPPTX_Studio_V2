@@ -11,6 +11,7 @@ import datetime
 import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 from .constants import (CONFIG_DIR, CONFIG_PATH, V1_CREDS_PATH, KEYRING_SERVICE,
                         SUPABASE_URL, SUPABASE_ANON_KEY, IMG_EXTS)
@@ -24,6 +25,34 @@ try:
     import keyring
 except ImportError:
     keyring = None
+
+_KEYRING_TIMEOUT = 2.5 if (sys.platform == 'darwin' or getattr(sys, 'frozen', False)) else 8.0
+
+
+def _keyring_get_password(service, username):
+    """Keychain macOS / app đóng gói có thể treo — giới hạn thời gian."""
+    if not keyring or not username:
+        return None
+    if _KEYRING_TIMEOUT <= 0:
+        try:
+            return keyring.get_password(service, username)
+        except Exception:
+            return None
+    box = {'pw': None}
+
+    def work():
+        try:
+            box['pw'] = keyring.get_password(service, username)
+        except Exception:
+            pass
+
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    t.join(_KEYRING_TIMEOUT)
+    if t.is_alive():
+        print('keyring: timeout — bỏ qua Keychain, dùng file config nếu có')
+        return None
+    return box['pw']
 
 _AVATAR_STRIP = re.compile(r'(_Ava|AA|A)$', re.IGNORECASE)
 
@@ -117,11 +146,10 @@ def load_saved_creds():
                 except Exception:
                     pw = ''
             break
-    if email and keyring:
-        try:
-            pw = keyring.get_password(KEYRING_SERVICE, email) or pw
-        except Exception:
-            pass
+    if email and not pw:
+        got = _keyring_get_password(KEYRING_SERVICE, email)
+        if got:
+            pw = got
     return {'email': email, 'pw': pw} if email else None
 
 
@@ -162,6 +190,7 @@ class CloudClient:
         self.url = (url or SUPABASE_URL).strip()
         self.key = (key or SUPABASE_ANON_KEY).strip()
         self._client = None
+        self._api_lock = threading.Lock()
         self.user_id = None
         self.email = None
         self.role = 'user'
@@ -308,7 +337,8 @@ class CloudClient:
         if progress:
             progress(0.6, 'Đang tải Excel…')
         try:
-            data = sb.storage.from_('excel-data').download(row['storage_path'])
+            with self._api_lock:
+                data = sb.storage.from_('excel-data').download(row['storage_path'])
             with open(cache_path, 'wb') as f:
                 f.write(data)
         except Exception as e:
@@ -386,13 +416,21 @@ class CloudClient:
     def avatar_meta_path(self):
         return os.path.join(avatar_cache_dir(), 'sync_meta.json')
 
-    def avatar_status_text(self):
-        d = avatar_cache_dir()
+    @staticmethod
+    def _count_local_avatars(folder):
         n = 0
-        if os.path.isdir(d):
-            for _r, _ds, files in os.walk(d):
-                n += sum(1 for f in files if f.lower().endswith(IMG_EXTS))
-        last = _read_json(self.avatar_meta_path()).get('synced_at', '')
+        if not folder or not os.path.isdir(folder):
+            return 0
+        for _r, _ds, files in os.walk(folder):
+            n += sum(1 for f in files if f.lower().endswith(IMG_EXTS))
+        return n
+
+    def avatar_status_text(self):
+        meta = _read_json(self.avatar_meta_path())
+        n = meta.get('local_count')
+        if n is None:
+            n = self._count_local_avatars(avatar_cache_dir())
+        last = meta.get('synced_at', '')
         return f'{n} ảnh trong kho' + (f' · {last}' if last else '')
 
     def sync_avatars(self, progress=None):
@@ -426,29 +464,24 @@ class CloudClient:
         need = len(to_dl)
         downloaded = errors = 0
         if need:
-            lock_n = {'n': 0, 'ok': 0, 'err': 0}
-
-            def _one(item):
+            for i, item in enumerate(to_dl, 1):
                 sp, up, local_fp = item
                 try:
-                    data = sb.storage.from_('avatars').download(sp)
+                    with self._api_lock:
+                        data = sb.storage.from_('avatars').download(sp)
                     os.makedirs(os.path.dirname(local_fp), exist_ok=True)
                     with open(local_fp, 'wb') as f:
                         f.write(data)
                     files_meta[sp] = up
-                    lock_n['ok'] += 1
+                    downloaded += 1
                 except Exception as e:
                     print('Avatar download err:', sp, e)
-                    lock_n['err'] += 1
-                lock_n['n'] += 1
-                if progress and (lock_n['n'] % 4 == 0 or lock_n['n'] == need):
-                    progress(lock_n['n'], need, f'Đang tải {lock_n["ok"]}/{need}…')
-
-            with ThreadPoolExecutor(max_workers=10) as ex:
-                list(ex.map(_one, to_dl))
-            downloaded, errors = lock_n['ok'], lock_n['err']
+                    errors += 1
+                if progress and (i % 8 == 0 or i == need):
+                    progress(i, need, f'Đang tải {downloaded}/{need}…')
         meta['files'] = files_meta
         meta['synced_at'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
+        meta['local_count'] = self._count_local_avatars(cache)
         _write_json(self.avatar_meta_path(), meta)
         msg = (f'Avatar: kho Cloud {len(rows)} · tải {downloaded} mới, '
                f'sẵn có {skipped}' + (f', {errors} lỗi' if errors else ''))
