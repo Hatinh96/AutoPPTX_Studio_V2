@@ -170,6 +170,24 @@ def slide_images(paths, n_per_slide):
     return [p for p in (paths or []) if p][:cap]
 
 
+def build_slide_batches(paths, n_per_slide, screen_count=0, pad_blank=False):
+    """Chia ảnh thành các slide. pad_blank + screen_count → đủ ô theo số màn."""
+    n = per_slide_max(n_per_slide)
+    paths = [p for p in (paths or []) if p]
+    if pad_blank and int(screen_count or 0) > 0:
+        total_cells = int(math.ceil(int(screen_count) / n) * n)
+        cells = paths + [None] * max(0, total_cells - len(paths))
+        cells = cells[:total_cells]
+        return [cells[i:i + n] for i in range(0, len(cells), n)]
+    if not paths:
+        return []
+    return [paths[i:i + n] for i in range(0, len(paths), n)]
+
+
+def slides_for_group(paths, n_per_slide, screen_count=0, pad_blank=False):
+    return len(build_slide_batches(paths, n_per_slide, screen_count, pad_blank))
+
+
 def grid_dims(n):
     """(cột, hàng) cho n ảnh thật trên slide — không chừa ô trống."""
     try:

@@ -5,6 +5,7 @@ và threading.Event (huỷ). Mọi thông số được chụp sẵn vào Export
 main thread trước khi chạy.
 """
 import os
+import re
 import math
 import time
 import shutil
@@ -14,6 +15,7 @@ from dataclasses import dataclass, field
 import datetime
 
 from PIL import Image, ImageDraw
+from pptx.enum.shapes import MSO_SHAPE
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import MSO_AUTO_SIZE, PP_ALIGN, MSO_ANCHOR
@@ -27,7 +29,8 @@ from . import effects as FX
 from . import fonts as FN
 from .datasource import (match_row, build_merged_groups, build_info_rows,
                          build_info_table, channel_text, clean, build_overview,
-                         place_label, order_groups_by_city)
+                         place_label, order_groups, filter_groups_by_geo,
+                         group_export_chunks, screen_qty)
 
 
 class ExportCancelled(Exception):
@@ -51,6 +54,12 @@ class ExportJob:
     fx: dict = field(default_factory=dict)        # đóng dấu / mini-map / AI
     excel_rows: list = field(default_factory=list)  # mọi dòng (khu/loại màn)
     slide_style: str = 'report'                   # report | saleskit
+    pad_blank_slides: bool = False                # slide trắng / ô trống theo số màn
+    sort_mode: str = 'city'                       # city | list
+    city_filter: str = ''
+    district_filter: str = ''
+    split_export_by: str = 'none'                 # none | city | district
+    export_pdf: bool = False
 
 
 @dataclass
@@ -65,14 +74,27 @@ class ExportReport:
     cancelled: bool = False
 
 
-def estimate(groups, n_per_slide, overview_rows=0, slides_per_file=0):
+def estimate(groups, n_per_slide, overview_rows=0, slides_per_file=0,
+             by_code=None, merged=None, pad_blank=False):
     """(số nhóm, số slide dự kiến, số file dự kiến)."""
-    n = G.per_slide_max(n_per_slide)
-    slides = sum(math.ceil(len(v) / n) for v in groups.values())
+    by_code = by_code or {}
+    if merged is None and by_code:
+        merged = build_merged_groups(by_code)
+    slides = 0
+    for code, paths in (groups or {}).items():
+        row, _, _ = match_row(code, by_code, merged)
+        sq = screen_qty(row) if pad_blank else 0
+        slides += G.slides_for_group(paths, n_per_slide, sq, pad_blank)
     if overview_rows:
         slides += overview_page_count(overview_rows)
     parts = G.file_part_count(slides, slides_per_file)
-    return len(groups), slides, parts
+    return len(groups or {}), slides, parts
+
+
+def _safe_filename_part(text, max_len=48):
+    s = re.sub(r'[<>:"/\\|?*]+', '_', str(text or '').strip())
+    s = re.sub(r'\s+', '_', s).strip('._')
+    return (s[:max_len] if s else 'Export')
 
 
 OV_FIRST = 12
@@ -493,8 +515,8 @@ def _add_contained_picture(slide, src, bx, by, bw, bh, iar):
 
 
 def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
-    """Xếp lưới ảnh trong vùng — toạ độ ô lấy từ geometry.grid_cells
-    (đúng bằng preview). Ảnh dọc: contain tỉ lệ gốc; ảnh ngang: theo fit_mode."""
+    """Xếp lưới ảnh trong vùng — None trong paths = ô trống (slide trắng)."""
+    paths = list(paths or [])
     num = len(paths)
     if num == 0:
         return
@@ -509,6 +531,17 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
     cells = G.grid_cells(area, num, img_ar, gap)
 
     for path, (bx, by, bw, bh) in zip(paths, cells):
+        if not path:
+            try:
+                sh = slide.shapes.add_shape(
+                    MSO_SHAPE.RECTANGLE, Inches(bx), Inches(by),
+                    Inches(bw), Inches(bh))
+                sh.fill.solid()
+                sh.fill.fore_color.rgb = RGBColor(245, 245, 245)
+                sh.line.color.rgb = RGBColor(210, 210, 210)
+            except Exception:
+                pass
+            continue
         iw = ih = 0
         try:
             iw, ih = G.image_size_upright(path)
@@ -788,174 +821,303 @@ def _add_overview_slides(prs, layout_slide, job, temp_dir):
 # ════════════════════════════════════════════════════════════
 #  Hàm xuất chính
 # ════════════════════════════════════════════════════════════
-def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
-    """Chạy trong worker thread. Trả ExportReport."""
-    t0 = time.time()
-    rep = ExportReport(groups=len(job.groups))
-    log = log_cb or (lambda s: None)
-    temp_dir = tempfile.mkdtemp(prefix="autopptx2_")
+def _try_export_pdf(pptx_path, log):
+    """Xuất PDF cạnh PPTX — cần Microsoft PowerPoint trên Windows."""
+    pdf_path = os.path.splitext(pptx_path)[0] + '.pdf'
+    try:
+        import comtypes.client
+        pp = comtypes.client.CreateObject('PowerPoint.Application')
+        pp.Visible = 1
+        pres = pp.Presentations.Open(os.path.abspath(pptx_path), WithWindow=False)
+        pres.SaveAs(os.path.abspath(pdf_path), 32)
+        pres.Close()
+        pp.Quit()
+        log(f'PDF: {pdf_path}')
+        return pdf_path
+    except Exception as e:
+        log(f'Không xuất PDF ({os.path.basename(pptx_path)}): {e}')
+        return ''
 
+
+def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_cb,
+                         cancel, done_start, total_slides, include_overview=False):
+    """Ghi một file PPTX từ dict groups."""
     L = job.layout
     font_cfg = L.get('font', {})
     vis = job.visible or {}
+    merged = build_merged_groups(job.excel_by_code)
+    fx = job.fx or {}
 
     def shown(name):
         return vis.get(name, True)
 
-    merged = build_merged_groups(job.excel_by_code)
-    ov = None
-    n_ov = 0
-    fx = job.fx or {}
-    if fx.get('dashboard'):
-        ov = build_overview(job.groups, job.excel_by_code, merged)
-        n_ov = overview_page_count(len(ov['rows']))
-    _, total_slides, _ = estimate(job.groups, job.n_per_slide,
-                                  overview_rows=len(ov['rows']) if ov else 0,
-                                  slides_per_file=job.slides_per_file)
-    stem, ext = os.path.splitext(job.out_path)
-    ext = ext or ".pptx"
-
+    stem, ext = os.path.splitext(out_path)
+    ext = ext or '.pptx'
     prs = _new_prs()
     layout_slide = _blank_layout(prs)
-    slide_count, part, done = 0, 1, 0
+    slide_count, part, done = 0, 1, done_start
     part_cap = G.file_part_limit(job.slides_per_file)
 
     def save_part(last=False):
         nonlocal prs, layout_slide, slide_count, part
-        out = job.out_path if (last and part == 1) else f"{stem}_Part_{part}{ext}"
-        prs.save(out)
-        rep.files.append(out)
-        log(f"Đã lưu: {out}")
+        target = out_path if (last and part == 1) else f"{stem}_Part_{part}{ext}"
+        prs.save(target)
+        rep.files.append(target)
+        log(f'Đã lưu: {target}')
+        if job.export_pdf:
+            _try_export_pdf(target, log)
 
-    try:
-        if part_cap:
-            log(f"Chia file mỗi {part_cap} slide.")
-        else:
-            log("Gộp mọi slide vào một file PPTX.")
-        if fx.get('dashboard'):
-            try:
-                n_add = _add_overview_slides(prs, layout_slide, job, temp_dir)
-                slide_count += n_add
-                rep.slides += n_add
-                done += n_add
-                log("Đã tạo {} slide Overview (ảnh × màn hình).".format(n_add))
-                if progress_cb:
-                    progress_cb(done, total_slides)
-            except Exception as e:
-                log(f"Lỗi overview: {e}")
+    if include_overview and fx.get('dashboard'):
+        try:
+            n_add = _add_overview_slides(prs, layout_slide, job, temp_dir)
+            slide_count += n_add
+            rep.slides += n_add
+            done += n_add
+            log(f'Đã tạo {n_add} slide Overview.')
+            if progress_cb:
+                progress_cb(done, total_slides)
+        except Exception as e:
+            log(f'Lỗi overview: {e}')
 
-        groups = order_groups_by_city(job.groups, job.excel_by_code, merged)
-        log("Thứ tự slide: tỉnh/thành Bắc → Nam, rồi quận.")
+    sort_hint = ('thứ tự list Excel' if job.sort_mode == 'list'
+                 else 'tỉnh/thành Bắc → Nam, rồi quận')
+    log(f'Thứ tự slide: {sort_hint}.')
 
-        for code, paths in groups.items():
+    for code, paths in groups.items():
+        if cancel is not None and cancel.is_set():
+            raise ExportCancelled()
+        paths = sorted(p for p in (paths or []) if p)
+        row, mcode, kind = match_row(code, job.excel_by_code, merged)
+        if kind == 'fuzzy':
+            rep.fuzzy.append((code, mcode))
+            log(f"≈ Mã '{code}' khớp gần đúng với Excel '{mcode}'")
+        elif kind == 'none' and job.excel_by_code:
+            rep.unmatched.append(code)
+
+        name_val = str(clean(row.get('Name'))).strip() or code
+        sq = screen_qty(row) if job.pad_blank_slides else 0
+        photo_n = len(paths)
+        info_rows = build_info_rows(row, photo_n or sq or 1)
+        sibs = [r for r in (job.excel_rows or [])
+                if str(r.get('Code_RP') or '').strip().upper()
+                == str((row or {}).get('Code_RP') or mcode or code or '').upper()]
+        info_table = build_info_table(row, sibs or [row])
+        avatar_path = job.avatar_map.get(code.upper())
+        if not avatar_path and shown('avatar'):
+            rep.missing_avatars.append(code)
+
+        batches = G.build_slide_batches(
+            paths, job.n_per_slide, sq, job.pad_blank_slides)
+        K = len(batches)
+        for k, batch in enumerate(batches, 1):
             if cancel is not None and cancel.is_set():
                 raise ExportCancelled()
-            paths = sorted(paths)
-            row, mcode, kind = match_row(code, job.excel_by_code, merged)
-            if kind == 'fuzzy':
-                rep.fuzzy.append((code, mcode))
-                log(f"≈ Mã '{code}' khớp gần đúng với Excel '{mcode}'")
-            elif kind == 'none' and job.excel_by_code:
-                rep.unmatched.append(code)
+            if part_cap > 0 and slide_count >= part_cap:
+                save_part()
+                part += 1
+                prs = _new_prs()
+                layout_slide = _blank_layout(prs)
+                slide_count = 0
 
-            name_val = str(clean(row.get('Name'))).strip() or code
-            info_rows = build_info_rows(row, len(paths))
-            sibs = [r for r in (job.excel_rows or [])
-                    if str(r.get('Code_RP') or '').strip().upper()
-                    == str((row or {}).get('Code_RP') or mcode or code or '').upper()]
-            info_table = build_info_table(row, sibs or [row])
-            avatar_path = job.avatar_map.get(code.upper())
-            if not avatar_path and shown('avatar'):
-                rep.missing_avatars.append(code)
+            slide = prs.slides.add_slide(layout_slide)
+            slide_count += 1
+            rep.slides += 1
+            if job.bg_image:
+                try:
+                    _add_bg(slide, prs, job.bg_image)
+                except Exception as e:
+                    log(f'Lỗi ảnh nền: {e}')
 
-            n = G.per_slide_max(job.n_per_slide)
-            batches = [paths[k:k + n] for k in range(0, len(paths), n)]
-            K = len(batches)
-            for k, batch in enumerate(batches, 1):
-                if cancel is not None and cancel.is_set():
-                    raise ExportCancelled()
-                if part_cap > 0 and slide_count >= part_cap:
-                    save_part()
-                    part += 1
-                    prs = _new_prs()
-                    layout_slide = _blank_layout(prs)
-                    slide_count = 0
+            if shown('image'):
+                fx_img = dict(job.fx or {})
+                fx_img['location_excel'] = place_label(row)
+                _place_images(slide, batch, L['image'], job.img_ar, temp_dir, fx_img)
 
-                slide = prs.slides.add_slide(layout_slide)
-                slide_count += 1
-                rep.slides += 1
-                if job.bg_image:
-                    try:
-                        _add_bg(slide, prs, job.bg_image)
-                    except Exception as e:
-                        log(f"Lỗi ảnh nền: {e}")
+            if shown('avatar') and avatar_path:
+                try:
+                    _place_avatar(slide, avatar_path, L['avatar'], temp_dir)
+                except Exception as e:
+                    log(f'Lỗi avatar {code}: {e}')
 
-                if shown('image'):
-                    fx_img = dict(job.fx or {})
-                    fx_img['location_excel'] = place_label(row)
-                    _place_images(slide, batch, L['image'], job.img_ar, temp_dir,
-                                   fx_img)
+            if shown('title'):
+                tcfg = L['title']
+                tx, ty, tw, thh = G.title_box(tcfg)
+                tb = slide.shapes.add_textbox(Inches(tx), Inches(ty),
+                                              Inches(tw), Inches(thh))
+                _style_fit_textbox(
+                    tb, G.title_string(tcfg, name_val, k, K), tw, thh,
+                    tcfg.get('size', 23),
+                    font_name=tcfg.get('font') or font_cfg.get('name', 'Arial'),
+                    bold=font_cfg.get('bold', True),
+                    italic=font_cfg.get('italic', False),
+                    rgb=_hex_rgb(tcfg.get('color') or
+                                 font_cfg.get('color') or '#000000'),
+                    align=tcfg.get('align', 'left'),
+                    max_lines=tcfg.get('max_lines', 2),
+                    min_size=tcfg.get('min_size', 12),
+                    opacity=tcfg.get('opacity', 100),
+                    tracking=tcfg.get('tracking', 0))
 
-                if shown('avatar') and avatar_path:
-                    try:
-                        _place_avatar(slide, avatar_path, L['avatar'], temp_dir)
-                    except Exception as e:
-                        log(f"Lỗi avatar {code}: {e}")
+            if shown('info'):
+                if (job.slide_style or 'report') == 'saleskit':
+                    _add_saleskit_table(slide, info_table, L['info'], font_cfg)
+                else:
+                    _add_info_table(slide, info_rows, L['info'], font_cfg)
 
-                if shown('title'):
-                    tcfg = L['title']
-                    tx, ty, tw, thh = G.title_box(tcfg)
-                    tb = slide.shapes.add_textbox(Inches(tx), Inches(ty),
-                                                  Inches(tw), Inches(thh))
-                    _style_fit_textbox(
-                        tb, G.title_string(tcfg, name_val, k, K), tw, thh,
-                        tcfg.get('size', 23),
-                        font_name=tcfg.get('font') or font_cfg.get('name', 'Arial'),
-                        bold=font_cfg.get('bold', True),
-                        italic=font_cfg.get('italic', False),
-                        rgb=_hex_rgb(tcfg.get('color') or
-                                     font_cfg.get('color') or '#000000'),
-                        align=tcfg.get('align', 'left'),
-                        max_lines=tcfg.get('max_lines', 2),
-                        min_size=tcfg.get('min_size', 12),
-                        opacity=tcfg.get('opacity', 100),
-                        tracking=tcfg.get('tracking', 0))
+            if shown('channel') and job.channel_enabled:
+                ccfg = L['channel']
+                tb = slide.shapes.add_textbox(
+                    Inches(ccfg['x']), Inches(ccfg['y']),
+                    Inches(ccfg['w']), Inches(ccfg.get('h', 0.5)))
+                _style_fit_textbox(
+                    tb, channel_text(row, job.channel_template),
+                    ccfg['w'], ccfg.get('h', 0.5), ccfg.get('size', 10),
+                    font_name=ccfg.get('font') or font_cfg.get('name', 'Arial'),
+                    bold=font_cfg.get('bold', True),
+                    italic=font_cfg.get('italic', False),
+                    rgb=_hex_rgb(ccfg.get('color') or
+                                 font_cfg.get('color') or '#000000'),
+                    align=ccfg.get('align', 'left'),
+                    max_lines=ccfg.get('max_lines', 2),
+                    min_size=ccfg.get('min_size', 8),
+                    opacity=ccfg.get('opacity', 100),
+                    tracking=ccfg.get('tracking', 0))
 
-                if shown('info'):
-                    if (job.slide_style or 'report') == 'saleskit':
-                        _add_saleskit_table(slide, info_table, L['info'], font_cfg)
-                    else:
-                        _add_info_table(slide, info_rows, L['info'], font_cfg)
+            done += 1
+            if progress_cb:
+                progress_cb(done, total_slides)
 
-                if shown('channel') and job.channel_enabled:
-                    ccfg = L['channel']
-                    tb = slide.shapes.add_textbox(
-                        Inches(ccfg['x']), Inches(ccfg['y']),
-                        Inches(ccfg['w']), Inches(ccfg.get('h', 0.5)))
-                    _style_fit_textbox(
-                        tb, channel_text(row, job.channel_template),
-                        ccfg['w'], ccfg.get('h', 0.5), ccfg.get('size', 10),
-                        font_name=ccfg.get('font') or font_cfg.get('name', 'Arial'),
-                        bold=font_cfg.get('bold', True),
-                        italic=font_cfg.get('italic', False),
-                        rgb=_hex_rgb(ccfg.get('color') or
-                                     font_cfg.get('color') or '#000000'),
-                        align=ccfg.get('align', 'left'),
-                        max_lines=ccfg.get('max_lines', 2),
-                        min_size=ccfg.get('min_size', 8),
-                        opacity=ccfg.get('opacity', 100),
-                        tracking=ccfg.get('tracking', 0))
+    save_part(last=True)
+    return done
 
-                done += 1
-                if progress_cb:
-                    progress_cb(done, total_slides)
 
-        save_part(last=True)
+def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
+    """Chạy trong worker thread. Trả ExportReport."""
+    t0 = time.time()
+    rep = ExportReport()
+    log = log_cb or (lambda s: None)
+    temp_dir = tempfile.mkdtemp(prefix='autopptx2_')
+
+    merged = build_merged_groups(job.excel_by_code)
+    groups = filter_groups_by_geo(
+        job.groups, job.excel_by_code, merged,
+        city=job.city_filter, district=job.district_filter)
+    groups = order_groups(
+        groups, job.excel_by_code, merged, job.excel_rows, job.sort_mode)
+    rep.groups = len(groups)
+
+    fx = job.fx or {}
+    ov_rows = 0
+    if fx.get('dashboard'):
+        ov = build_overview(groups, job.excel_by_code, merged)
+        ov_rows = len(ov['rows'])
+    _, total_slides, _ = estimate(
+        groups, job.n_per_slide, overview_rows=ov_rows,
+        slides_per_file=job.slides_per_file, by_code=job.excel_by_code,
+        merged=merged, pad_blank=job.pad_blank_slides)
+
+    stem, ext = os.path.splitext(job.out_path)
+    ext = ext or '.pptx'
+    chunks = group_export_chunks(
+        groups, job.excel_by_code, merged, job.split_export_by, job.excel_rows)
+
+    try:
+        if job.pad_blank_slides:
+            log('Bật slide trắng / ô trống theo số màn trên Excel.')
+        if job.split_export_by and job.split_export_by != 'none':
+            log(f'Tách file theo {job.split_export_by}: {len(chunks)} phần.')
+        elif G.file_part_limit(job.slides_per_file):
+            log(f'Chia file mỗi {G.file_part_limit(job.slides_per_file)} slide.')
+        else:
+            log('Gộp mọi slide vào một file PPTX.')
+
+        done = 0
+        first = True
+        for chunk_name, chunk_groups in chunks.items():
+            if not chunk_groups:
+                continue
+            if chunk_name:
+                out_path = f"{stem}_{_safe_filename_part(chunk_name)}{ext}"
+            else:
+                out_path = job.out_path
+            done = _export_groups_to_pptx(
+                job, chunk_groups, out_path, rep, temp_dir, log, progress_cb,
+                cancel, done, total_slides, include_overview=first and bool(fx.get('dashboard')))
+            first = False
     except ExportCancelled:
         rep.cancelled = True
-        log("Đã huỷ xuất — không lưu file dở dang.")
+        log('Đã huỷ xuất — không lưu file dở dang.')
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+    rep.seconds = time.time() - t0
+    return rep
+
+
+def _save_stamped_image(im, out_path):
+    ext = os.path.splitext(out_path)[1].lower()
+    if ext in ('.jpg', '.jpeg'):
+        im.convert('RGB').save(out_path, 'JPEG', quality=95, subsampling=0)
+    elif ext == '.webp':
+        im.save(out_path, 'WEBP', quality=95)
+    else:
+        im.save(out_path, 'PNG')
+
+
+def export_stamped_images(job: ExportJob, out_dir, progress_cb=None, log_cb=None,
+                        cancel=None):
+    """Lưu ảnh đã đóng dấu (ngày/vị trí) — không tạo PPTX."""
+    t0 = time.time()
+    rep = ExportReport(groups=len(job.groups))
+    log = log_cb or (lambda s: None)
+    os.makedirs(out_dir, exist_ok=True)
+    merged = build_merged_groups(job.excel_by_code)
+    groups = filter_groups_by_geo(
+        job.groups, job.excel_by_code, merged,
+        city=job.city_filter, district=job.district_filter)
+    groups = order_groups(
+        groups, job.excel_by_code, merged, job.excel_rows, job.sort_mode)
+    items = [(code, p) for code, paths in groups.items() for p in sorted(paths)]
+    total = max(1, len(items))
+    log(f'Đóng dấu {len(items)} ảnh → {out_dir}')
+
+    for i, (code, path) in enumerate(items):
+        if cancel is not None and cancel.is_set():
+            rep.cancelled = True
+            log('Đã huỷ — giữ ảnh đã lưu.')
+            break
+        row, mcode, kind = match_row(code, job.excel_by_code, merged)
+        if kind == 'fuzzy':
+            rep.fuzzy.append((code, mcode))
+        elif kind == 'none' and job.excel_by_code:
+            rep.unmatched.append(code)
+
+        fx_img = dict(job.fx or {})
+        fx_img['location_excel'] = place_label(row)
+        im = FX.stamp_original(path, fx_img, allow_net=True)
+        if im is None:
+            log(f'Lỗi ảnh: {os.path.basename(path)}')
+            continue
+
+        dest_dir = os.path.join(out_dir, code)
+        os.makedirs(dest_dir, exist_ok=True)
+        base, ext = os.path.splitext(os.path.basename(path))
+        if not ext:
+            ext = '.jpg'
+        out_path = os.path.join(dest_dir, base + ext)
+        if os.path.exists(out_path):
+            n = 2
+            while os.path.exists(out_path):
+                out_path = os.path.join(dest_dir, f'{base}_{n}{ext}')
+                n += 1
+        try:
+            _save_stamped_image(im, out_path)
+            rep.files.append(out_path)
+            rep.slides += 1
+        except Exception as e:
+            log(f'Lỗi lưu {os.path.basename(path)}: {e}')
+        if progress_cb:
+            progress_cb(i + 1, total)
 
     rep.seconds = time.time() - t0
     return rep

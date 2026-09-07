@@ -1,4 +1,4 @@
-"""Thứ tự tỉnh/thành Bắc → Nam cho sales kit BD."""
+"""Thứ tự tỉnh/thành Bắc → Nam cho Sales và BD."""
 import os
 import sys
 import unittest

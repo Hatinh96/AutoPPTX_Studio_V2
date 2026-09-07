@@ -8,6 +8,7 @@ import re
 import json
 import base64
 import datetime
+import shutil
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
@@ -51,6 +52,32 @@ def _writable_dir(*candidates):
 
 def excel_cache_dir():
     return _writable_dir(os.path.join(CONFIG_DIR, 'excel_cache'))
+
+
+def excel_cache_path(user_id):
+    if not user_id:
+        return ''
+    return os.path.join(excel_cache_dir(), f'{user_id}.xlsx')
+
+
+def _utc_now_iso():
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def _ts_equal(a, b):
+    """So sánh updated_at — bỏ qua khác Z vs +00:00 / thiếu múi giờ."""
+    if not a and not b:
+        return True
+    if not a or not b:
+        return False
+
+    def norm(s):
+        s = str(s).strip().replace('Z', '+00:00')
+        if 'T' in s and '+' not in s[10:] and not s.endswith('-00:00'):
+            s = s + '+00:00'
+        return s
+
+    return norm(a) == norm(b)
 
 
 def avatar_cache_dir():
@@ -230,9 +257,27 @@ class CloudClient:
         meta = _read_json(self.excel_meta_path()).get(self.user_id) or {}
         if not meta:
             return 'Chưa đồng bộ lần nào'
-        return f"Lần cuối: {meta.get('synced_at_local', '')}"
+        name = meta.get('file_name') or ''
+        when = meta.get('synced_at_local', '')
+        if name:
+            return f'{name} · {when}' if when else name
+        return f'Lần cuối: {when}' if when else 'Chưa đồng bộ lần nào'
 
-    def sync_excel(self, progress=None):
+    def excel_local_display_name(self, path):
+        """Tên hiển thị — cache Cloud dùng file_name trong meta, không phải {uid}.xlsx."""
+        if not path:
+            return ''
+        uid = self.user_id
+        if uid:
+            cache = excel_cache_path(uid)
+            if (cache and os.path.normcase(os.path.normpath(path))
+                    == os.path.normcase(os.path.normpath(cache))):
+                meta = _read_json(self.excel_meta_path()).get(uid) or {}
+                if meta.get('file_name'):
+                    return meta['file_name']
+        return os.path.basename(path)
+
+    def sync_excel(self, progress=None, force=False):
         """Tải Excel của tài khoản đang đăng nhập. Trả dict kết quả."""
         sb = self.client()
         uid = self.user_id
@@ -250,10 +295,12 @@ class CloudClient:
         if not rows:
             return {'ok': False, 'msg': 'Chưa có file Excel trên Cloud cho tài khoản này.'}
         row = rows[0]
-        cache_path = os.path.join(excel_cache_dir(), f'{uid}.xlsx')
+        cache_path = excel_cache_path(uid)
         meta = _read_json(self.excel_meta_path())
         local = meta.get(uid, {})
-        if local.get('updated_at') == row.get('updated_at') and os.path.exists(cache_path):
+        if (not force
+                and _ts_equal(local.get('updated_at'), row.get('updated_at'))
+                and os.path.exists(cache_path)):
             if progress:
                 progress(1.0, 'Đã là bản mới nhất')
             return {'ok': True, 'path': cache_path, 'file_name': row.get('file_name'),
@@ -286,6 +333,8 @@ class CloudClient:
             return {'ok': False, 'msg': 'Chưa chọn file Excel trên máy.'}
         target = target_user_id or uid
         storage_path = f'{target}/data.xlsx'
+        file_name = os.path.basename(local_path)
+        cache_path = excel_cache_path(target)
         try:
             with open(local_path, 'rb') as f:
                 data = f.read()
@@ -293,23 +342,27 @@ class CloudClient:
                 storage_path, data,
                 {'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                  'upsert': 'true'})
-            now_iso = datetime.datetime.utcnow().isoformat()
+            now_iso = _utc_now_iso()
             sb.table('excel_data_files').upsert({
                 'owner_id': target,
                 'storage_path': storage_path,
-                'file_name': os.path.basename(local_path),
+                'file_name': file_name,
                 'updated_at': now_iso,
                 'updated_by': uid,
             }, on_conflict='owner_id').execute()
+            if cache_path:
+                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+                shutil.copy2(local_path, cache_path)
             if target == uid:
                 meta = _read_json(self.excel_meta_path())
                 meta[uid] = {
                     'updated_at': now_iso,
                     'synced_at_local': datetime.datetime.now().strftime('%d/%m/%Y %H:%M'),
-                    'file_name': os.path.basename(local_path),
+                    'file_name': file_name,
                 }
                 _write_json(self.excel_meta_path(), meta)
-            return {'ok': True, 'msg': 'Đã đẩy Excel lên Cloud.'}
+            return {'ok': True, 'msg': 'Đã đẩy Excel lên Cloud.',
+                    'path': cache_path or local_path, 'file_name': file_name}
         except Exception as e:
             return {'ok': False, 'msg': str(e)}
 

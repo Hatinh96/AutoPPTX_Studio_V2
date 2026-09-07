@@ -19,6 +19,7 @@ import customtkinter as ctk
 
 from .constants import (CONFIG_DIR, CONFIG_PATH, PRESET_DIR, DEFAULT_LAYOUT,
                         ELEMENT_NAMES, ELEMENT_LABELS, AR_CHOICES, ALL_CHANNELS,
+                        ALL_CITIES, ALL_DISTRICTS, STAMP_PRESETS,
                         ACCENT, ACCENT_HOVER, BG, CARD, TEXT, MUTED, INPUT,
                         BORDER, WORKSPACE, SUPABASE_URL, SUPABASE_ANON_KEY,
                         V1_CREDS_PATH, COLOR_PALETTE, find_asset,
@@ -31,7 +32,8 @@ from .datasource import (ExcelSource, ImageLibrary, AvatarIndex, match_row,
                          channel_text, clean, build_overview, screen_qty,
                          place_label, inspect_excel, build_photo_rename_plan,
                          compare_list_with_master,
-                         sort_codes_by_city, order_groups_by_city)
+                         sort_codes_by_city, order_groups_by_city, order_groups,
+                         filter_groups_by_geo, geo_field_values)
 from .thumbs import ThumbCache
 from .editor import EditorCanvas
 from . import exporter
@@ -144,6 +146,111 @@ def _use_arial_layout(layout):
             c['font_path'] = ''
 
 
+class GeoScrollPicker:
+    """Dropdown cuộn chuột + tìm kiếm — thay CTkOptionMenu cho list dài."""
+
+    def __init__(self, parent, values, width, command, initial, pack_side='left'):
+        self._command = command
+        self._values = list(values or [])
+        self._value = initial
+        self._popup = None
+        self.btn = ctk.CTkButton(
+            parent, text=self._label(initial), width=width, height=28,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            anchor='w', command=self.open)
+        self.btn.pack(side=pack_side, padx=6)
+
+    @staticmethod
+    def _label(text, n=20):
+        s = str(text or '')
+        return s if len(s) <= n else s[: n - 1] + '…'
+
+    def get(self):
+        return self._value
+
+    def set(self, value):
+        self._value = value
+        self.btn.configure(text=self._label(value))
+
+    def configure(self, *, values=None, **kwargs):
+        if values is not None:
+            self._values = list(values)
+        if kwargs:
+            self.btn.configure(**kwargs)
+
+    def open(self):
+        if self._popup is not None:
+            try:
+                if self._popup.winfo_exists():
+                    self._popup.focus()
+                    return
+            except Exception:
+                pass
+        win = ctk.CTkToplevel(self.btn)
+        win.title('Chọn')
+        w = max(240, int(self.btn.winfo_width()) + 48)
+        win.geometry(f'{w}x340')
+        try:
+            x = self.btn.winfo_rootx()
+            y = self.btn.winfo_rooty() + self.btn.winfo_height() + 2
+            win.geometry(f'+{x}+{y}')
+        except Exception:
+            pass
+        win.attributes('-topmost', True)
+        try:
+            win.transient(self.btn.winfo_toplevel())
+        except Exception:
+            pass
+        self._popup = win
+        win.protocol('WM_DELETE_WINDOW', lambda: self._close_popup())
+
+        ent = ctk.CTkEntry(win, placeholder_text='Gõ để lọc…', height=30,
+                           fg_color=INPUT)
+        ent.pack(fill='x', padx=10, pady=(10, 6))
+        sc = ctk.CTkScrollableFrame(win, fg_color=INPUT, corner_radius=8,
+                                    height=260)
+        sc.pack(fill='both', expand=True, padx=10, pady=(0, 10))
+
+        def pick(val):
+            self.set(val)
+            self._close_popup()
+            if self._command:
+                self._command(val)
+
+        def render(q=''):
+            for child in sc.winfo_children():
+                child.destroy()
+            needle = str(q or '').strip().casefold()
+            shown = 0
+            for val in self._values:
+                if needle and needle not in str(val).casefold():
+                    continue
+                shown += 1
+                ctk.CTkButton(
+                    sc, text=str(val), height=32, anchor='w',
+                    fg_color='transparent', hover_color=BORDER,
+                    text_color=TEXT,
+                    font=ctk.CTkFont(size=12),
+                    command=lambda v=val: pick(v),
+                ).pack(fill='x', pady=1)
+            if not shown:
+                ctk.CTkLabel(sc, text='Không có kết quả', text_color=MUTED,
+                             font=ctk.CTkFont(size=11)).pack(pady=12)
+
+        ent.bind('<KeyRelease>', lambda _e: render(ent.get()))
+        render()
+        ent.focus_set()
+        win.bind('<Escape>', lambda _e: self._close_popup())
+
+    def _close_popup(self):
+        if self._popup is not None:
+            try:
+                self._popup.destroy()
+            except Exception:
+                pass
+        self._popup = None
+
+
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -180,6 +287,14 @@ class App(ctk.CTk):
             'slides_per_file': G.parse_slides_per_file(o.get('slides_per_file', 0)),
             'ar_label': o.get('ar_label', '4:3'),
             'channel_filter': o.get('channel_filter', ALL_CHANNELS),
+            'city_filter': o.get('city_filter', ALL_CITIES),
+            'district_filter': o.get('district_filter', ALL_DISTRICTS),
+            'sort_mode': o.get('sort_mode', 'city'),
+            'pad_blank_slides': bool(o.get('pad_blank_slides', False)),
+            'split_export_by': o.get('split_export_by', 'none'),
+            'export_pdf': bool(o.get('export_pdf', False)),
+            'stamp_preset': o.get('stamp_preset', 'Tùy chỉnh'),
+            'show_no_exif_badge': bool(o.get('show_no_exif_badge', True)),
             'channel_enabled': bool(o.get('channel_enabled', True)),
             'channel_template': o.get('channel_template', 'Report {channel} 2026'),
             'open_after_export': bool(o.get('open_after_export', True)),
@@ -216,6 +331,16 @@ class App(ctk.CTk):
                 if not was_on and isinstance(bd_st.get('layout'), dict):
                     bd_st['layout']['avatar'] = _deep_merge(
                         bd_st['layout'].get('avatar') or {}, bd_av)
+        # Pack BD cũ ẩn kênh quảng cáo. Bật một lần cho cả preview và xuất.
+        if not o.get('bd_show_channel'):
+            self.opts['bd_show_channel'] = True
+            self.opts['channel_enabled'] = True
+            self.opts['visible']['channel'] = True
+            bd_st = (self.opts.get('dept_state') or {}).get('bd')
+            if isinstance(bd_st, dict):
+                bd_st['channel_enabled'] = True
+                vis = bd_st.setdefault('visible', {})
+                vis['channel'] = True
         # Lưới cũ luôn vẽ đủ 2–4 ô (khung "Ảnh" trống). Chuyển mặc định sang Tự.
         if not o.get('auto_grid_v1'):
             self.opts['n_per_slide'] = 0
@@ -518,6 +643,12 @@ class App(ctk.CTk):
             command=self.export
         ).pack(side='left')
         ctk.CTkButton(
+            act, text='Xuất ảnh', width=88, height=30,
+            font=ctk.CTkFont(size=12, weight='bold'),
+            fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
+            command=self.export_stamped
+        ).pack(side='left', padx=(6, 0))
+        ctk.CTkButton(
             act, text='⚙', width=32, height=30,
             fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
             command=self._open_export_opts
@@ -714,6 +845,10 @@ class App(ctk.CTk):
             self.frm_fmt_image, text='Ngày', width=64, height=32,
             command=lambda: self._toggle_fx_chip('use_timestamp'))
         self.btn_fmt_date.pack(side='left', padx=2)
+        self.btn_fmt_loc = ctk.CTkButton(
+            self.frm_fmt_image, text='Địa điểm', width=78, height=32,
+            command=lambda: self._toggle_fx_chip('stamp_location'))
+        self.btn_fmt_loc.pack(side='left', padx=2)
         self.btn_fmt_gps = ctk.CTkButton(
             self.frm_fmt_image, text='GPS', width=56, height=32,
             command=lambda: self._toggle_fx_chip('show_gps'))
@@ -997,7 +1132,7 @@ class App(ctk.CTk):
         head = ctk.CTkFrame(sc, fg_color='transparent')
         head.pack(fill='x', padx=10, pady=(8, 0))
         ctk.CTkLabel(
-            head, text='Làm 1 → 2 → 3 để xuất; Bước 4 chỉ dùng khi cần so sánh.',
+            head, text='Nguồn → ảnh → xuất (thanh trên). FILE TỔNG: ⚙ Cài đặt.',
             text_color=MUTED, font=ctk.CTkFont(size=11),
             wraplength=300, justify='left', anchor='w'
         ).pack(side='left', fill='x', expand=True)
@@ -1006,11 +1141,12 @@ class App(ctk.CTk):
             fg_color=CARD, hover_color=BORDER, text_color=TEXT,
             command=self._show_nguon_guide
         ).pack(side='right')
-        self._build_step_sync(sc)
-        self._build_step_list(sc)
-        self._build_step_photos(sc)
-        self._build_step_compare_list(sc)
-        self._build_step_export_hint(sc)
+        self._build_step_source_filter(sc)
+        self._build_step_photos(sc, step=2)
+        extra = self._collapsible(
+            sc, 'nguon_extra', 'So sánh CODE · xuất nhanh · tuỳ chọn',
+            padx=8, pady=(8, 0))
+        self._build_nguon_extras(extra)
         av = self._collapsible(sc, 'avatar', 'Avatar (bấm nếu cần đổi thư mục)')
         self._build_extra_avatar(av)
         if self.cloud.is_admin():
@@ -1023,19 +1159,13 @@ class App(ctk.CTk):
     def _show_nguon_guide(self):
         messagebox.showinfo(
             'Thứ tự thao tác',
-            '1. FILE TỔNG / MASTER — Đám mây: bấm Đồng bộ để lấy file tổng + avatar công ty.\n'
-            '   Máy này: bỏ qua bước này nếu đã có file.\n\n'
-            '2. FILE TỔNG / MASTER — chọn file chuẩn có cột Code_RP; có thể chỉ dùng '
-            'trên máy hoặc đẩy lên Cloud.\n\n'
-            '3. Thư mục ảnh — chọn folder ảnh báo cáo (kéo-thả được).\n\n'
-            '4. FILE SO SÁNH CODE — chỉ đọc Code_RP để đối chiếu với FILE TỔNG / MASTER; '
-            'không thay Master và không dùng để chạy PPTX. Nếu đã chọn thư mục ảnh, '
-            'phần mềm kiểm tra thêm ảnh thiếu theo kênh.\n\n'
-            '5. Xuất — nút Xuất PPTX trên thanh trên (cạnh tài khoản). Tùy chọn checklist: nút ⚙.\n\n'
-            'GPS / Map: tab GPS bên trái, hoặc chip trên thanh canvas.\n'
-            'Ngày giờ: tab Dấu.\n'
-            'Nền slide / mẫu Cloud: tab Mẫu — tải lên và bấm ảnh để chọn.\n\n'
-            'Avatar, quản trị avatar: chỉ mở khi cần, không bắt buộc mỗi lần làm.')
+            '1. Nguồn & Lọc — đồng bộ Cloud (nếu dùng), chọn kênh / tỉnh / quận.\n\n'
+            '2. Thư mục ảnh — chọn folder báo cáo (kéo-thả được).\n\n'
+            '3. Xuất — nút trên thanh toolbar (PPTX / ảnh đóng dấu).\n\n'
+            'Mở rộng (panel ▸ So sánh CODE…):\n'
+            '   · FILE SO SÁNH CODE, chia file, tùy chọn xuất\n\n'
+            '⚙ Cài đặt: chọn FILE TỔNG trên máy · đẩy list Cloud\n\n'
+            'GPS: tab GPS · Dấu: tab Dấu · Mẫu nền: tab Mẫu.')
 
     def _build_tab_data(self, tab):
         pass
@@ -1043,54 +1173,180 @@ class App(ctk.CTk):
     def _build_tab_cloud(self, tab):
         pass
 
-    def _build_step_sync(self, tab):
-        f = self._step_card(
-            tab, 1, 'FILE TỔNG / MASTER — Đồng bộ',
-            'Đám mây: tải file tổng chuẩn + avatar công ty. Máy này: bỏ qua, sang bước 2.')
-        self.seg_mode = self._seg_btn(
-            f, ['Đám mây công ty', 'Máy này'], 'Đám mây công ty',
-            command=self._on_app_mode,
-            selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
-        self.seg_mode.pack(fill='x', padx=10, pady=(0, 8))
-        who = self.cloud.email or '(chưa đăng nhập)'
-        role = {'admin': 'Quản trị', 'super_admin': 'Super Admin'}.get(
-            self.cloud.role, 'Nhân viên')
-        ctk.CTkLabel(f, text=f'{who}  ·  {role}', text_color=MUTED,
-                     font=ctk.CTkFont(size=11), justify='left',
-                     anchor='w').pack(fill='x', padx=10, pady=(0, 6))
-        self.btn_sync_cloud = ctk.CTkButton(
-            f, text='Tải FILE TỔNG + Avatar từ Cloud', height=40,
-            font=ctk.CTkFont(size=13, weight='bold'),
+    def _build_settings_source(self, sc):
+        """Chọn FILE TỔNG trên máy & đẩy Cloud — trong Cài đặt."""
+        ctk.CTkLabel(
+            sc, text='FILE TỔNG / MASTER',
+            font=ctk.CTkFont(size=14, weight='bold')
+        ).pack(anchor='w', pady=(0, 4))
+        ctk.CTkLabel(
+            sc,
+            text='File chuẩn có cột Code_RP. Chế độ Đám mây: dùng nút Đồng bộ ở panel Nguồn.',
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=520, justify='left', anchor='w'
+        ).pack(anchor='w', pady=(0, 8))
+        ctk.CTkLabel(
+            sc, text='Trạng thái: ' + self.cloud.excel_status_text(),
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=520, justify='left', anchor='w'
+        ).pack(anchor='w', pady=(0, 8))
+
+        self.btn_excel = ctk.CTkButton(
+            sc, text='Chọn FILE TỔNG trên máy…', height=36,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            command=lambda: self.pick_master_excel(purpose='local'))
+        self.btn_excel.pack(fill='x', pady=(0, 4))
+        self.lbl_excel = ctk.CTkLabel(
+            sc, text=self._excel_path_caption(), text_color=MUTED,
+            font=ctk.CTkFont(size=11), anchor='w', wraplength=520, justify='left')
+        self.lbl_excel.pack(fill='x', pady=(0, 10))
+        self._apply_mode_ui()
+
+        ctk.CTkLabel(
+            sc, text='Đẩy list lên Cloud',
+            font=ctk.CTkFont(size=13, weight='bold')
+        ).pack(anchor='w', pady=(8, 4))
+        ctk.CTkButton(
+            sc, text='Đẩy FILE TỔNG lên Cloud…', height=36,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            command=lambda: self._sync_all_cloud(silent=False))
-        self.btn_sync_cloud.pack(fill='x', padx=10, pady=(0, 6))
-        self.lbl_excel_sync = ctk.CTkLabel(
-            f, text='File tổng: ' + self.cloud.excel_status_text(),
-            text_color=MUTED, font=ctk.CTkFont(size=11),
-            anchor='w', wraplength=270)
-        self.lbl_excel_sync.pack(fill='x', padx=10)
-        self.lbl_avatar_sync = ctk.CTkLabel(
-            f, text='Avatar: ' + self.cloud.avatar_status_text(),
-            text_color=MUTED, font=ctk.CTkFont(size=11),
-            anchor='w', wraplength=270)
-        self.lbl_avatar_sync.pack(fill='x', padx=10, pady=(0, 4))
-        self.frm_sync_prog = ctk.CTkFrame(f, fg_color='transparent')
-        self.excel_progress = ctk.CTkProgressBar(
-            self.frm_sync_prog, height=7, corner_radius=4, progress_color=ACCENT)
-        self.excel_progress.set(0)
-        self.excel_progress.pack(fill='x', pady=(0, 2))
-        self.lbl_excel_prog = ctk.CTkLabel(
-            self.frm_sync_prog, text='', text_color=ACCENT,
-            font=ctk.CTkFont(size=10), anchor='w')
-        self.lbl_excel_prog.pack(fill='x')
-        self.avatar_progress = ctk.CTkProgressBar(
-            self.frm_sync_prog, height=7, corner_radius=4, progress_color=ACCENT)
-        self.avatar_progress.set(0)
-        self.avatar_progress.pack(fill='x', pady=(4, 2))
-        self.lbl_avatar_prog = ctk.CTkLabel(
-            self.frm_sync_prog, text='', text_color=ACCENT,
-            font=ctk.CTkFont(size=10), anchor='w')
-        self.lbl_avatar_prog.pack(fill='x', pady=(0, 4))
+            command=lambda: self.pick_master_excel(purpose='push')
+        ).pack(fill='x', pady=(0, 6))
+        if not self.cloud.logged_in():
+            ctk.CTkLabel(
+                sc, text='Cần đăng nhập để đồng bộ / đẩy Cloud.',
+                text_color='#ca8a04', font=ctk.CTkFont(size=11),
+                wraplength=520, justify='left', anchor='w'
+            ).pack(anchor='w', pady=(0, 8))
+        elif self.cloud.is_admin():
+            ctk.CTkLabel(
+                sc, text='Quản trị: có thể đẩy cho tất cả tài khoản.',
+                text_color=MUTED, font=ctk.CTkFont(size=11),
+                wraplength=520, justify='left', anchor='w'
+            ).pack(anchor='w', pady=(0, 8))
+
+    def _excel_path_caption(self):
+        p = self.opts.get('excel_path') or ''
+        if p and os.path.isfile(p):
+            n = len(getattr(self.excel, 'rows', None) or [])
+            ch = self.excel.channels() if n else []
+            extra = f' — {n} dòng, {len(ch)} kênh' if n else ''
+            return os.path.basename(p) + extra + '\n' + p
+        return '(chưa chọn — dùng Cloud hoặc bấm chọn ở trên)'
+
+    def _data_brief_text(self):
+        parts = []
+        n = len(getattr(self.excel, 'rows', None) or [])
+        if n:
+            parts.append(f'{n} dòng')
+            ch = self.excel.channels()
+            if ch:
+                parts.append(f'{len(ch)} kênh')
+        p = self.opts.get('excel_path') or ''
+        if p and os.path.isfile(p):
+            bn = os.path.basename(p)
+            parts.append(bn[:22] + ('…' if len(bn) > 22 else ''))
+        chf = self.opts.get('channel_filter', ALL_CHANNELS)
+        if chf and chf != ALL_CHANNELS:
+            parts.append(chf)
+        city = self.opts.get('city_filter', ALL_CITIES)
+        if city and city != ALL_CITIES:
+            parts.append(city)
+        dist = self.opts.get('district_filter', ALL_DISTRICTS)
+        if dist and dist != ALL_DISTRICTS:
+            parts.append(dist)
+        return ' · '.join(parts) if parts else 'Chưa có FILE TỔNG — mở ⚙ Cài đặt'
+
+    def _update_data_brief(self):
+        try:
+            if hasattr(self, 'lbl_data_brief'):
+                self.lbl_data_brief.configure(text=self._data_brief_text())
+        except Exception:
+            pass
+        self._refresh_filter_chips()
+
+    def _refresh_filter_chips(self):
+        frm = getattr(self, 'frm_filter_chips', None)
+        if frm is None:
+            return
+        for w in frm.winfo_children():
+            w.destroy()
+        chips = []
+        ch = self.opts.get('channel_filter', ALL_CHANNELS)
+        if ch != ALL_CHANNELS:
+            chips.append(('Kênh', ch, 'channel'))
+        city = self.opts.get('city_filter', ALL_CITIES)
+        if city != ALL_CITIES:
+            chips.append(('Tỉnh', city, 'city'))
+        dist = self.opts.get('district_filter', ALL_DISTRICTS)
+        if dist != ALL_DISTRICTS:
+            chips.append(('Quận', dist, 'district'))
+        if not chips:
+            frm.pack_forget()
+            return
+        frm.pack(fill='x', padx=10, pady=(2, 4))
+        for label, val, kind in chips:
+            short = val if len(val) <= 16 else val[:15] + '…'
+            ctk.CTkButton(
+                frm, text=f'{label}: {short}  ✕', height=24,
+                fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+                font=ctk.CTkFont(size=10),
+                command=lambda k=kind: self._clear_filter(k)
+            ).pack(side='left', padx=(0, 4))
+
+    def _clear_filter(self, kind):
+        if kind == 'channel':
+            self.opts['channel_filter'] = ALL_CHANNELS
+            try:
+                self.om_channel.set(ALL_CHANNELS)
+            except Exception:
+                pass
+            self._on_channel(ALL_CHANNELS)
+        elif kind == 'city':
+            self.opts['city_filter'] = ALL_CITIES
+            self.opts['district_filter'] = ALL_DISTRICTS
+            try:
+                self.pick_city.set(ALL_CITIES)
+            except Exception:
+                pass
+            self._on_city_filter(ALL_CITIES)
+        elif kind == 'district':
+            self.opts['district_filter'] = ALL_DISTRICTS
+            try:
+                self.pick_district.set(ALL_DISTRICTS)
+            except Exception:
+                pass
+            self._on_district_filter(ALL_DISTRICTS)
+
+    def _scope_estimate_text(self):
+        groups = self._ordered_groups()
+        if not groups:
+            n = len(getattr(self.excel, 'rows', None) or [])
+            if n:
+                return f'List {n} dòng · chưa chọn thư mục ảnh'
+            return 'Chưa có dữ liệu — đồng bộ / chọn FILE TỔNG'
+        ov, n_ov = None, 0
+        if self.opts.get('fx', {}).get('dashboard', True):
+            ov = build_overview(groups, self._by_code, self._merged)
+            n_ov = len(ov['rows'])
+        ng, ns, np_ = exporter.estimate(
+            groups, self.opts['n_per_slide'],
+            overview_rows=n_ov,
+            slides_per_file=self.opts.get('slides_per_file', 0),
+            by_code=self._by_code, merged=self._merged,
+            pad_blank=self.opts.get('pad_blank_slides', False))
+        qa = QA.check(groups, self._by_code, self._merged)
+        cap = G.file_part_limit(self.opts.get('slides_per_file', 0))
+        if np_ <= 1:
+            files_txt = '1 file'
+        else:
+            files_txt = f'{np_} file'
+        txt = f'≈ {ng} nhóm · ~{ns} slide · {files_txt}'
+        if qa.missing:
+            txt += f' · thiếu {len(qa.missing)} ảnh'
+        split = self.opts.get('split_export_by', 'none')
+        if split and split != 'none':
+            txt += f' · tách {split}'
+        return txt
 
     def _show_sync_progress(self, show):
         frm = getattr(self, 'frm_sync_prog', None)
@@ -1102,41 +1358,108 @@ class App(ctk.CTk):
         else:
             frm.pack_forget()
 
-    def _build_step_list(self, tab):
-        f = self._step_card(
-            tab, 2, 'FILE TỔNG / MASTER',
-            'File dữ liệu chuẩn có cột Code_RP. Đây là nguồn chính để tạo slide '
-            'và đối chiếu ảnh; không phải FILE LIST SO SÁNH.')
-        self.btn_up_list = ctk.CTkButton(
-            f, text='Chọn / Up FILE TỔNG (MASTER)…', height=40,
-            font=ctk.CTkFont(size=13, weight='bold'),
+    def _build_step_source_filter(self, tab, step=1):
+        f = self._step_card(tab, step, 'Nguồn & Lọc', '')
+        self.lbl_data_brief = ctk.CTkLabel(
+            f, text=self._data_brief_text(), text_color=MUTED,
+            font=ctk.CTkFont(size=10), anchor='w', wraplength=268)
+        self.lbl_data_brief.pack(fill='x', padx=10, pady=(0, 4))
+
+        mode_lbl = ('Đám mây công ty' if self.opts.get('app_mode') == 'cloud'
+                    else 'Máy này')
+        self.seg_mode = self._seg_btn(
+            f, ['Đám mây công ty', 'Máy này'], mode_lbl,
+            command=self._on_app_mode,
+            selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
+        self.seg_mode.pack(fill='x', padx=10, pady=(0, 6))
+
+        self.frm_cloud_block = ctk.CTkFrame(f, fg_color='transparent')
+        self.btn_sync_cloud = ctk.CTkButton(
+            self.frm_cloud_block, text='Tải FILE TỔNG + Avatar từ Cloud',
+            height=34, font=ctk.CTkFont(size=12, weight='bold'),
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            command=self.up_sales_list)
-        self.btn_up_list.pack(fill='x', padx=10, pady=2)
-        self.lbl_excel = self._path_label(f)
+            command=lambda: self._sync_all_cloud(silent=False))
+        self.btn_sync_cloud.pack(fill='x', padx=10, pady=(0, 4))
+        self.lbl_excel_sync = ctk.CTkLabel(
+            self.frm_cloud_block, text='📊 ' + self.cloud.excel_status_text(),
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+            anchor='w', wraplength=268)
+        self.lbl_excel_sync.pack(fill='x', padx=10)
+        self.lbl_avatar_sync = ctk.CTkLabel(
+            self.frm_cloud_block, text='👤 ' + self.cloud.avatar_status_text(),
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+            anchor='w', wraplength=268)
+        self.lbl_avatar_sync.pack(fill='x', padx=10, pady=(0, 4))
+        self.frm_sync_prog = ctk.CTkFrame(self.frm_cloud_block, fg_color='transparent')
+        self.excel_progress = ctk.CTkProgressBar(
+            self.frm_sync_prog, height=6, corner_radius=4, progress_color=ACCENT)
+        self.excel_progress.set(0)
+        self.excel_progress.pack(fill='x', pady=(0, 2))
+        self.lbl_excel_prog = ctk.CTkLabel(
+            self.frm_sync_prog, text='', text_color=ACCENT,
+            font=ctk.CTkFont(size=10), anchor='w')
+        self.lbl_excel_prog.pack(fill='x')
+        self.avatar_progress = ctk.CTkProgressBar(
+            self.frm_sync_prog, height=6, corner_radius=4, progress_color=ACCENT)
+        self.avatar_progress.set(0)
+        self.avatar_progress.pack(fill='x', pady=(3, 2))
+        self.lbl_avatar_prog = ctk.CTkLabel(
+            self.frm_sync_prog, text='', text_color=ACCENT,
+            font=ctk.CTkFont(size=10), anchor='w')
+        self.lbl_avatar_prog.pack(fill='x', pady=(0, 6))
+
+        self.frm_local_block = ctk.CTkFrame(f, fg_color='transparent')
+        ctk.CTkButton(
+            self.frm_local_block, text='⚙  Chọn FILE TỔNG trên máy…', height=30,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            font=ctk.CTkFont(size=11),
+            command=self._show_settings
+        ).pack(fill='x', padx=10, pady=(0, 6))
+
+        ctk.CTkFrame(f, height=1, fg_color=BORDER).pack(fill='x', padx=10, pady=(2, 6))
+
         row = ctk.CTkFrame(f, fg_color='transparent')
-        row.pack(fill='x', padx=10, pady=(0, 4))
-        ctk.CTkLabel(row, text='Lọc kênh:', text_color=MUTED).pack(side='left')
+        row.pack(fill='x', padx=10, pady=2)
+        ctk.CTkLabel(row, text='Kênh', text_color=MUTED, width=44).pack(side='left')
         self.om_channel = ctk.CTkOptionMenu(
-            row, values=[ALL_CHANNELS], width=168, height=28,
+            row, values=[ALL_CHANNELS], width=200, height=28,
             fg_color=CARD, button_color=CARD, button_hover_color=BORDER,
             text_color=TEXT, command=self._on_channel)
-        self.om_channel.pack(side='left', padx=6)
-        loc = self._collapsible(
-            f, 'local_excel',
-            'Chỉ dùng FILE TỔNG trên máy — không đẩy Cloud (bấm)',
-            padx=10, pady=(0, 8))
-        self.btn_excel = ctk.CTkButton(
-            loc, text='Chọn FILE TỔNG trên máy…', height=30,
-            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
-            command=self.select_excel)
-        self.btn_excel.pack(fill='x', padx=10, pady=(8, 10))
+        self.om_channel.pack(side='left', padx=(4, 0), fill='x', expand=True)
+        row2 = ctk.CTkFrame(f, fg_color='transparent')
+        row2.pack(fill='x', padx=10, pady=2)
+        ctk.CTkLabel(row2, text='Tỉnh', text_color=MUTED, width=44).pack(side='left')
+        self.pick_city = GeoScrollPicker(
+            row2, [ALL_CITIES], width=168,
+            command=self._on_city_filter,
+            initial=self.opts.get('city_filter', ALL_CITIES))
+        row3 = ctk.CTkFrame(f, fg_color='transparent')
+        row3.pack(fill='x', padx=10, pady=2)
+        ctk.CTkLabel(row3, text='Quận', text_color=MUTED, width=44).pack(side='left')
+        self.pick_district = GeoScrollPicker(
+            row3, [ALL_DISTRICTS], width=168,
+            command=self._on_district_filter,
+            initial=self.opts.get('district_filter', ALL_DISTRICTS))
+        if getattr(self.excel, 'rows', None):
+            self._refresh_geo_filters()
 
-    def _build_step_photos(self, tab):
-        f = self._step_card(
-            tab, 3, 'Thư mục ảnh',
-            'Tên ảnh trùng Code_RP trên FILE TỔNG / MASTER đang mở. '
-            'Lệch mã thì bấm Sửa mã ảnh; FILE SO SÁNH CODE nằm ở Bước 4 riêng.')
+        self.frm_filter_chips = ctk.CTkFrame(f, fg_color='transparent')
+        self._refresh_filter_chips()
+
+        self.lbl_scope_est = ctk.CTkLabel(
+            f, text=self._scope_estimate_text(), text_color=ACCENT,
+            font=ctk.CTkFont(size=11, weight='bold'), anchor='w', wraplength=268)
+        self.lbl_scope_est.pack(fill='x', padx=10, pady=(4, 2))
+        ctk.CTkButton(
+            f, text='⚙  Cài đặt FILE TỔNG & Cloud…', height=24,
+            fg_color='transparent', hover_color=BORDER, text_color=MUTED,
+            font=ctk.CTkFont(size=10),
+            command=self._show_settings
+        ).pack(fill='x', padx=10, pady=(0, 8))
+        self._apply_mode_ui()
+
+    def _build_step_photos(self, tab, step=2):
+        f = self._step_card(tab, step, 'Thư mục ảnh', '')
         row = ctk.CTkFrame(f, fg_color='transparent')
         row.pack(fill='x', padx=10, pady=2)
         ctk.CTkButton(row, text='Thêm thư mục ảnh…', height=40, fg_color=ACCENT,
@@ -1157,8 +1480,7 @@ class App(ctk.CTk):
         self.lbl_images = self._path_label(f)
         self._refresh_folder_list()
         cov = self._collapsible(
-            f, 'coverage',
-            'ẢNH ↔ FILE TỔNG / MASTER — thiếu ảnh, lệch mã, đổi tên file',
+            f, 'coverage', 'Kiểm tra thiếu ảnh · sửa mã',
             padx=10, pady=(0, 8))
         ctk.CTkButton(
             cov, text='So sánh ẢNH với FILE TỔNG…', height=32,
@@ -1176,36 +1498,43 @@ class App(ctk.CTk):
             wraplength=260, justify='left', anchor='w')
         self.lbl_compare_list.pack(fill='x', padx=10, pady=(0, 10))
 
-    def _build_step_compare_list(self, tab):
-        f = self._step_card(
-            tab, 4, 'FILE SO SÁNH CODE',
-            'Chỉ đọc Code_RP để đối chiếu với FILE TỔNG / MASTER. File này '
-            'không thay Master và không được dùng để chạy PPTX.')
+    def _build_nguon_extras(self, body):
+        ctk.CTkLabel(
+            body, text='FILE SO SÁNH CODE (tuỳ chọn)',
+            font=ctk.CTkFont(size=12, weight='bold'), anchor='w'
+        ).pack(fill='x', padx=10, pady=(10, 4))
         ctk.CTkButton(
-            f, text='Chọn FILE SO SÁNH CODE…', height=40,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            body, text='Chọn FILE SO SÁNH CODE…', height=34,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
             command=self._choose_list_for_master_compare
         ).pack(fill='x', padx=10, pady=(0, 4))
         self.lbl_list_master_compare = ctk.CTkLabel(
-            f, text=self._list_master_compare_caption(),
+            body, text=self._list_master_compare_caption(),
             text_color=MUTED, font=ctk.CTkFont(size=10),
             wraplength=260, justify='left', anchor='w')
         self.lbl_list_master_compare.pack(fill='x', padx=10, pady=(0, 10))
 
-    def _build_step_export_hint(self, tab):
-        f = self._step_card(
-            tab, 5, 'Xuất PPTX',
-            'PPTX luôn chạy từ FILE TỔNG / MASTER ở Bước 2 và thư mục ảnh ở Bước 3.')
+        ctk.CTkLabel(
+            body, text='Xuất nhanh',
+            font=ctk.CTkFont(size=12, weight='bold'), anchor='w'
+        ).pack(fill='x', padx=10, pady=(0, 4))
+        row = ctk.CTkFrame(body, fg_color='transparent')
+        row.pack(fill='x', padx=10, pady=(0, 4))
         ctk.CTkButton(
-            f, text='Xuất PPTX', height=36,
+            row, text='Xuất PPTX', height=32,
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
             command=self.export
-        ).pack(fill='x', padx=10, pady=(0, 4))
-        row = ctk.CTkFrame(f, fg_color='transparent')
-        row.pack(fill='x', padx=10, pady=(0, 4))
-        ctk.CTkLabel(row, text='Chia file:', text_color=MUTED).pack(side='left')
+        ).pack(side='left', expand=True, fill='x')
+        ctk.CTkButton(
+            row, text='Xuất ảnh', height=32,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            command=self.export_stamped
+        ).pack(side='left', padx=(6, 0), expand=True, fill='x')
+        row2 = ctk.CTkFrame(body, fg_color='transparent')
+        row2.pack(fill='x', padx=10, pady=(0, 4))
+        ctk.CTkLabel(row2, text='Chia file', text_color=MUTED).pack(side='left')
         self.om_spf_step = ctk.CTkOptionMenu(
-            row,
+            row2,
             values=G.slides_per_file_menu_values(self.opts.get('slides_per_file', 0)),
             width=128, height=26, fg_color=CARD,
             button_color=CARD, button_hover_color=BORDER,
@@ -1213,8 +1542,9 @@ class App(ctk.CTk):
         self.om_spf_step.set(G.slides_per_file_label(self.opts.get('slides_per_file', 0)))
         self.om_spf_step.pack(side='left', padx=8)
         ctk.CTkButton(
-            f, text='Tùy chọn xuất…', height=30,
-            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            body, text='Tùy chọn xuất đầy đủ…', height=30,
+            fg_color='transparent', hover_color=BORDER, text_color=MUTED,
+            font=ctk.CTkFont(size=11),
             command=self._open_export_opts
         ).pack(fill='x', padx=10, pady=(0, 10))
 
@@ -1500,6 +1830,7 @@ class App(ctk.CTk):
         ).pack(fill='x', padx=10, pady=(8, 0))
 
         f = self._card(sc, 'Địa điểm trên ảnh')
+        self._fx_sw(f, 'stamp_location', 'In địa điểm (đường / quận / tỉnh) lên ảnh')
         self._loc_mode_labels = {
             'gps': 'Theo toạ độ EXIF',
             'auto': 'Mã Excel → GPS',
@@ -1624,6 +1955,58 @@ class App(ctk.CTk):
         ctk.CTkLabel(extra_fix, text='Định dạng: 17/08/2026 và 14:30',
                      text_color=MUTED, font=ctk.CTkFont(size=10)
                      ).pack(anchor='w', padx=10, pady=(0, 8))
+
+        extra_rand = self._collapsible(
+            sc, 'stamp_random', 'Random khi không EXIF (Zalo, Messenger…)',
+            start_open=bool(fx.get('random_no_exif')))
+        sw(extra_rand, 'random_no_exif',
+           'Random ngày/giờ nếu ảnh không có EXIF ngày chụp')
+        ctk.CTkLabel(
+            extra_rand,
+            text='Ảnh gửi qua Zalo/Messenger thường mất EXIF. Mỗi ảnh nhận giờ khác nhau '
+                 'trong khoảng bạn chọn (cùng file → cùng giờ mỗi lần xuất).',
+            text_color=MUTED, font=ctk.CTkFont(size=10), wraplength=300,
+            justify='left'
+        ).pack(anchor='w', padx=10, pady=(0, 6))
+        row = ctk.CTkFrame(extra_rand, fg_color='transparent')
+        row.pack(fill='x', padx=10, pady=2)
+        ctk.CTkLabel(row, text='Giờ từ', text_color=MUTED, width=52).pack(side='left')
+        self.ent_rand_t0 = ctk.CTkEntry(row, width=72, height=26, fg_color=CARD,
+                                        placeholder_text='09:00')
+        self.ent_rand_t0.insert(0, fx.get('random_time_from', '09:00'))
+        self.ent_rand_t0.pack(side='left', padx=(0, 8))
+        self.ent_rand_t0.bind('<KeyRelease>', lambda e: self._set_fx(
+            'random_time_from', self.ent_rand_t0.get()))
+        ctk.CTkLabel(row, text='đến', text_color=MUTED).pack(side='left')
+        self.ent_rand_t1 = ctk.CTkEntry(row, width=72, height=26, fg_color=CARD,
+                                        placeholder_text='17:00')
+        self.ent_rand_t1.insert(0, fx.get('random_time_to', '17:00'))
+        self.ent_rand_t1.pack(side='left', padx=(8, 0))
+        self.ent_rand_t1.bind('<KeyRelease>', lambda e: self._set_fx(
+            'random_time_to', self.ent_rand_t1.get()))
+        sw(extra_rand, 'random_date', 'Random cả ngày trong khoảng')
+        row = ctk.CTkFrame(extra_rand, fg_color='transparent')
+        row.pack(fill='x', padx=10, pady=2)
+        ctk.CTkLabel(row, text='Ngày từ', text_color=MUTED, width=52).pack(side='left')
+        self.ent_rand_d0 = ctk.CTkEntry(row, width=100, height=26, fg_color=CARD,
+                                        placeholder_text='01/08/2026')
+        self.ent_rand_d0.insert(0, fx.get('random_date_from', ''))
+        self.ent_rand_d0.pack(side='left', padx=(0, 8))
+        self.ent_rand_d0.bind('<KeyRelease>', lambda e: self._set_fx(
+            'random_date_from', self.ent_rand_d0.get()))
+        ctk.CTkLabel(row, text='đến', text_color=MUTED).pack(side='left')
+        self.ent_rand_d1 = ctk.CTkEntry(row, width=100, height=26, fg_color=CARD,
+                                        placeholder_text='31/08/2026')
+        self.ent_rand_d1.insert(0, fx.get('random_date_to', ''))
+        self.ent_rand_d1.pack(side='left', padx=(8, 0))
+        self.ent_rand_d1.bind('<KeyRelease>', lambda e: self._set_fx(
+            'random_date_to', self.ent_rand_d1.get()))
+        ctk.CTkLabel(
+            extra_rand,
+            text='Tắt «Random cả ngày» → giữ ngày cố định (ở trên) hoặc ngày file.',
+            text_color=MUTED, font=ctk.CTkFont(size=10), wraplength=300,
+            justify='left'
+        ).pack(anchor='w', padx=10, pady=(0, 8))
 
         extra_logo = self._collapsible(
             sc, 'stamp_logo', 'Logo đóng lên ảnh', start_open=True)
@@ -1804,6 +2187,62 @@ class App(ctk.CTk):
                       hover_color=BORDER, text_color=TEXT,
                       command=self._update_estimate).pack(fill='x', padx=10,
                                                           pady=(0, 8))
+        f_region = self._card(tab, 'Vùng & thứ tự xuất')
+        ctk.CTkLabel(f_region, text='Thứ tự slide', text_color=MUTED,
+                     font=ctk.CTkFont(size=11)).pack(anchor='w', padx=10)
+        self.om_sort = ctk.CTkOptionMenu(
+            f_region,
+            values=['Tỉnh Bắc → Nam', 'Theo thứ tự list Excel'],
+            width=220, height=28, fg_color=CARD,
+            button_color=CARD, button_hover_color=BORDER,
+            text_color=TEXT, command=self._on_sort_mode)
+        self.om_sort.set('Theo thứ tự list Excel' if self.opts.get('sort_mode') == 'list'
+                         else 'Tỉnh Bắc → Nam')
+        self.om_sort.pack(fill='x', padx=10, pady=(0, 6))
+        ctk.CTkLabel(f_region, text='Tách file PPTX theo', text_color=MUTED,
+                     font=ctk.CTkFont(size=11)).pack(anchor='w', padx=10)
+        self.om_split_geo = ctk.CTkOptionMenu(
+            f_region,
+            values=['Không tách', 'Theo tỉnh', 'Theo quận'],
+            width=220, height=28, fg_color=CARD,
+            button_color=CARD, button_hover_color=BORDER,
+            text_color=TEXT, command=self._on_split_geo)
+        split_map = {'none': 'Không tách', 'city': 'Theo tỉnh', 'district': 'Theo quận'}
+        self.om_split_geo.set(split_map.get(self.opts.get('split_export_by', 'none'),
+                                             'Không tách'))
+        self.om_split_geo.pack(fill='x', padx=10, pady=(0, 6))
+        self.sw_pad_blank = ctk.CTkSwitch(
+            f_region, text='Slide trắng / ô trống theo số màn (Excel)',
+            command=self._on_pad_blank, progress_color=ACCENT)
+        if self.opts.get('pad_blank_slides'):
+            self.sw_pad_blank.select()
+        self.sw_pad_blank.pack(anchor='w', padx=10, pady=(0, 4))
+        ctk.CTkLabel(
+            f_region,
+            text='VD: 28 màn, 4 ảnh/slide → 7 slide; thiếu ảnh = ô xám trống.',
+            text_color=MUTED, font=ctk.CTkFont(size=10),
+            wraplength=340, justify='left', anchor='w'
+        ).pack(fill='x', padx=10, pady=(0, 8))
+        f_stamp_p = self._card(tab, 'Preset đóng dấu')
+        self.om_stamp_preset = ctk.CTkOptionMenu(
+            f_stamp_p, values=list(STAMP_PRESETS.keys()), width=220, height=28,
+            fg_color=CARD, button_color=CARD, button_hover_color=BORDER,
+            text_color=TEXT, command=self._on_stamp_preset)
+        self.om_stamp_preset.set(self.opts.get('stamp_preset', 'Tùy chỉnh'))
+        self.om_stamp_preset.pack(fill='x', padx=10, pady=(0, 4))
+        self.sw_no_exif = ctk.CTkSwitch(
+            f_stamp_p, text='Cảnh báo ⚠ trên timeline nếu ảnh mất EXIF',
+            command=self._on_no_exif_badge,
+            progress_color=ACCENT)
+        if self.opts.get('show_no_exif_badge', True):
+            self.sw_no_exif.select()
+        self.sw_no_exif.pack(anchor='w', padx=10, pady=(0, 8))
+        self.sw_export_pdf = ctk.CTkSwitch(
+            tab, text='Xuất thêm PDF (cần PowerPoint trên máy)',
+            command=self._on_export_pdf, progress_color=ACCENT)
+        if self.opts.get('export_pdf'):
+            self.sw_export_pdf.select()
+        self.sw_export_pdf.pack(anchor='w', padx=16, pady=(0, 4))
         f_split = self._card(tab, 'Chia file PPTX')
         row = ctk.CTkFrame(f_split, fg_color='transparent')
         row.pack(fill='x', padx=10, pady=2)
@@ -1861,6 +2300,20 @@ class App(ctk.CTk):
         ctk.CTkLabel(tab, text='File Excel nội bộ cạnh PPTX: điểm list chưa có ảnh, tên file lệch mã.',
                      text_color=MUTED, font=ctk.CTkFont(size=11),
                      wraplength=360, justify='left').pack(anchor='w', padx=16, pady=(0, 8))
+        f_stamp = self._card(tab, 'Xuất ảnh đóng dấu')
+        ctk.CTkLabel(
+            f_stamp,
+            text='Chỉ in ngày / vị trí lên ảnh (tab Dấu, GPS) — không tạo slide PPTX. '
+                 'Ảnh lưu theo thư mục mã điểm.',
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=360, justify='left', anchor='w'
+        ).pack(fill='x', padx=10, pady=(0, 8))
+        ctk.CTkButton(
+            f_stamp, text='Xuất ảnh đóng dấu…', height=40,
+            font=ctk.CTkFont(size=14, weight='bold'),
+            fg_color='#0d9488', hover_color='#0f766e',
+            command=self.export_stamped
+        ).pack(fill='x', padx=10, pady=(0, 8))
         ctk.CTkButton(tab, text='Xuất PPTX', height=44,
                       font=ctk.CTkFont(size=15, weight='bold'),
                       fg_color=ACCENT, hover_color=ACCENT_HOVER,
@@ -2154,6 +2607,7 @@ class App(ctk.CTk):
         else:
             fx = self.opts.get('fx') or {}
             self._paint_toggle(getattr(self, 'btn_fmt_date', None), fx.get('use_timestamp'))
+            self._paint_toggle(getattr(self, 'btn_fmt_loc', None), fx.get('stamp_location'))
             self._paint_toggle(getattr(self, 'btn_fmt_gps', None), fx.get('show_gps'))
             self._paint_toggle(getattr(self, 'btn_fmt_map', None), fx.get('minimap'))
             lab = (self._loc_mode_labels or {}).get(
@@ -2165,7 +2619,7 @@ class App(ctk.CTk):
                         om.set(lab)
                 except Exception:
                     pass
-            for key in ('use_timestamp', 'show_gps', 'minimap'):
+            for key in ('use_timestamp', 'stamp_location', 'show_gps', 'minimap'):
                 w = getattr(self, 'sw_fx_' + key, None)
                 if w is None:
                     continue
@@ -2672,7 +3126,11 @@ class App(ctk.CTk):
 
     def _toggle_hide(self):
         name = self.editor.selected or self._sel_name()
-        self.opts['visible'][name] = not bool(self.sw_hide.get())
+        on = not bool(self.sw_hide.get())
+        self.opts['visible'][name] = on
+        if name == 'channel':
+            self.opts['channel_enabled'] = on
+            self._sync_channel_switch()
         self._invalidate()
 
     # ════════════════════════ TUỲ CHỌN ════════════════════════
@@ -2939,8 +3397,20 @@ class App(ctk.CTk):
         t['full_width_on_slide'] = bool(self.sw_fullw.get())
         self._invalidate()
 
+    def _sync_channel_switch(self):
+        sw = getattr(self, 'sw_channel', None)
+        if sw is None:
+            return
+        on = bool(self.opts.get('channel_enabled', True))
+        try:
+            sw.select() if on else sw.deselect()
+        except Exception:
+            pass
+
     def _on_channel_toggle(self):
-        self.opts['channel_enabled'] = bool(self.sw_channel.get())
+        on = bool(self.sw_channel.get())
+        self.opts['channel_enabled'] = on
+        self.opts.setdefault('visible', {})['channel'] = on
         self._invalidate()
 
     def _on_channel_tpl(self, _=None):
@@ -2984,8 +3454,11 @@ class App(ctk.CTk):
             self._apply_image_folders()
         if o['bg_path'] and os.path.isfile(o['bg_path']):
             self.lbl_bg.configure(text=o['bg_path'])
-        if o['excel_path'] and os.path.isfile(o['excel_path']):
-            self._load_excel_async(o['excel_path'])
+        excel = o.get('excel_path') or ''
+        if excel and os.path.isfile(excel):
+            # Cloud: đợi sync (show_main) — tránh load cache cũ rồi race với bản mới.
+            if not (o.get('app_mode') == 'cloud' and self.cloud.logged_in()):
+                self._load_excel_async(excel)
         self._apply_mode_ui()
 
     def _first_show(self):
@@ -2996,16 +3469,18 @@ class App(ctk.CTk):
         self._sync_format_bar()
 
     def select_excel(self):
-        p = filedialog.askopenfilename(
-            title='Chọn file Excel list (cột Code_RP)',
-            filetypes=[('Excel', '*.xlsx *.xlsm')])
-        if p:
-            self._load_excel_async(p)
+        self.pick_master_excel(purpose='local')
 
-    def up_sales_list(self):
-        """Chọn file tổng/Master: kiểm tra Code_RP → dùng máy / đẩy Cloud."""
+    def pick_master_excel(self, purpose='local'):
+        """Chọn FILE TỔNG: local = dùng máy; push = đẩy Cloud (trong Cài đặt)."""
+        if purpose == 'push' and not self.cloud.logged_in():
+            messagebox.showwarning('Cloud', 'Cần đăng nhập để đẩy FILE TỔNG lên Cloud.')
+            return
+        title = ('Chọn FILE TỔNG / MASTER để đẩy lên Cloud'
+                 if purpose == 'push'
+                 else 'Chọn FILE TỔNG / MASTER chuẩn (cột Code_RP)')
         p = filedialog.askopenfilename(
-            title='Chọn FILE TỔNG / MASTER chuẩn (cột Code_RP)',
+            title=title,
             filetypes=[('Excel', '*.xlsx *.xlsm')])
         if not p:
             return
@@ -3018,11 +3493,15 @@ class App(ctk.CTk):
 
         def work():
             info = inspect_excel(p)
-            self.after(0, lambda: self._list_inspected(pop, p, info))
+            self.after(0, lambda: self._list_inspected(pop, p, info, purpose=purpose))
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _list_inspected(self, pop, path, info):
+    def up_sales_list(self):
+        """Tương thích cũ — chọn file trên máy."""
+        self.pick_master_excel(purpose='local')
+
+    def _list_inspected(self, pop, path, info, purpose='local'):
         try:
             pop.destroy()
         except Exception:
@@ -3035,7 +3514,8 @@ class App(ctk.CTk):
                 'Cần cột Code_RP (hoặc Code / Mã báo cáo) ở sheet đầu.')
             return
         win = ctk.CTkToplevel(self)
-        win.title('FILE TỔNG / MASTER')
+        win.title('Đẩy FILE TỔNG lên Cloud' if purpose == 'push'
+                  else 'FILE TỔNG / MASTER')
         win.geometry('520x460')
         win.attributes('-topmost', True)
         ctk.CTkLabel(
@@ -3065,8 +3545,10 @@ class App(ctk.CTk):
             ).pack(fill='x', padx=16, pady=(4, 8))
         tb = ctk.CTkTextbox(win, height=90, font=ctk.CTkFont(size=12))
         tb.pack(fill='x', padx=16, pady=(0, 8))
-        tb.insert('1.0', 'Đây là FILE TỔNG / MASTER dùng để tạo slide và gắn ảnh theo Code_RP.\n'
-                  'Đẩy lên Cloud thì máy khác đồng bộ được cùng file tổng.')
+        tb.insert('1.0', (
+            'Đẩy lên Cloud để máy khác đồng bộ cùng FILE TỔNG / MASTER.'
+            if purpose == 'push' else
+            'FILE TỔNG / MASTER dùng để tạo slide và gắn ảnh theo Code_RP trên máy này.'))
         tb.configure(state='disabled')
 
         def use_local():
@@ -3102,18 +3584,21 @@ class App(ctk.CTk):
 
         bar = ctk.CTkFrame(win, fg_color='transparent')
         bar.pack(fill='x', padx=16, pady=(0, 16))
-        ctk.CTkButton(bar, text='Dùng trên máy này', height=34, fg_color=ACCENT,
-                      hover_color=ACCENT_HOVER, command=use_local
-                      ).pack(fill='x', pady=3)
-        if self.cloud.logged_in():
-            ctk.CTkButton(bar, text='Dùng máy này + đẩy Cloud (tài khoản tôi)',
-                          height=32, fg_color=CARD, hover_color=BORDER,
-                          text_color=TEXT, command=push_me
+        if purpose == 'local':
+            ctk.CTkButton(bar, text='Dùng trên máy này', height=34, fg_color=ACCENT,
+                          hover_color=ACCENT_HOVER, command=use_local
                           ).pack(fill='x', pady=3)
-        if self.cloud.is_admin():
-            ctk.CTkButton(bar, text='Đẩy cho TẤT CẢ tài khoản',
-                          height=32, fg_color='#b45309', hover_color='#92400e',
-                          command=push_all).pack(fill='x', pady=3)
+        if purpose == 'push' and self.cloud.logged_in():
+            ctk.CTkButton(bar, text='Đẩy Cloud (tài khoản tôi)',
+                          height=34, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                          command=push_me).pack(fill='x', pady=3)
+            if self.cloud.is_admin():
+                ctk.CTkButton(bar, text='Đẩy cho TẤT CẢ tài khoản',
+                              height=32, fg_color='#b45309', hover_color='#92400e',
+                              command=push_all).pack(fill='x', pady=3)
+        elif purpose == 'push':
+            ctk.CTkLabel(bar, text='Cần đăng nhập để đẩy Cloud.',
+                         text_color=MUTED).pack(pady=4)
 
     def _load_excel_async(self, path):
         if hasattr(self, 'lbl_excel'):
@@ -3127,7 +3612,10 @@ class App(ctk.CTk):
 
     def _excel_loaded(self, path, ok):
         if not ok:
-            self.lbl_excel.configure(text=f'Lỗi: {self.excel.error}')
+            try:
+                self.lbl_excel.configure(text=f'Lỗi: {self.excel.error}')
+            except Exception:
+                pass
             messagebox.showerror('Excel', f'Không đọc được file:\n{self.excel.error}')
             return
         self.opts['excel_path'] = path
@@ -3136,10 +3624,16 @@ class App(ctk.CTk):
         if self.opts['channel_filter'] not in chans:
             self.opts['channel_filter'] = ALL_CHANNELS
         self.om_channel.set(self.opts['channel_filter'])
+        self._refresh_geo_filters()
         self._rebuild_code_map()
-        self.lbl_excel.configure(
-            text=f'{os.path.basename(path)} — {len(self.excel.rows)} dòng, '
-                 f'{len(chans) - 1} kênh')
+        display = self.cloud.excel_local_display_name(path)
+        cap = (f'{display} — {len(self.excel.rows)} dòng, '
+               f'{len(chans) - 1} kênh')
+        try:
+            self.lbl_excel.configure(text=cap)
+        except Exception:
+            pass
+        self._update_data_brief()
         self.log(f'Đã đọc {len(self.excel.rows)} dòng Excel.')
         try:
             self.lbl_list_master_compare.configure(
@@ -3158,8 +3652,112 @@ class App(ctk.CTk):
     def _on_channel(self, v):
         self.opts['channel_filter'] = v
         self._rebuild_code_map()
-        self._invalidate()
-        self._update_coverage_label()
+        self._refresh_geo_filters()
+        self._rebuild_timeline()
+        self._update_estimate()
+        self._update_data_brief()
+        self._schedule_save()
+
+    def _refresh_geo_filters(self):
+        rows = self.excel.rows if getattr(self.excel, 'rows', None) else []
+        ch = self.opts.get('channel_filter', ALL_CHANNELS)
+        if ch != ALL_CHANNELS:
+            rows = [r for r in rows if str(clean(r.get('Channel'))).strip() == ch]
+        cities = [ALL_CITIES] + geo_field_values(rows, 'City')
+        cur_city = self.opts.get('city_filter', ALL_CITIES)
+        if cur_city not in cities:
+            cur_city = ALL_CITIES
+            self.opts['city_filter'] = cur_city
+        try:
+            self.pick_city.configure(values=cities)
+            self.pick_city.set(cur_city)
+        except Exception:
+            pass
+        dist_rows = rows
+        if cur_city != ALL_CITIES:
+            from .datasource import norm_city
+            ck = norm_city(cur_city)
+            dist_rows = [r for r in rows if norm_city(r.get('City')) == ck]
+        dists = [ALL_DISTRICTS] + geo_field_values(dist_rows, 'District')
+        cur_dist = self.opts.get('district_filter', ALL_DISTRICTS)
+        if cur_dist not in dists:
+            cur_dist = ALL_DISTRICTS
+            self.opts['district_filter'] = cur_dist
+        try:
+            self.pick_district.configure(values=dists)
+            self.pick_district.set(cur_dist)
+        except Exception:
+            pass
+
+    def _on_city_filter(self, v):
+        self.opts['city_filter'] = v
+        if v != ALL_CITIES:
+            self.opts['district_filter'] = ALL_DISTRICTS
+        self._refresh_geo_filters()
+        self._rebuild_timeline()
+        self._update_estimate()
+        self._update_data_brief()
+        self._schedule_save()
+
+    def _on_district_filter(self, v):
+        self.opts['district_filter'] = v
+        self._rebuild_timeline()
+        self._update_estimate()
+        self._update_data_brief()
+        self._schedule_save()
+
+    def _on_sort_mode(self, v):
+        self.opts['sort_mode'] = 'list' if 'list' in (v or '').lower() else 'city'
+        self._rebuild_timeline()
+        self._update_estimate()
+        self._schedule_save()
+
+    def _on_split_geo(self, v):
+        m = {'Không tách': 'none', 'Theo tỉnh': 'city', 'Theo quận': 'district'}
+        self.opts['split_export_by'] = m.get(v, 'none')
+        self._update_estimate()
+        self._schedule_save()
+
+    def _on_pad_blank(self):
+        self.opts['pad_blank_slides'] = bool(self.sw_pad_blank.get())
+        self._update_estimate()
+        self._schedule_save()
+
+    def _on_export_pdf(self):
+        self.opts['export_pdf'] = bool(self.sw_export_pdf.get())
+        self._schedule_save()
+
+    def _on_no_exif_badge(self):
+        self.opts['show_no_exif_badge'] = bool(self.sw_no_exif.get())
+        self._rebuild_timeline()
+        self._schedule_save()
+
+    def _on_stamp_preset(self, v):
+        self.opts['stamp_preset'] = v
+        preset = STAMP_PRESETS.get(v) or {}
+        if preset:
+            self.opts.setdefault('fx', {}).update(preset)
+            try:
+                self.editor.clear_fx_cache()
+            except Exception:
+                pass
+            self._invalidate()
+            self._sync_format_bar()
+        self._schedule_save()
+
+    def _filtered_groups(self, groups=None):
+        groups = OrderedDict(groups if groups is not None else self.imglib.groups())
+        return filter_groups_by_geo(
+            groups, self._by_code, self._merged,
+            city=self.opts.get('city_filter', ALL_CITIES),
+            district=self.opts.get('district_filter', ALL_DISTRICTS),
+            all_cities=ALL_CITIES, all_districts=ALL_DISTRICTS)
+
+    def _ordered_groups(self, groups=None):
+        groups = self._filtered_groups(groups)
+        return order_groups(
+            groups, self._by_code, self._merged, self.excel.rows,
+            self.opts.get('sort_mode', 'city'))
 
     def select_images(self):
         self.add_image_folder()
@@ -3409,10 +4007,7 @@ class App(ctk.CTk):
 
     # ════════════════════════ TIMELINE ════════════════════════
     def _ordered_codes(self):
-        """Sales và BD: tỉnh/thành Bắc → Nam, rồi quận, rồi tên."""
-        codes = list(self.imglib.groups())
-        return sort_codes_by_city(
-            codes, self._by_code, getattr(self, '_merged', None))
+        return list(self._ordered_groups().keys())
 
     def _filtered_codes(self):
         codes = self._ordered_codes()
@@ -3459,8 +4054,13 @@ class App(ctk.CTk):
                 else:
                     self._tl_pending[paths[0]] = (code, idx, x)
             label = code if len(code) <= 16 else code[:15] + '…'
+            nphotos = len(groups.get(code, []))
+            exif_note = ''
+            if (self.opts.get('show_no_exif_badge', True) and paths
+                    and not FX.has_exif_datetime(paths[0])):
+                exif_note = ' ⚠'
             tl.create_text(x + _TL_W / 2, 8 + _TL_H + 9,
-                           text=f'{label} ({len(groups.get(code, []))})',
+                           text=f'{label} ({nphotos}){exif_note}',
                            fill=ch['text'], font=('Segoe UI', 8),
                            tags=(f'g_{idx}',))
             x += _TL_W + 12
@@ -3580,7 +4180,7 @@ class App(ctk.CTk):
             pack = {
                 'layout': saved['layout'],
                 'visible': saved.get('visible') or {},
-                'channel_enabled': saved.get('channel_enabled', dept != 'bd'),
+                'channel_enabled': saved.get('channel_enabled', True),
                 'slide_style': saved.get('slide_style') or (
                     'saleskit' if dept == 'bd' else 'report'),
             }
@@ -3600,7 +4200,9 @@ class App(ctk.CTk):
         vis.update(pack.get('visible') or {})
         if 'channel_enabled' in pack:
             self.opts['channel_enabled'] = bool(pack['channel_enabled'])
+        vis['channel'] = bool(self.opts.get('channel_enabled', True))
         self._sync_dept_ui()
+        self._sync_channel_switch()
         self._invalidate()
         if hasattr(self, 'editor'):
             self.editor.render()
@@ -3717,7 +4319,7 @@ class App(ctk.CTk):
             'Chưa có FILE TỔNG / MASTER để so sánh với ảnh.\n\n'
             'Vào tab Nguồn:\n'
             '• Đám mây: bấm Tải FILE TỔNG + Avatar từ Cloud\n'
-            '• Máy này: Chọn / Up FILE TỔNG (MASTER)\n\n'
+            '• Máy này: Chọn FILE TỔNG (MASTER) · đẩy Cloud: Cài đặt\n\n'
             'Đây là file tổng chính, không phải FILE LIST SO SÁNH.')
         return False
 
@@ -4356,7 +4958,7 @@ class App(ctk.CTk):
 
     # ════════════════════════ XUẤT PPTX ════════════════════════
     def _update_estimate(self):
-        groups = self.imglib.groups()
+        groups = self._ordered_groups()
         if not groups:
             short, full = 'Chưa chọn thư mục ảnh.', 'Chưa chọn thư mục ảnh.'
         else:
@@ -4367,7 +4969,9 @@ class App(ctk.CTk):
             ng, ns, np_ = exporter.estimate(
                 groups, self.opts['n_per_slide'],
                 overview_rows=n_ov,
-                slides_per_file=self.opts.get('slides_per_file', 0))
+                slides_per_file=self.opts.get('slides_per_file', 0),
+                by_code=self._by_code, merged=self._merged,
+                pad_blank=self.opts.get('pad_blank_slides', False))
             extra = ''
             qa = QA.check(groups, self._by_code, self._merged)
             if qa.missing:
@@ -4377,6 +4981,8 @@ class App(ctk.CTk):
             if qa.fuzzy:
                 extra += f'\n• {len(qa.fuzzy)} nhóm khớp gần đúng'
             short = f'{ng} nhóm · ~{ns} slide'
+            if self.opts.get('pad_blank_slides'):
+                short += ' · pad màn'
             if qa.missing:
                 short += f' · thiếu {len(qa.missing)} ảnh'
             cap = G.file_part_limit(self.opts.get('slides_per_file', 0))
@@ -4387,8 +4993,17 @@ class App(ctk.CTk):
             else:
                 files_txt = f'{np_} file PPTX (mỗi {cap} slide)'
             full = f'• {ng} nhóm ảnh\n• ~{ns} slide\n• {files_txt}{extra}'
+            if self.opts.get('pad_blank_slides'):
+                full += '\n• Slide trắng/ô trống theo số màn Excel'
+            split = self.opts.get('split_export_by', 'none')
+            if split and split != 'none':
+                full += f'\n• Tách file theo {split}'
         try:
             self.lbl_est.configure(text=short)
+        except Exception:
+            pass
+        try:
+            self.lbl_scope_est.configure(text=self._scope_estimate_text())
         except Exception:
             pass
         try:
@@ -4411,15 +5026,17 @@ class App(ctk.CTk):
         self._export_after_qa(qa)
 
     def _export_after_qa(self, qa, confirm=True):
-        groups_rel = self.imglib.groups()
+        groups = self._ordered_groups()
         n_ov = 0
         if self.opts.get('fx', {}).get('dashboard', True):
-            ov = build_overview(groups_rel, self._by_code, self._merged)
+            ov = build_overview(groups, self._by_code, self._merged)
             n_ov = len(ov['rows'])
         ng, ns, np_ = exporter.estimate(
-            groups_rel, self.opts['n_per_slide'],
+            groups, self.opts['n_per_slide'],
             overview_rows=n_ov,
-            slides_per_file=self.opts.get('slides_per_file', 0))
+            slides_per_file=self.opts.get('slides_per_file', 0),
+            by_code=self._by_code, merged=self._merged,
+            pad_blank=self.opts.get('pad_blank_slides', False))
         cap = G.file_part_limit(self.opts.get('slides_per_file', 0))
         if np_ <= 1:
             split_txt = '1 file'
@@ -4444,10 +5061,99 @@ class App(ctk.CTk):
             'write_checklist': bool(self.opts.get('write_checklist', True)),
         }
         if self.opts.get('fx', {}).get('quality_check'):
-            paths = [p for files in groups_rel.values() for p in files]
+            paths = [p for files in groups.values() for p in files]
             self._run_quality_scan(paths, then_export=True, export_kwargs=kwargs)
             return
         self._start_export(**kwargs)
+
+    def export_stamped(self):
+        """Xuất ảnh đã đóng dấu ngày/vị trí — không tạo PPTX."""
+        groups_rel = self.imglib.groups()
+        if not groups_rel:
+            messagebox.showwarning('Xuất ảnh', 'Chưa chọn thư mục ảnh.')
+            return
+        fx = self.opts.get('fx') or {}
+        if (not fx.get('use_timestamp')
+                and not (fx.get('watermark') or '').strip()
+                and not fx.get('minimap')):
+            if not messagebox.askyesno(
+                    'Xuất ảnh',
+                    'Chưa bật đóng dấu ngày/vị trí (tab Dấu / GPS).\n'
+                    'Ảnh xuất ra sẽ giống bản gốc. Tiếp tục?'):
+                return
+        qa = QA.check(groups_rel, self._by_code, self._merged)
+        if self.opts.get('qa_gate', True) and qa.needs_gate():
+            self._show_qa_gate(qa, lambda: self._export_stamped_after_qa(qa, confirm=False))
+            return
+        self._export_stamped_after_qa(qa)
+
+    def _export_stamped_after_qa(self, qa, confirm=True):
+        groups_rel = self.imglib.groups()
+        n_img = sum(len(v) for v in groups_rel.values())
+        n_grp = len(groups_rel)
+        if confirm and not messagebox.askyesno(
+                'Xuất ảnh đóng dấu',
+                f'{n_img} ảnh / {n_grp} mã → lưu vào thư mục bạn chọn.\n'
+                'Không tạo file PPTX. Tiếp tục?'):
+            return
+        folders = self.opts.get('image_folders') or []
+        init_dir = folders[0] if folders else None
+        out_dir = filedialog.askdirectory(
+            title='Chọn thư mục lưu ảnh đóng dấu',
+            initialdir=init_dir)
+        if not out_dir:
+            return
+        self._start_stamp_export(out_dir, qa=qa)
+
+    def _start_stamp_export(self, out_dir, qa=None):
+        groups = OrderedDict(
+            (code, list(files))
+            for code, files in self._ordered_groups().items())
+        job = exporter.ExportJob(
+            layout={},
+            groups=groups,
+            excel_by_code=dict(self._by_code),
+            excel_rows=list(self.excel.rows),
+            avatar_map={},
+            out_path=out_dir,
+            fx=copy.deepcopy(self.opts.get('fx') or {}),
+            sort_mode=self.opts.get('sort_mode', 'city'),
+            city_filter=self.opts.get('city_filter', ALL_CITIES),
+            district_filter=self.opts.get('district_filter', ALL_DISTRICTS),
+        )
+
+        cancel = threading.Event()
+        pop = ctk.CTkToplevel(self)
+        pop.title('Đang đóng dấu ảnh…')
+        pop.geometry('420x150')
+        pop.attributes('-topmost', True)
+        pop.resizable(False, False)
+        pop.protocol('WM_DELETE_WINDOW', cancel.set)
+        ctk.CTkLabel(pop, text='Đang in ngày / vị trí lên ảnh…',
+                     font=ctk.CTkFont(size=14, weight='bold')).pack(pady=(16, 6))
+        pb = ctk.CTkProgressBar(pop, height=10, progress_color=ACCENT)
+        pb.pack(fill='x', padx=28)
+        pb.set(0)
+        lbl = ctk.CTkLabel(pop, text='0%', text_color=MUTED)
+        lbl.pack(pady=4)
+        ctk.CTkButton(pop, text='Huỷ', width=90, fg_color='#ef4444',
+                      hover_color='#b91c1c',
+                      command=cancel.set).pack(pady=(2, 10))
+
+        def on_prog(done, total):
+            frac = done / max(1, total)
+            self.after(0, lambda: (pb.set(frac),
+                                   lbl.configure(text=f'{int(frac * 100)}%  '
+                                                      f'({done}/{total} ảnh)')))
+
+        def on_log(msg):
+            self.after(0, lambda m=msg: self.log(m))
+
+        def work():
+            rep = exporter.export_stamped_images(job, out_dir, on_prog, on_log, cancel)
+            self.after(0, lambda: self._export_done(
+                pop, rep, kind='stamp', out_dir=out_dir))
+        threading.Thread(target=work, daemon=True).start()
 
     def _show_qa_gate(self, qa, on_continue):
         win = ctk.CTkToplevel(self)
@@ -4558,12 +5264,9 @@ class App(ctk.CTk):
             ).pack(side='left', padx=(12, 0))
 
     def _start_export(self, out, qa=None, write_checklist=None):
-        groups_rel = self.imglib.groups()
-        # Đường dẫn đã tuyệt đối (nhiều thư mục)
         groups = OrderedDict(
-            (code, list(files)) for code, files in groups_rel.items())
-        groups = order_groups_by_city(
-            groups, self._by_code, getattr(self, '_merged', None))
+            (code, list(files))
+            for code, files in self._ordered_groups().items())
         avatar_map = {}
         for code in groups:
             p = self._resolve_avatar(code)
@@ -4587,7 +5290,14 @@ class App(ctk.CTk):
             channel_template=self.opts['channel_template'],
             visible=vis,
             fx=copy.deepcopy(self.opts.get('fx') or {}),
-            slide_style=self.opts.get('slide_style') or 'report')
+            slide_style=self.opts.get('slide_style') or 'report',
+            pad_blank_slides=bool(self.opts.get('pad_blank_slides', False)),
+            sort_mode=self.opts.get('sort_mode', 'city'),
+            city_filter=self.opts.get('city_filter', ALL_CITIES),
+            district_filter=self.opts.get('district_filter', ALL_DISTRICTS),
+            split_export_by=self.opts.get('split_export_by', 'none'),
+            export_pdf=bool(self.opts.get('export_pdf', False)),
+        )
 
         cancel = threading.Event()
         pop = ctk.CTkToplevel(self)
@@ -4635,42 +5345,58 @@ class App(ctk.CTk):
                                                     cl_err=cl_err))
         threading.Thread(target=work, daemon=True).start()
 
-    def _export_done(self, pop, rep, checklist='', cl_err=''):
+    def _export_done(self, pop, rep, checklist='', cl_err='', kind='pptx',
+                     out_dir=''):
         try:
             pop.destroy()
         except Exception:
             pass
         if rep.cancelled:
             self.log('Đã huỷ xuất.')
-            messagebox.showinfo('Xuất PPTX', 'Đã huỷ — không có file nào được lưu.')
+            title = 'Xuất ảnh' if kind == 'stamp' else 'Xuất PPTX'
+            messagebox.showinfo(title, 'Đã huỷ — giữ phần đã lưu (nếu có).')
             return
-        self.log(f'Xong: {rep.slides} slide / {len(rep.files)} file '
-                 f'trong {rep.seconds:.1f}s.')
+        if kind == 'stamp':
+            self.log(f'Xong: {rep.slides} ảnh trong {rep.seconds:.1f}s.')
+        else:
+            self.log(f'Xong: {rep.slides} slide / {len(rep.files)} file '
+                     f'trong {rep.seconds:.1f}s.')
         if self.opts['open_after_export'] and rep.files:
             try:
-                os.startfile(os.path.dirname(rep.files[0]))
+                folder = out_dir or os.path.dirname(rep.files[0])
+                os.startfile(folder)
             except Exception:
                 pass
         win = ctk.CTkToplevel(self)
-        win.title('Kết quả xuất')
+        win.title('Kết quả xuất ảnh' if kind == 'stamp' else 'Kết quả xuất')
         win.geometry('560x440')
         win.attributes('-topmost', True)
         tb = ctk.CTkTextbox(win, font=ctk.CTkFont(family='Consolas', size=12))
         tb.pack(fill='both', expand=True, padx=10, pady=10)
-        lines = [f'{rep.slides} slide — {rep.groups} nhóm — '
-                 f'{rep.seconds:.1f} giây', '', 'File:']
-        lines += [f'   {f}' for f in rep.files]
-        if checklist:
-            lines += ['', 'Checklist (nội bộ):', f'   {checklist}']
-        if cl_err:
-            lines += ['', f'Không ghi được checklist: {cl_err}']
+        if kind == 'stamp':
+            folder = out_dir or (os.path.dirname(rep.files[0]) if rep.files else '')
+            lines = [f'{rep.slides} ảnh — {rep.groups} mã — '
+                     f'{rep.seconds:.1f} giây', '', 'Thư mục:', f'   {folder}']
+            if rep.files:
+                lines += ['', 'Ví dụ:']
+                lines += [f'   {f}' for f in rep.files[:12]]
+                if len(rep.files) > 12:
+                    lines.append(f'   … còn {len(rep.files) - 12} ảnh')
+        else:
+            lines = [f'{rep.slides} slide — {rep.groups} nhóm — '
+                     f'{rep.seconds:.1f} giây', '', 'File:']
+            lines += [f'   {f}' for f in rep.files]
+            if checklist:
+                lines += ['', 'Checklist (nội bộ):', f'   {checklist}']
+            if cl_err:
+                lines += ['', f'Không ghi được checklist: {cl_err}']
         if rep.fuzzy:
             lines += ['', f'{len(rep.fuzzy)} mã khớp GẦN ĐÚNG:']
             lines += [f'   {a}  ≈  {b}' for a, b in rep.fuzzy]
         if rep.unmatched:
             lines += ['', f'{len(rep.unmatched)} mã KHÔNG có trong Excel:']
             lines += [f'   {c}' for c in rep.unmatched]
-        if rep.missing_avatars:
+        if kind != 'stamp' and rep.missing_avatars:
             lines += ['', f'{len(rep.missing_avatars)} mã thiếu avatar:']
             lines += [f'   {c}' for c in rep.missing_avatars]
         tb.insert('1.0', '\n'.join(lines))
@@ -4707,6 +5433,20 @@ class App(ctk.CTk):
     def _apply_mode_ui(self):
         cloud = self.opts.get('app_mode') == 'cloud'
         try:
+            anchor = getattr(self, 'seg_mode', None)
+            if hasattr(self, 'frm_cloud_block') and anchor is not None:
+                if cloud:
+                    self.frm_cloud_block.pack(fill='x', after=anchor)
+                else:
+                    self.frm_cloud_block.pack_forget()
+            if hasattr(self, 'frm_local_block') and anchor is not None:
+                if cloud:
+                    self.frm_local_block.pack_forget()
+                else:
+                    self.frm_local_block.pack(fill='x', after=anchor)
+        except Exception:
+            pass
+        try:
             if hasattr(self, 'btn_sync_cloud'):
                 self.btn_sync_cloud.configure(
                     text='Tải FILE TỔNG + Avatar từ Cloud' if cloud
@@ -4714,10 +5454,8 @@ class App(ctk.CTk):
             if hasattr(self, 'btn_excel'):
                 self.btn_excel.configure(
                     state='disabled' if cloud else 'normal',
-                    text='FILE TỔNG lấy từ Cloud — dùng Bước 2 để thay file' if cloud
-                    else 'Chọn file trên máy…')
-            if hasattr(self, 'btn_up_list'):
-                self.btn_up_list.configure(state='normal')
+                    text=('FILE TỔNG lấy từ Cloud — bấm Tải ở trên'
+                          if cloud else 'Chọn FILE TỔNG trên máy…'))
             if hasattr(self, 'btn_avatars'):
                 self.btn_avatars.configure(
                     state='disabled' if cloud else 'normal',
@@ -4740,8 +5478,8 @@ class App(ctk.CTk):
         if self.cloud.is_admin():
             menu.add_command(label='👥  Quản lý tài khoản',
                              command=self._show_account_manager)
-        menu.add_command(label='⚙  Cài đặt Cloud (URL/Key)',
-                         command=self._show_cloud_settings)
+        menu.add_command(label='⚙  Cài đặt',
+                         command=self._show_settings)
         menu.add_separator()
         menu.add_command(label='⏻  Đăng xuất', command=self.logout)
         try:
@@ -4750,20 +5488,31 @@ class App(ctk.CTk):
         finally:
             menu.grab_release()
 
-    def _show_cloud_settings(self):
+    def _show_settings(self):
         win = ctk.CTkToplevel(self)
-        win.title('Cài đặt Cloud')
-        win.geometry('560x240')
+        win.title('Cài đặt')
+        win.geometry('580x640')
         win.attributes('-topmost', True)
-        ctk.CTkLabel(win, text='Supabase URL / anon key (nâng cao)',
-                     font=ctk.CTkFont(size=14, weight='bold')).pack(anchor='w', padx=16, pady=(14, 8))
-        ctk.CTkLabel(win, text='URL', text_color=MUTED).pack(anchor='w', padx=16)
-        ent_u = ctk.CTkEntry(win, height=32)
-        ent_u.pack(fill='x', padx=16, pady=(0, 8))
+        try:
+            win.transient(self)
+        except Exception:
+            pass
+        sc = ctk.CTkScrollableFrame(win, fg_color='transparent')
+        sc.pack(fill='both', expand=True, padx=12, pady=12)
+
+        self._build_settings_source(sc)
+
+        ctk.CTkLabel(
+            sc, text='Cloud Supabase (nâng cao)',
+            font=ctk.CTkFont(size=14, weight='bold')
+        ).pack(anchor='w', pady=(12, 4))
+        ctk.CTkLabel(sc, text='URL', text_color=MUTED).pack(anchor='w')
+        ent_u = ctk.CTkEntry(sc, height=32)
+        ent_u.pack(fill='x', pady=(0, 8))
         ent_u.insert(0, self.cloud.url)
-        ctk.CTkLabel(win, text='Anon key', text_color=MUTED).pack(anchor='w', padx=16)
-        ent_k = ctk.CTkEntry(win, height=32)
-        ent_k.pack(fill='x', padx=16, pady=(0, 8))
+        ctk.CTkLabel(sc, text='Anon key', text_color=MUTED).pack(anchor='w')
+        ent_k = ctk.CTkEntry(sc, height=32)
+        ent_k.pack(fill='x', pady=(0, 8))
         ent_k.insert(0, self.cloud.key)
 
         def _save():
@@ -4772,8 +5521,17 @@ class App(ctk.CTk):
             self.cloud._client = None
             self._save_config()
             win.destroy()
-            messagebox.showinfo('Cloud', 'Đã lưu. Đăng nhập lại để áp dụng.')
-        ctk.CTkButton(win, text='Lưu', fg_color=ACCENT, command=_save).pack(pady=10)
+            messagebox.showinfo('Cài đặt', 'Đã lưu. Đăng nhập lại để áp dụng URL/Key mới.')
+        bar = ctk.CTkFrame(win, fg_color='transparent')
+        bar.pack(fill='x', padx=16, pady=(0, 12))
+        ctk.CTkButton(bar, text='Lưu URL/Key', fg_color=ACCENT,
+                      command=_save).pack(side='right')
+        ctk.CTkButton(bar, text='Đóng', width=90, fg_color=CARD,
+                      hover_color=BORDER, text_color=TEXT,
+                      command=win.destroy).pack(side='right', padx=8)
+
+    def _show_cloud_settings(self):
+        self._show_settings()
 
     def _excel_prog(self, frac, text=''):
         try:
@@ -4803,7 +5561,7 @@ class App(ctk.CTk):
         def work():
             def ep(frac, text):
                 self.after(0, lambda: self._excel_prog(frac, text))
-            ex = self.cloud.sync_excel(progress=ep)
+            ex = self.cloud.sync_excel(progress=ep, force=not silent)
 
             def ap(cur, total, text):
                 self.after(0, lambda: self._avatar_prog(cur, total, text))
@@ -4820,6 +5578,7 @@ class App(ctk.CTk):
                     text='☁ ' + (ex.get('file_name') or os.path.basename(ex['path'])))
             except Exception:
                 pass
+        self._update_data_brief()
         try:
             self.lbl_excel_sync.configure(text='📊 ' + self.cloud.excel_status_text())
         except Exception:
@@ -5028,7 +5787,7 @@ class App(ctk.CTk):
         self.log(f'☁ Áp dụng nền: {name}')
 
     def _upload_excel_dialog(self):
-        self.up_sales_list()
+        self.pick_master_excel(purpose='push')
 
     def _do_upload_excel(self, path, target, win, then_load=False):
         if win is not None:
@@ -5050,7 +5809,8 @@ class App(ctk.CTk):
                     messagebox.showinfo('FILE TỔNG / MASTER',
                                         res.get('msg', 'Đã đẩy FILE TỔNG lên Cloud.'))
                     if then_load:
-                        self._load_excel_async(path)
+                        load_path = res.get('path') or path
+                        self._load_excel_async(load_path)
                 else:
                     messagebox.showerror('FILE TỔNG / MASTER',
                                          res.get('msg', 'Không đẩy được FILE TỔNG.'))

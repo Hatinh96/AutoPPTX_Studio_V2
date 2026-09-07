@@ -10,11 +10,29 @@ from collections import OrderedDict
 from .constants import IMG_EXTS, CODE_SUFFIX_RE
 
 
+_VI_ASCII = str.maketrans({
+    'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a',
+    'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a',
+    'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
+    'è': 'e', 'é': 'e', 'ẹ': 'e', 'ẻ': 'e', 'ẽ': 'e',
+    'ê': 'e', 'ề': 'e', 'ế': 'e', 'ệ': 'e', 'ể': 'e', 'ễ': 'e',
+    'ì': 'i', 'í': 'i', 'ị': 'i', 'ỉ': 'i', 'ĩ': 'i',
+    'ò': 'o', 'ó': 'o', 'ọ': 'o', 'ỏ': 'o', 'õ': 'o',
+    'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ộ': 'o', 'ổ': 'o', 'ỗ': 'o',
+    'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ợ': 'o', 'ở': 'o', 'ỡ': 'o',
+    'ù': 'u', 'ú': 'u', 'ụ': 'u', 'ủ': 'u', 'ũ': 'u',
+    'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ự': 'u', 'ử': 'u', 'ữ': 'u',
+    'ỳ': 'y', 'ý': 'y', 'ỵ': 'y', 'ỷ': 'y', 'ỹ': 'y',
+    'đ': 'd',
+})
+
+
 def _norm_header(s):
-    """Chuẩn hoá tên cột: bỏ khoảng trắng/gạch/ngoặc/xuống dòng, thường hoá."""
+    """Chuẩn hoá tên cột: bỏ dấu/khoảng trắng/gạch/ngoặc, thường hoá."""
     s = str(s or '').replace('\n', ' ').replace('\r', ' ')
+    s = s.casefold().translate(_VI_ASCII)
     s = re.sub(r"[\s_/\-\.,\(\)']+", '', s)
-    return s.strip().lower()
+    return s.strip()
 
 
 # tên cột chuẩn → các biến thể chấp nhận (đã chuẩn hoá)
@@ -28,7 +46,8 @@ _COLUMN_ALIASES = {
     'Ward': ('ward', 'phuong', 'wardmới', 'wardmoi'),
     'City': ('city', 'thanhpho', 'citymới', 'citymoi'),
     'District': ('district', 'quan', 'quanhuyen', 'distcũ', 'distcu'),
-    'Channel': ('channel', 'kenh'),
+    'Channel': ('channel', 'chanel', 'kenh', 'kenhquangcao', 'kenhqc',
+                'advertisingchannel', 'adchannel', 'saleschannel'),
     'Type': ('type', 'hinhthuc', 'format'),
     'Size': ('size', 'kichthuoc', 'inch', 'inches'),
     'GP_Size': ('gpsize', 'sizegp', 'kichthuocgp', 'giantpostersize'),
@@ -116,21 +135,6 @@ _CITY_NS = (
 _CITY_INDEX = {name: i for i, name in enumerate(_CITY_NS)}
 _CITY_STRIP = re.compile(
     r'^(thanh pho|tinh|tp\.?)\s+', re.IGNORECASE)
-_VI_ASCII = str.maketrans({
-    'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a',
-    'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a',
-    'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
-    'è': 'e', 'é': 'e', 'ẹ': 'e', 'ẻ': 'e', 'ẽ': 'e',
-    'ê': 'e', 'ề': 'e', 'ế': 'e', 'ệ': 'e', 'ể': 'e', 'ễ': 'e',
-    'ì': 'i', 'í': 'i', 'ị': 'i', 'ỉ': 'i', 'ĩ': 'i',
-    'ò': 'o', 'ó': 'o', 'ọ': 'o', 'ỏ': 'o', 'õ': 'o',
-    'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ộ': 'o', 'ổ': 'o', 'ỗ': 'o',
-    'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ợ': 'o', 'ở': 'o', 'ỡ': 'o',
-    'ù': 'u', 'ú': 'u', 'ụ': 'u', 'ủ': 'u', 'ũ': 'u',
-    'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ự': 'u', 'ử': 'u', 'ữ': 'u',
-    'ỳ': 'y', 'ý': 'y', 'ỵ': 'y', 'ỷ': 'y', 'ỹ': 'y',
-    'đ': 'd',
-})
 _CITY_ALIAS = {
     'hcm': 'ho chi minh',
     'tphcm': 'ho chi minh',
@@ -188,6 +192,92 @@ def order_groups_by_city(groups, by_code, merged=None):
     groups = groups or {}
     codes = sort_codes_by_city(groups.keys(), by_code, merged)
     return OrderedDict((c, groups[c]) for c in codes if c in groups)
+
+
+def sort_codes_by_list_order(codes, excel_rows, by_code, merged=None):
+    """Mã ảnh theo thứ tự dòng trên FILE TỔNG / MASTER (STT list)."""
+    codes = list(codes or [])
+    by_code = by_code or {}
+    if merged is None:
+        merged = build_merged_groups(by_code)
+    order = {}
+    for i, r in enumerate(excel_rows or []):
+        c = str(clean(r.get('Code_RP'))).strip().upper()
+        if c and c not in order:
+            order[c] = i
+
+    def key(code):
+        row, mcode, _ = match_row(code, by_code, merged)
+        code_rp = str(clean((row or {}).get('Code_RP') or mcode or code)).strip().upper()
+        return (order.get(code_rp, 999999), str(code or '').upper())
+
+    return sorted(codes, key=key)
+
+
+def order_groups(groups, by_code, merged=None, excel_rows=None, sort_mode='city'):
+    """Sắp nhóm ảnh: city = Bắc→Nam; list = thứ tự Excel."""
+    groups = groups or {}
+    if sort_mode == 'list':
+        codes = sort_codes_by_list_order(groups.keys(), excel_rows, by_code, merged)
+    else:
+        codes = sort_codes_by_city(groups.keys(), by_code, merged)
+    return OrderedDict((c, groups[c]) for c in codes if c in groups)
+
+
+def geo_field_values(rows, field='City'):
+    """Danh sách tỉnh hoặc quận duy nhất từ Excel (đã sort)."""
+    seen, out = set(), []
+    for r in rows or []:
+        v = str(clean(r.get(field)) or '').strip()
+        if not v:
+            continue
+        k = v.casefold()
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(v)
+    return sorted(out, key=lambda s: s.casefold())
+
+
+def filter_groups_by_geo(groups, by_code, merged=None, city=None, district=None,
+                         all_cities='Tất cả tỉnh', all_districts='Tất cả quận'):
+    """Lọc nhóm ảnh theo City / District trên Excel."""
+    groups = groups or {}
+    if (not city or city == all_cities) and (not district or district == all_districts):
+        return OrderedDict(groups)
+    if merged is None:
+        merged = build_merged_groups(by_code or {})
+    out = OrderedDict()
+    city_key = norm_city(city) if city and city != all_cities else ''
+    dist_key = str(district or '').strip().casefold() if district and district != all_districts else ''
+    for code, paths in groups.items():
+        row, _, _ = match_row(code, by_code or {}, merged)
+        row = row or {}
+        if city_key and norm_city(row.get('City')) != city_key:
+            continue
+        if dist_key and str(clean(row.get('District')) or '').strip().casefold() != dist_key:
+            continue
+        out[code] = paths
+    return out
+
+
+def group_export_chunks(groups, by_code, merged, split_by, excel_rows=None):
+    """Chia nhóm theo tỉnh/quận để xuất nhiều file. split_by: none|city|district."""
+    groups = groups or {}
+    if not split_by or split_by == 'none':
+        return {'': groups}
+    if merged is None:
+        merged = build_merged_groups(by_code or {})
+    chunks = OrderedDict()
+    for code, paths in groups.items():
+        row, _, _ = match_row(code, by_code or {}, merged)
+        row = row or {}
+        if split_by == 'district':
+            key = str(clean(row.get('District')) or 'Khác').strip() or 'Khác'
+        else:
+            key = str(clean(row.get('City')) or 'Khác').strip() or 'Khác'
+        chunks.setdefault(key, OrderedDict())[code] = paths
+    return chunks
 
 
 def fmt_num(v):

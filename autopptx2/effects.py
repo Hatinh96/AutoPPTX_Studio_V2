@@ -9,6 +9,7 @@ import math
 import time
 import datetime
 import hashlib
+import random
 import threading
 from collections import OrderedDict
 from functools import lru_cache
@@ -35,6 +36,7 @@ DEFAULT_FX = {
     'bg_opacity': 100,
     'location_text': '',
     'location_mode': 'gps',   # gps | auto | excel | manual
+    'stamp_location': False,
     'display_mode': 'Ngày + Giờ',
     'date_format': 'DD/MM/YYYY',
     'time_format': '24h',
@@ -46,6 +48,12 @@ DEFAULT_FX = {
     'fix_date_val': '',
     'fix_time': False,
     'fix_time_val': '',
+    'random_no_exif': False,
+    'random_date': False,
+    'random_date_from': '',
+    'random_date_to': '',
+    'random_time_from': '09:00',
+    'random_time_to': '17:00',
     'logo_enable': False,
     'logo_path': '',
     'logo_size_pct': 8,
@@ -341,6 +349,78 @@ def _exif_datetime(path):
     return None
 
 
+def has_exif_datetime(path):
+    return _exif_datetime(path) is not None
+
+
+def _parse_hm(text, default_h=9, default_m=0):
+    """'HH:MM' → (hour, minute)."""
+    s = str(text or '').strip()
+    for fmt in ('%H:%M', '%H:%M:%S'):
+        try:
+            t = datetime.datetime.strptime(s, fmt)
+            return t.hour, t.minute
+        except Exception:
+            continue
+    return default_h, default_m
+
+
+def _parse_dmy(text):
+    s = str(text or '').strip()
+    for fmt in ('%d/%m/%Y', '%Y-%m-%d', '%d-%m-%Y'):
+        try:
+            return datetime.datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    return None
+
+
+def _random_dt(path, fx):
+    """Ngày/giờ ngẫu nhiên ổn định theo đường dẫn ảnh (cùng file → cùng kết quả)."""
+    seed = int(hashlib.md5(str(path or '').encode('utf-8', 'replace')).hexdigest()[:8], 16)
+    rng = random.Random(seed)
+
+    if fx.get('random_date'):
+        d0 = _parse_dmy(fx.get('random_date_from'))
+        d1 = _parse_dmy(fx.get('random_date_to'))
+        if d0 and d1:
+            if d1 < d0:
+                d0, d1 = d1, d0
+            days = max(0, (d1 - d0).days)
+            picked = d0 + datetime.timedelta(days=rng.randint(0, days))
+            year, month, day = picked.year, picked.month, picked.day
+        else:
+            dt = datetime.datetime.now()
+            year, month, day = dt.year, dt.month, dt.day
+    elif fx.get('fix_date') and fx.get('fix_date_val'):
+        try:
+            d = datetime.datetime.strptime(fx['fix_date_val'], '%d/%m/%Y')
+            year, month, day = d.year, d.month, d.day
+        except Exception:
+            dt = datetime.datetime.now()
+            year, month, day = dt.year, dt.month, dt.day
+    else:
+        try:
+            dt = datetime.datetime.fromtimestamp(os.path.getmtime(path))
+        except Exception:
+            dt = datetime.datetime.now()
+        year, month, day = dt.year, dt.month, dt.day
+
+    h0, m0 = _parse_hm(fx.get('random_time_from'), 9, 0)
+    h1, m1 = _parse_hm(fx.get('random_time_to'), 17, 0)
+    start = h0 * 60 + m0
+    end = h1 * 60 + m1
+    if end <= start:
+        end = start + 60
+    picked = rng.randint(start, end)
+    hour, minute = picked // 60, picked % 60
+    second = rng.randint(0, 59)
+    try:
+        return datetime.datetime(year, month, day, hour, minute, second)
+    except Exception:
+        return datetime.datetime.now().replace(hour=hour, minute=minute, second=second)
+
+
 # ════════════════════════════════════════════════════════════
 #  Mini-map OSM
 # ════════════════════════════════════════════════════════════
@@ -500,14 +580,17 @@ def stamp_minimap(img, lat, lon, ts_pos="bottom_right", opacity=85, allow_net=Tr
 #  Timestamp
 # ════════════════════════════════════════════════════════════
 def _dt_from(path, fx):
+    has_exif = bool(fx.get('use_exif') and _exif_datetime(path))
+    if fx.get('random_no_exif') and not has_exif:
+        if not (fx.get('fix_time') and fx.get('fix_time_val')):
+            return _random_dt(path, fx)
+
     try:
         dt = datetime.datetime.fromtimestamp(os.path.getmtime(path))
     except Exception:
         dt = datetime.datetime.now()
-    if fx.get('use_exif'):
-        ex = _exif_datetime(path)
-        if ex:
-            dt = ex
+    if has_exif:
+        dt = _exif_datetime(path)
     day, month, year = dt.day, dt.month, dt.year
     hour, minute, second = dt.hour, dt.minute, dt.second
     if fx.get('fix_date') and fx.get('fix_date_val'):
@@ -554,7 +637,7 @@ def render_timestamp(img, path, fx, allow_net=True):
             txt_date = dt.strftime(f"{date_fmt} {time_fmt}")
 
         gps_line = gps_text(path) if fx.get('show_gps') else ''
-        loc = resolve_location(path, fx, allow_net=allow_net)
+        loc = resolve_location(path, fx, allow_net=allow_net) if fx.get('stamp_location') else ''
         base_font_h = max(1, int(h * (float(fx.get('font_scale', 3.5)) / 100)))
         min_font_h = max(6, int(h * 0.015))
         margin = max(2, int(min(w, h) * float(fx.get('stamp_margin_pct', 3.5)) / 100.0))
@@ -906,6 +989,49 @@ def prefetch_maps(paths):
         except Exception:
             continue
     return got
+
+
+def stamp_original(path, fx=None, allow_net=True):
+    """Đóng dấu ngày/vị trí lên ảnh gốc — giữ độ phân giải, không crop ô slide."""
+    fx = fx or {}
+    try:
+        im = G.open_upright(path)
+        im = im.convert('RGBA')
+    except Exception:
+        return None
+
+    if fx.get('auto_enhance'):
+        im = auto_enhance(im)
+
+    w, h = im.size
+    if fx.get('use_timestamp') or fx.get('logo_enable'):
+        try:
+            im = render_timestamp(im, path, fx, allow_net=allow_net)
+            w, h = im.size
+        except Exception as e:
+            print('Timestamp err:', e)
+
+    wm = (fx.get('watermark') or '').strip()
+    if wm:
+        try:
+            d = ImageDraw.Draw(im)
+            d.text((w - int(w * 0.05), h - int(h * 0.05)), wm,
+                   fill=(255, 255, 255, 128),
+                   font=_font(max(8, int(h * 0.05))), anchor='rd')
+        except Exception:
+            pass
+
+    if fx.get('minimap'):
+        gps = gps_cached(path)
+        if gps:
+            try:
+                im = stamp_minimap(im, gps[0], gps[1],
+                                   fx.get('position', 'bottom_right'),
+                                   fx.get('minimap_opacity', 85),
+                                   allow_net=allow_net)
+            except Exception as e:
+                print('Minimap err:', e)
+    return im
 
 
 def bake_export_png(path, fx, box_ar, fit, radius, temp_dir, opacity=100):

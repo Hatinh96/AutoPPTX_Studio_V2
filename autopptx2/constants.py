@@ -84,6 +84,18 @@ GA_BLUE_DEEP = "#0e56c8"
 GA_BLUE_GLOW = "#4aa3f5"
 
 ALL_CHANNELS = "Tất cả kênh"
+ALL_CITIES = "Tất cả tỉnh"
+ALL_DISTRICTS = "Tất cả quận"
+
+STAMP_PRESETS = {
+    'Tùy chỉnh': {},
+    'Chỉ ngày': {'use_timestamp': True, 'stamp_location': False,
+                 'show_gps': False, 'minimap': False},
+    'Ngày + địa điểm': {'use_timestamp': True, 'stamp_location': True,
+                        'show_gps': False, 'minimap': False},
+    'Đầy đủ GPS': {'use_timestamp': True, 'stamp_location': True,
+                   'show_gps': True, 'minimap': True},
+}
 
 # Nhãn tỉ lệ ô ảnh → w/h (None = ô lấp đầy vùng đã kéo)
 AR_CHOICES = {
@@ -171,12 +183,12 @@ def pack_for_dept(dept):
 def builtin_pack(name):
     """Gói bố cục có sẵn: layout + kiểu bảng + ẩn/hiện phần tử."""
     if name == 'SALESKIT':
-        vis = {n: n != 'channel' for n in ELEMENT_NAMES}
+        vis = {n: True for n in ELEMENT_NAMES}
         return {
             'layout': SALESKIT_LAYOUT,
             'slide_style': 'saleskit',
             'visible': vis,
-            'channel_enabled': False,
+            'channel_enabled': True,
         }
     vis = {n: True for n in ELEMENT_NAMES}
     return {
