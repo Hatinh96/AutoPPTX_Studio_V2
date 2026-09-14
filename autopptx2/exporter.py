@@ -23,14 +23,18 @@ from pptx.dml.color import RGBColor
 
 from .constants import (SLIDE_W_IN, SLIDE_H_IN,
                         TABLE_HEADER_BG, TABLE_HEADER_FG, TABLE_DATA_BG,
-                        TABLE_SUB_FG, TABLE_LINE, TABLE_TEXT)
+                        TABLE_SUB_FG, TABLE_LINE, TABLE_TEXT,
+                        NELSON_HEADER_BG, NELSON_HEADER_FG, NELSON_DATA_BG,
+                        NELSON_LINE, NELSON_TEXT)
 from . import geometry as G
 from . import effects as FX
 from . import fonts as FN
 from .datasource import (match_row, build_merged_groups, build_info_rows,
-                         build_info_table, channel_text, clean, build_overview,
-                         wrap_info_cell, info_row_weights, _info_value_wrap_chars,
-                         place_label, order_groups, filter_groups_by_geo,
+                         build_info_table, build_nelson_table, channel_text,
+                         clean, build_overview, wrap_info_cell, info_row_weights,
+                         _info_value_wrap_chars, _address_line,
+                         location_fx_fields,
+                         order_groups, filter_groups_by_geo,
                          group_export_chunks, screen_qty)
 
 
@@ -54,9 +58,10 @@ class ExportJob:
     visible: dict = field(default_factory=dict)   # {tên phần tử: bool}
     fx: dict = field(default_factory=dict)        # đóng dấu / mini-map / AI
     excel_rows: list = field(default_factory=list)  # mọi dòng (khu/loại màn)
-    slide_style: str = 'report'                   # report | saleskit
+    slide_style: str = 'report'                   # report | saleskit | nelson
     pad_blank_slides: bool = False                # slide trắng / ô trống theo số màn
     sort_mode: str = 'city'                       # city | list
+    sort_rows: list = field(default_factory=list)  # list up riêng để xếp STT
     city_filter: str = ''
     district_filter: str = ''
     split_export_by: str = 'none'                 # none | city | district
@@ -406,6 +411,76 @@ def _add_saleskit_table(slide, info_table, ninfo, font_cfg):
         bg = TABLE_DATA_BG if i % 2 == 0 else '#FFFFFF'
         for c, key in enumerate(keys):
             paint(3 + i, c, spec.get(key) or '', bg=bg, fg=TABLE_TEXT,
+                  bold=False, align=aligns[c], sz=size_pt * 0.9)
+
+
+def _add_nelson_table(slide, nelson_table, ninfo, font_cfg):
+    """Bảng NELSON: Số lượng | Note | Hình thức."""
+    table = nelson_table or {}
+    specs = list(table.get('specs') or [{'qty': '', 'note': '', 'form': ''}])
+    n_rows = 1 + max(1, len(specs))
+    n_cols = 3
+    x, y, w, h = ninfo['x'], ninfo['y'], ninfo['w'], ninfo['h']
+    gt = slide.shapes.add_table(n_rows, n_cols, Inches(x), Inches(y),
+                                Inches(w), Inches(h))
+    tbl = gt.table
+    tbl.first_row = False
+    tbl.horz_banding = False
+    from lxml import etree
+    from pptx.oxml.ns import qn
+    tblPr = tbl._tbl.tblPr
+    for el in tblPr.findall(qn('a:tableStyleId')):
+        tblPr.remove(el)
+    sid = tblPr.makeelement(qn('a:tableStyleId'), {})
+    sid.text = '{2D5ABB26-0587-4C30-8999-92F81FD0307C}'
+    tblPr.append(sid)
+    fracs = (0.18, 0.34, 0.48)
+    for i, f in enumerate(fracs):
+        tbl.columns[i].width = Inches(w * f)
+    row_h = Inches(max(0.16, h / n_rows))
+    for i in range(n_rows):
+        try:
+            tbl.rows[i].height = row_h
+        except Exception:
+            pass
+
+    raw_name = ninfo.get('font') or font_cfg.get('name', 'Arial') or 'Arial'
+    size_pt = float(ninfo.get('size', 11))
+    hdr_bg = ninfo.get('accent_color') or NELSON_HEADER_BG
+    op = ninfo.get('opacity', 100)
+
+    def paint(r, c, text, *, bg, fg, bold, align='left', sz=None):
+        cell = tbl.cell(r, c)
+        _fill_cell(cell, bg)
+        _border_cell(cell, NELSON_LINE)
+        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+        cell.margin_left = Inches(0.04)
+        cell.margin_right = Inches(0.04)
+        cell.margin_top = Inches(0.02)
+        cell.margin_bottom = Inches(0.02)
+        tf = cell.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        p.text = str(text or '')
+        p.alignment = {'left': PP_ALIGN.LEFT, 'center': PP_ALIGN.CENTER,
+                       'right': PP_ALIGN.RIGHT}.get(align, PP_ALIGN.LEFT)
+        run = _p_run(p)
+        run.font.name = FN.safe_family(raw_name, text)
+        run.font.bold = bold
+        run.font.size = Pt(max(7, sz if sz is not None else size_pt))
+        run.font.color.rgb = _hex_rgb(fg)
+        _apply_run_alpha(run, op)
+
+    headers = ('Số lượng', 'Note', 'Hình thức')
+    aligns = ('center', 'left', 'left')
+    for c, lab in enumerate(headers):
+        paint(0, c, lab, bg=hdr_bg, fg=NELSON_HEADER_FG, bold=True,
+              align=aligns[c], sz=size_pt * 0.9)
+    keys = ('qty', 'note', 'form')
+    for i, spec in enumerate(specs):
+        bg = NELSON_DATA_BG if i % 2 == 0 else '#FFFFFF'
+        for c, key in enumerate(keys):
+            paint(1 + i, c, spec.get(key) or '', bg=bg, fg=NELSON_TEXT,
                   bold=False, align=aligns[c], sz=size_pt * 0.9)
 
 
@@ -912,6 +987,8 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
                 if str(r.get('Code_RP') or '').strip().upper()
                 == str((row or {}).get('Code_RP') or mcode or code or '').upper()]
         info_table = build_info_table(row, sibs or [row])
+        nelson_table = (build_nelson_table(row, sibs or [row])
+                        if (job.slide_style or 'report') == 'nelson' else None)
         avatar_path = job.avatar_map.get(code.upper())
         if not avatar_path and shown('avatar'):
             rep.missing_avatars.append(code)
@@ -940,7 +1017,7 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
 
             if shown('image'):
                 fx_img = dict(job.fx or {})
-                fx_img['location_excel'] = place_label(row)
+                fx_img.update(location_fx_fields(row))
                 _place_images(slide, batch, L['image'], job.img_ar, temp_dir, fx_img)
 
             if shown('avatar') and avatar_path:
@@ -969,8 +1046,11 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
                     tracking=tcfg.get('tracking', 0))
 
             if shown('info'):
-                if (job.slide_style or 'report') == 'saleskit':
+                style = job.slide_style or 'report'
+                if style == 'saleskit':
                     _add_saleskit_table(slide, info_table, L['info'], font_cfg)
+                elif style == 'nelson':
+                    _add_nelson_table(slide, nelson_table, L['info'], font_cfg)
                 else:
                     _add_info_table(slide, info_rows, L['info'], font_cfg)
 
@@ -979,8 +1059,10 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
                 tb = slide.shapes.add_textbox(
                     Inches(ccfg['x']), Inches(ccfg['y']),
                     Inches(ccfg['w']), Inches(ccfg.get('h', 0.5)))
+                ch_txt = (_address_line(row) if (job.slide_style or 'report') == 'nelson'
+                          else channel_text(row, job.channel_template))
                 _style_fit_textbox(
-                    tb, channel_text(row, job.channel_template),
+                    tb, ch_txt,
                     ccfg['w'], ccfg.get('h', 0.5), ccfg.get('size', 10),
                     font_name=ccfg.get('font') or font_cfg.get('name', 'Arial'),
                     bold=font_cfg.get('bold', True),
@@ -1013,7 +1095,8 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
         job.groups, job.excel_by_code, merged,
         city=job.city_filter, district=job.district_filter)
     groups = order_groups(
-        groups, job.excel_by_code, merged, job.excel_rows, job.sort_mode)
+        groups, job.excel_by_code, merged, job.excel_rows, job.sort_mode,
+        order_rows=job.sort_rows or job.excel_rows)
     rep.groups = len(groups)
 
     fx = job.fx or {}
@@ -1086,7 +1169,8 @@ def export_stamped_images(job: ExportJob, out_dir, progress_cb=None, log_cb=None
         job.groups, job.excel_by_code, merged,
         city=job.city_filter, district=job.district_filter)
     groups = order_groups(
-        groups, job.excel_by_code, merged, job.excel_rows, job.sort_mode)
+        groups, job.excel_by_code, merged, job.excel_rows, job.sort_mode,
+        order_rows=job.sort_rows or job.excel_rows)
     items = [(code, p) for code, paths in groups.items() for p in sorted(paths)]
     total = max(1, len(items))
     log(f'Đóng dấu {len(items)} ảnh → {out_dir}')
@@ -1103,7 +1187,7 @@ def export_stamped_images(job: ExportJob, out_dir, progress_cb=None, log_cb=None
             rep.unmatched.append(code)
 
         fx_img = dict(job.fx or {})
-        fx_img['location_excel'] = place_label(row)
+        fx_img.update(location_fx_fields(row))
         im = FX.stamp_original(path, fx_img, allow_net=True)
         if im is None:
             log(f'Lỗi ảnh: {os.path.basename(path)}')

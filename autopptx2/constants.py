@@ -164,8 +164,45 @@ SALESKIT_LAYOUT = {
              'color': '#1B2430', 'path': '', 'index': 0},
 }
 
-BUILTIN_PRESETS = ('Báo cáo', 'SALESKIT')
+# Mẫu THE NELSON — nền user tự chèn; khung title/ảnh/bảng kéo được
+NELSON_LAYOUT = {
+    'title': {'x': 2.13, 'y': 0.07, 'w': 5.50, 'h': 0.66, 'size': 26,
+              'align': 'left', 'max_lines': 2, 'min_size': 14, 'upper': False,
+              'full_width_on_slide': False, 'show_counter': False,
+              'color': '#E8B83C', 'opacity': 100, 'tracking': 0, 'font': 'Arial'},
+    'info': {'x': 3.84, 'y': 5.25, 'w': 8.72, 'h': 2.37, 'size': 11,
+             'align': 'left', 'max_lines': 2, 'min_size': 8,
+             'accent_color': '#2C2419', 'opacity': 100, 'font': 'Arial'},
+    'image': {'x': 1.51, 'y': 1.29, 'w': 10.23, 'h': 1.07,
+              'fit_mode': 'fill', 'gap': IMG_GAP_IN, 'radius': 0, 'opacity': 100},
+    'avatar': {'x': 0.35, 'y': 0.14, 'w': 2.70, 'ar': 4 / 3, 'radius': 0,
+               'opacity': 100},
+    'channel': {'x': 4.55, 'y': 0.74, 'w': 8.50, 'h': 0.27, 'size': 14,
+                'align': 'right', 'max_lines': 2, 'min_size': 9, 'color': '#E1E1E1',
+                'opacity': 100, 'tracking': 0, 'font': 'Arial'},
+    'font': {'name': 'Arial', 'bold': True, 'italic': False,
+             'color': '#E8B83C', 'path': '', 'index': 0},
+}
+
+NELSON_HEADER_BG = '#2C2419'
+NELSON_HEADER_FG = '#FFFFFF'
+NELSON_DATA_BG = '#F5F0E8'
+NELSON_LINE = '#C4B89A'
+NELSON_TEXT = '#1B2430'
+
+BUILTIN_PRESETS = ('Báo cáo', 'SALESKIT', 'THE NELSON')
 DEPT_UI = ('Sales', 'BD')
+
+
+def element_label(name, slide_style='report'):
+    """Nhãn phần tử trên UI — NELSON dùng khung channel làm dòng địa chỉ."""
+    if slide_style == 'nelson' and name == 'channel':
+        return 'Địa chỉ'
+    return ELEMENT_LABELS.get(name, name)
+
+
+def element_labels_for(slide_style='report'):
+    return {n: element_label(n, slide_style) for n in ELEMENT_NAMES}
 
 
 def dept_key(label):
@@ -187,6 +224,14 @@ def builtin_pack(name):
         return {
             'layout': SALESKIT_LAYOUT,
             'slide_style': 'saleskit',
+            'visible': vis,
+            'channel_enabled': True,
+        }
+    if name == 'THE NELSON':
+        vis = {n: (n != 'avatar') for n in ELEMENT_NAMES}
+        return {
+            'layout': NELSON_LAYOUT,
+            'slide_style': 'nelson',
             'visible': vis,
             'channel_enabled': True,
         }

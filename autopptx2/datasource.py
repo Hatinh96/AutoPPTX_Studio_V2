@@ -215,11 +215,13 @@ def sort_codes_by_list_order(codes, excel_rows, by_code, merged=None):
     return sorted(codes, key=key)
 
 
-def order_groups(groups, by_code, merged=None, excel_rows=None, sort_mode='city'):
-    """Sắp nhóm ảnh: city = Bắc→Nam; list = thứ tự Excel."""
+def order_groups(groups, by_code, merged=None, excel_rows=None, sort_mode='city',
+                 order_rows=None):
+    """Sắp nhóm ảnh: city = Bắc→Nam; list = thứ tự Excel (list up riêng hoặc FILE TỔNG)."""
     groups = groups or {}
+    rows_for_sort = order_rows if order_rows else excel_rows
     if sort_mode == 'list':
-        codes = sort_codes_by_list_order(groups.keys(), excel_rows, by_code, merged)
+        codes = sort_codes_by_list_order(groups.keys(), rows_for_sort, by_code, merged)
     else:
         codes = sort_codes_by_city(groups.keys(), by_code, merged)
     return OrderedDict((c, groups[c]) for c in codes if c in groups)
@@ -307,17 +309,31 @@ class ExcelSource:
         self.path = None
         self.mtime = None
         self.rows = []           # list[dict] khoá chuẩn Code_RP, Name, ...
+        self.source_sheets = []
         self.error = None
+
+    @staticmethod
+    def _data_sheets(wb):
+        """Ưu tiên sheet có chữ List (List CF, University List…). Không thì sheet đầu."""
+        listed = [ws for ws in wb.worksheets if 'list' in (ws.title or '').casefold()]
+        if listed:
+            return listed
+        return list(wb.worksheets[:1]) if wb.worksheets else []
 
     def load(self, path):
         """Đọc file — gọi từ worker thread. Trả True nếu thành công."""
         from openpyxl import load_workbook
-        self.path, self.rows, self.error = path, [], None
+        self.path, self.rows, self.source_sheets, self.error = path, [], [], None
         try:
             self.mtime = os.path.getmtime(path)
             wb = load_workbook(path, read_only=True, data_only=True)
-            ws = wb.worksheets[0]
-            self.rows = self._worksheet_rows(ws)
+            for ws in self._data_sheets(wb):
+                chunk = self._worksheet_rows(ws)
+                for rec in chunk:
+                    rec['_SourceSheet'] = ws.title
+                self.rows.extend(chunk)
+                if chunk:
+                    self.source_sheets.append(ws.title)
             wb.close()
             if not self.rows:
                 self.error = "Không tìm thấy dòng tiêu đề chứa cột Code_RP."
@@ -328,32 +344,11 @@ class ExcelSource:
             return False
 
     def load_compare_list(self, path):
-        """Đọc file đối chiếu; ưu tiên gộp mọi sheet có chữ ``List``.
-
-        File nguồn University/Building thường tách ``University List`` và
-        ``Building List``. Nếu file không có quy ước đó, dùng sheet đầu như
-        luồng Excel thông thường để tránh kéo nhầm sheet Summary/AP OFF.
-        """
-        from openpyxl import load_workbook
-        self.path, self.rows, self.error = path, [], None
-        try:
-            self.mtime = os.path.getmtime(path)
-            wb = load_workbook(path, read_only=True, data_only=True)
-            selected = [ws for ws in wb.worksheets if 'list' in ws.title.casefold()]
-            if not selected and wb.worksheets:
-                selected = [wb.worksheets[0]]
-            for ws in selected:
-                for rec in self._worksheet_rows(ws):
-                    rec['_SourceSheet'] = ws.title
-                    self.rows.append(rec)
-            wb.close()
-            if not self.rows:
-                self.error = "Không tìm thấy dữ liệu Code_RP trong các sheet danh sách."
-                return False
-            return True
-        except Exception as e:
-            self.error = str(e)
-            return False
+        """Đọc file đối chiếu / list kênh — cùng quy tắc sheet List như ``load``."""
+        ok = self.load(path)
+        if not ok and not self.error:
+            self.error = "Không tìm thấy dữ liệu Code_RP trong các sheet danh sách."
+        return ok
 
     def _worksheet_rows(self, ws):
         """Chuẩn hoá các dòng dữ liệu từ một worksheet."""
@@ -483,6 +478,14 @@ class ExcelSource:
         return out
 
 
+def looks_like_order_list(path, source_sheets=None):
+    """File kiểu List CF / University List — slide nên theo STT trên Excel."""
+    stem = os.path.splitext(os.path.basename(path or ''))[0].strip().casefold()
+    if stem.startswith('list') or stem.endswith('list') or ' list' in f' {stem} ':
+        return True
+    return any('list' in str(title or '').casefold() for title in (source_sheets or []))
+
+
 def inspect_excel(path):
     """Đọc nhanh file list chuẩn — không đụng UI. Trả dict kiểm tra."""
     src = ExcelSource()
@@ -504,6 +507,8 @@ def inspect_excel(path):
         'found': [k for k in ('Code_RP',) + recommended if k in found],
         'missing': missing,
         'sample_codes': sample,
+        'prefer_list_order': looks_like_order_list(path, src.source_sheets),
+        'source_sheets': list(src.source_sheets),
         'error': '',
     }
 
@@ -931,6 +936,40 @@ def place_label(row):
     return name or addr or ''
 
 
+def _district_stamp(row):
+    dist = str(clean((row or {}).get('District'))).strip()
+    if not dist:
+        return ''
+    dl = dist.casefold()
+    if dl[:1].isdigit():
+        return 'Quận ' + dist
+    return dist
+
+
+def excel_stamp_location(row):
+    """Đóng dấu theo mã Excel: Địa chỉ · Quận · Việt Nam — không lấy tên quán."""
+    row = row or {}
+    addr = str(clean(row.get('Address'))).strip()
+    dist = _district_stamp(row)
+    parts = []
+    if addr:
+        parts.append(addr)
+    if dist and dist.casefold() not in addr.casefold():
+        parts.append(dist)
+    if parts:
+        parts.append('Việt Nam')
+    return '\n'.join(parts)
+
+
+def location_fx_fields(row):
+    """Gắn địa chỉ Excel vào fx để đóng dấu / giả lập GPS."""
+    stamp = excel_stamp_location(row)
+    return {
+        'location_excel': stamp,
+        'location_address': stamp or _address_line(row),
+    }
+
+
 # Thứ tự loại màn trong ngoặc Quantity — LCD trước DP như ví dụ V1
 # "8 (2 LCD, 6 DP)"; DS/GP sau; DPS/DPF/LED nếu có.
 _QTY_SHOW_ORDER = ('LCD', 'DP', 'DS', 'GP', 'DPS', 'DPF', 'LED')
@@ -1104,6 +1143,24 @@ def _fmt_traffic(row):
     if v == '':
         return ''
     return fmt_num(v)
+
+
+def build_nelson_table(row, siblings=None):
+    """Bảng NELSON chi tiết: Số lượng | Note | Hình thức (từ specs SALESKIT)."""
+    base = build_info_table(row, siblings)
+    specs = []
+    for s in base.get('specs') or []:
+        note = str(s.get('note') or '').strip()
+        if not note:
+            note = str(s.get('area') or '').strip()
+        specs.append({
+            'qty': str(s.get('qty') or '').strip(),
+            'note': note,
+            'form': str(s.get('form') or '').strip(),
+        })
+    if not specs:
+        specs.append({'qty': '', 'note': '', 'form': ''})
+    return {'specs': specs}
 
 
 def build_info_table(row, siblings=None):

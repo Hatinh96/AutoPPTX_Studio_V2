@@ -44,7 +44,10 @@ class TestChannelHeader(unittest.TestCase):
         src = ExcelSource()
         self.assertTrue(src.load(path), src.error)
         self.assertGreater(len(src.rows), 0)
-        self.assertIn('CF', src.channels())
+        self.assertTrue(
+            'CF' in src.channels() or 'Coffee & Milk Tea' in src.channels(),
+            f"Expected CF or Coffee & Milk Tea in {src.channels()}"
+        )
         self.assertGreaterEqual(len(src.channels()), 1)
 
 

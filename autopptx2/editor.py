@@ -25,7 +25,9 @@ from . import effects as FX
 from .constants import (SLIDE_W_IN, SLIDE_H_IN, ELEMENT_COLORS, GUIDE_COLOR,
                         SNAP_PX, UNDO_MAX, ACCENT, TABLE_HEADER_BG,
                         TABLE_HEADER_FG, TABLE_DATA_BG, TABLE_SUB_FG,
-                        TABLE_LINE, TABLE_TEXT)
+                        TABLE_LINE, TABLE_TEXT,
+                        NELSON_HEADER_BG, NELSON_HEADER_FG, NELSON_DATA_BG,
+                        NELSON_LINE, NELSON_TEXT)
 
 BASE_PPI = 96                      # px/inch ở zoom 100%
 MIN_SIZE_IN = 0.3
@@ -325,8 +327,12 @@ class EditorCanvas(tk.Canvas):
                               outline=col, width=1, dash=(4, 3), tags=tag)
 
     def _draw_info(self, x0, y0, wpx, hpx, tag, col):
-        if (self._ct or {}).get('slide_style') == 'saleskit':
+        style = (self._ct or {}).get('slide_style') or 'report'
+        if style == 'saleskit':
             self._draw_info_saleskit(x0, y0, wpx, hpx, tag, col)
+            return
+        if style == 'nelson':
+            self._draw_info_nelson(x0, y0, wpx, hpx, tag, col)
             return
         self._draw_info_report(x0, y0, wpx, hpx, tag, col)
 
@@ -489,6 +495,96 @@ class EditorCanvas(tk.Canvas):
             for i, key in enumerate(keys):
                 x2 = xs[i + 1] if i < 4 else W
                 cell_text(xs[i], (3 + si) * rh, x2 - xs[i], rh,
+                          spec.get(key) or '', px * 0.9, False, body, aligns[i])
+        grid()
+        ph = ImageTk.PhotoImage(tmp)
+        self._photos['info'].append(ph)
+        self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)
+
+    def _draw_info_nelson(self, x0, y0, wpx, hpx, tag, col):
+        ct = self._ct
+        table = ct.get('nelson_table') or {}
+        self.create_rectangle(x0, y0, x0 + wpx, y0 + hpx, outline=col,
+                              width=1, dash=(3, 2), tags=tag)
+        specs = list(table.get('specs') or [{'qty': '', 'note': '', 'form': ''}])
+        n_rows = 1 + max(1, len(specs))
+        L = self.ctrl.layout
+        fcfg = ct.get('font', {})
+        fname = L['info'].get('font') or fcfg.get('name', 'Arial') or 'Arial'
+        fpath = L['info'].get('font_path') or fcfg.get('path')
+        fidx = int(L['info'].get('font_index', 0) or fcfg.get('index', 0) or 0)
+        base_pt = float(L['info'].get('size', 11))
+        op = int(L['info'].get('opacity', 100) or 100)
+        a = int(255 * op / 100)
+        hdr_bg = ST.hex_rgb(L['info'].get('accent_color') or NELSON_HEADER_BG)
+        W, H = max(8, int(wpx)), max(8, int(hpx))
+        tmp = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(tmp)
+        rh = H / n_rows
+        cw = [W * x for x in (0.18, 0.34, 0.48)]
+        xs = [0]
+        for w in cw[:-1]:
+            xs.append(xs[-1] + w)
+
+        def font(px, bold, text=''):
+            return ST.load_font_for_text(
+                fname, max(7, int(px)), bold, False, fpath, fidx, text)
+
+        def fill_row(i, color):
+            y1, y2 = int(i * rh), int((i + 1) * rh)
+            draw.rectangle([0, y1, W - 1, y2], fill=(*color, a if color else 0))
+
+        def grid():
+            ln = ST.hex_rgb(NELSON_LINE)
+            for i in range(n_rows + 1):
+                y = 0 if i == 0 else (H - 1 if i == n_rows else int(i * rh))
+                draw.line([(0, y), (W - 1, y)], fill=(*ln, a), width=1)
+            draw.line([(0, 0), (0, H - 1)], fill=(*ln, a), width=1)
+            draw.line([(W - 1, 0), (W - 1, H - 1)], fill=(*ln, a), width=1)
+            for x in xs[1:]:
+                draw.line([(int(x), 0), (int(x), H - 1)], fill=(*ln, a), width=1)
+
+        def cell_text(x, y, w, h, text, px, bold, fill, align='left'):
+            if not str(text or '').strip():
+                return
+            f = font(px, bold, text)
+            pad = 4
+            max_w = max(8, int(w) - pad * 2)
+            lines = _wrap_line(draw, str(text), f, max_w)[:2]
+            try:
+                bb = draw.textbbox((0, 0), 'Ag', font=f)
+                lh = bb[3] - bb[1] + 2
+            except Exception:
+                lh = int(px + 2)
+            tot = lh * len(lines)
+            ty = y + (h - tot) / 2
+            rgb = (*fill, a)
+            for line in lines:
+                if align == 'center':
+                    draw.text((x + w / 2, ty), line, font=f, fill=rgb, anchor='mt')
+                elif align == 'right':
+                    draw.text((x + w - pad, ty), line, font=f, fill=rgb, anchor='rt')
+                else:
+                    draw.text((x + pad, ty), line, font=f, fill=rgb, anchor='lt')
+                ty += lh
+
+        fill_row(0, hdr_bg)
+        for i in range(len(specs)):
+            fill_row(1 + i, ST.hex_rgb(NELSON_DATA_BG) if i % 2 == 0 else (255, 255, 255))
+
+        hdr_fg = ST.hex_rgb(NELSON_HEADER_FG)
+        body = ST.hex_rgb(NELSON_TEXT)
+        px = max(8, base_pt * self.S / 72)
+        headers = ('Số lượng', 'Note', 'Hình thức')
+        aligns = ('center', 'left', 'left')
+        for i, lab in enumerate(headers):
+            x2 = xs[i + 1] if i < 2 else W
+            cell_text(xs[i], 0, x2 - xs[i], rh, lab, px * 0.9, True, hdr_fg, aligns[i])
+        keys = ('qty', 'note', 'form')
+        for si, spec in enumerate(specs):
+            for i, key in enumerate(keys):
+                x2 = xs[i + 1] if i < 2 else W
+                cell_text(xs[i], (1 + si) * rh, x2 - xs[i], rh,
                           spec.get(key) or '', px * 0.9, False, body, aligns[i])
         grid()
         ph = ImageTk.PhotoImage(tmp)

@@ -1,0 +1,1728 @@
+{
+  "file": "THE NELSON.pptx",
+  "slides": 10,
+  "content_slides": [
+    {
+      "index": 1,
+      "items": [
+        {
+          "name": "TextBox 8",
+          "type": 17,
+          "x": 3.47,
+          "y": -0.038,
+          "w": 1.627,
+          "h": 3.578,
+          "text": "S",
+          "font_pt": 171.4
+        },
+        {
+          "name": "TextBox 9",
+          "type": 17,
+          "x": 4.634,
+          "y": 1.378,
+          "w": 4.902,
+          "h": 1.666,
+          "text": "ALESKIT",
+          "font_pt": 80.3
+        },
+        {
+          "name": "TextBox 10",
+          "type": 17,
+          "x": 2.138,
+          "y": 2.548,
+          "w": 9.054,
+          "h": 1.705,
+          "text": "DIGITAL BUILDING",
+          "font_pt": 74.2
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 0.986,
+          "y": 2.42,
+          "w": 5.091,
+          "h": 2.678,
+          "table": "5x4",
+          "cells": [
+            [
+              "25 ADVERTISING POSITIONS",
+              "25 ADVERTISING POSITIONS",
+              "25 ADVERTISING POSITIONS",
+              "25 ADVERTISING POSITIONS"
+            ],
+            [
+              "BLOCK",
+              "Digital Poster\n Inside",
+              "Digital Poster\n Outside",
+              "Giant Poster\n Outside"
+            ],
+            [
+              "TOWER 1",
+              "6",
+              "16",
+              "0"
+            ],
+            [
+              "TOWER 2",
+              "2",
+              "1",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 15",
+          "type": 5,
+          "x": 0.901,
+          "y": 5.866,
+          "w": 5.328,
+          "h": 1.376
+        },
+        {
+          "name": "Freeform 16",
+          "type": 5,
+          "x": 2.983,
+          "y": 6.167,
+          "w": 0.576,
+          "h": 0.384
+        },
+        {
+          "name": "Freeform 17",
+          "type": 5,
+          "x": 4.188,
+          "y": 6.15,
+          "w": 0.338,
+          "h": 0.384
+        },
+        {
+          "name": "Freeform 18",
+          "type": 5,
+          "x": 5.327,
+          "y": 6.167,
+          "w": 0.31,
+          "h": 0.384
+        },
+        {
+          "name": "Freeform 19",
+          "type": 5,
+          "x": 1.25,
+          "y": 6.129,
+          "w": 0.457,
+          "h": 0.425
+        },
+        {
+          "name": "Freeform 20",
+          "type": 5,
+          "x": 2.201,
+          "y": 6.1,
+          "w": 0.331,
+          "h": 0.442
+        },
+        {
+          "name": "TextBox 33",
+          "type": 17,
+          "x": 3.014,
+          "y": 6.563,
+          "w": 0.636,
+          "h": 0.32,
+          "text": "600+",
+          "font_pt": 17.5
+        },
+        {
+          "name": "TextBox 34",
+          "type": 17,
+          "x": 2.983,
+          "y": 6.979,
+          "w": 0.685,
+          "h": 0.137,
+          "text": "RESIDENTS",
+          "font_pt": 7.5
+        },
+        {
+          "name": "TextBox 35",
+          "type": 17,
+          "x": 4.041,
+          "y": 6.548,
+          "w": 0.632,
+          "h": 0.314,
+          "text": "~200",
+          "font_pt": 17.0
+        },
+        {
+          "name": "TextBox 36",
+          "type": 17,
+          "x": 3.962,
+          "y": 6.953,
+          "w": 0.813,
+          "h": 0.143,
+          "text": "APARTMENTS",
+          "font_pt": 7.3
+        },
+        {
+          "name": "TextBox 37",
+          "type": 17,
+          "x": 4.859,
+          "y": 6.637,
+          "w": 1.246,
+          "h": 0.158,
+          "text": "HA NOI CITY",
+          "font_pt": 8.3
+        },
+        {
+          "name": "TextBox 38",
+          "type": 17,
+          "x": 4.917,
+          "y": 6.94,
+          "w": 1.129,
+          "h": 0.132,
+          "text": "Ô CHỢ DỪA WARD",
+          "font_pt": 7.5
+        },
+        {
+          "name": "TextBox 39",
+          "type": 17,
+          "x": 1.211,
+          "y": 6.973,
+          "w": 0.522,
+          "h": 0.143,
+          "text": "TOWERS",
+          "font_pt": 7.3
+        },
+        {
+          "name": "TextBox 40",
+          "type": 17,
+          "x": 1.391,
+          "y": 6.536,
+          "w": 0.175,
+          "h": 0.362,
+          "text": "2",
+          "font_pt": 19.6
+        },
+        {
+          "name": "TextBox 41",
+          "type": 17,
+          "x": 2.291,
+          "y": 6.592,
+          "w": 0.15,
+          "h": 0.32,
+          "text": "5",
+          "font_pt": 17.5
+        },
+        {
+          "name": "TextBox 42",
+          "type": 17,
+          "x": 2.009,
+          "y": 7.008,
+          "w": 0.715,
+          "h": 0.132,
+          "text": "ELEVATORS",
+          "font_pt": 7.5
+        },
+        {
+          "name": "TextBox 43",
+          "type": 17,
+          "x": 0.986,
+          "y": 1.26,
+          "w": 4.909,
+          "h": 0.848,
+          "text": "Chung cư The Nelson: Chốn riêng tư - Đặc quyền xa xỉ. Thiết kế riêng cho Giới Tinh hoa",
+          "font_pt": 14.7
+        },
+        {
+          "name": "TextBox 44",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "9 Ngõ 29 Láng Hạ, Ô Chợ Dừa, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 45",
+          "type": 17,
+          "x": 4.53,
+          "y": 0.069,
+          "w": 4.05,
+          "h": 0.66,
+          "text": "THE NELSON",
+          "font_pt": 35.0
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 3.837,
+          "y": 5.246,
+          "w": 8.72,
+          "h": 2.366,
+          "table": "4x3",
+          "cells": [
+            [
+              "Số lượng",
+              "Note",
+              "Hình thức"
+            ],
+            [
+              " ",
+              "  ",
+              ""
+            ],
+            [
+              "04",
+              "Tầng G",
+              "Digital Poster Outside"
+            ],
+            [
+              "",
+              "",
+              ""
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 17",
+          "type": 5,
+          "x": 0.851,
+          "y": 5.266,
+          "w": 2.467,
+          "h": 1.773
+        },
+        {
+          "name": "Freeform 18",
+          "type": 5,
+          "x": 1.51,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 19",
+          "type": 5,
+          "x": 5.595,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 20",
+          "type": 5,
+          "x": 9.602,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "TextBox 21",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "19 Ngõ 29 Láng Hạ, Ô Chợ Dừa, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 22",
+          "type": 17,
+          "x": 2.128,
+          "y": 0.069,
+          "w": 9.51,
+          "h": 0.66,
+          "text": "THE NELSON PRIVATE TƠWER 1",
+          "font_pt": 35.0
+        },
+        {
+          "name": "TextBox 23",
+          "type": 17,
+          "x": 0.707,
+          "y": 5.221,
+          "w": 2.707,
+          "h": 0.214,
+          "text": "INVENTORY OVERVIEW BLOCK A",
+          "font_pt": 11.4
+        },
+        {
+          "name": "TextBox 24",
+          "type": 17,
+          "x": 1.403,
+          "y": 5.313,
+          "w": 0.772,
+          "h": 0.546,
+          "text": "22",
+          "font_pt": 28.6
+        },
+        {
+          "name": "TextBox 25",
+          "type": 17,
+          "x": 2.128,
+          "y": 5.4,
+          "w": 0.904,
+          "h": 0.594,
+          "text": "ĐIỂM\n CHẠM",
+          "font_pt": 14.6
+        },
+        {
+          "name": "TextBox 26",
+          "type": 17,
+          "x": 1.64,
+          "y": 6.176,
+          "w": 1.196,
+          "h": 0.137,
+          "text": "Digital Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 27",
+          "type": 17,
+          "x": 1.301,
+          "y": 6.176,
+          "w": 0.114,
+          "h": 0.137,
+          "text": "16",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 28",
+          "type": 17,
+          "x": 1.633,
+          "y": 6.607,
+          "w": 1.288,
+          "h": 0.143,
+          "text": "Digital Poster Inside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 29",
+          "type": 17,
+          "x": 1.28,
+          "y": 6.613,
+          "w": 0.142,
+          "h": 0.137,
+          "text": "08",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 30",
+          "type": 17,
+          "x": 1.627,
+          "y": 6.391,
+          "w": 1.069,
+          "h": 0.137,
+          "text": "Giant Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 31",
+          "type": 17,
+          "x": 1.294,
+          "y": 6.391,
+          "w": 0.145,
+          "h": 0.137,
+          "text": "00",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 32",
+          "type": 17,
+          "x": 1.614,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Hành lang",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 33",
+          "type": 17,
+          "x": 5.699,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 1-2",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 34",
+          "type": 17,
+          "x": 9.706,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 3-4",
+          "font_pt": 20.0
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 3.837,
+          "y": 5.246,
+          "w": 8.72,
+          "h": 2.366,
+          "table": "4x3",
+          "cells": [
+            [
+              "Số lượng",
+              "Note",
+              "Hình thức"
+            ],
+            [
+              " ",
+              "  ",
+              ""
+            ],
+            [
+              "04",
+              "Tầng PL1",
+              "Digital Poster Outside"
+            ],
+            [
+              "",
+              "",
+              ""
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 17",
+          "type": 5,
+          "x": 0.851,
+          "y": 5.266,
+          "w": 2.467,
+          "h": 1.773
+        },
+        {
+          "name": "Freeform 18",
+          "type": 5,
+          "x": 1.51,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 19",
+          "type": 5,
+          "x": 5.595,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 20",
+          "type": 5,
+          "x": 9.602,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "TextBox 21",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "19 Ngõ 29 Láng Hạ, Ô Chợ Dừa, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 22",
+          "type": 17,
+          "x": 2.128,
+          "y": 0.069,
+          "w": 9.51,
+          "h": 0.66,
+          "text": "THE NELSON PRIVATE TƠWER 1",
+          "font_pt": 35.0
+        },
+        {
+          "name": "TextBox 23",
+          "type": 17,
+          "x": 0.707,
+          "y": 5.221,
+          "w": 2.707,
+          "h": 0.214,
+          "text": "INVENTORY OVERVIEW BLOCK A",
+          "font_pt": 11.4
+        },
+        {
+          "name": "TextBox 24",
+          "type": 17,
+          "x": 1.403,
+          "y": 5.313,
+          "w": 0.772,
+          "h": 0.546,
+          "text": "22",
+          "font_pt": 28.6
+        },
+        {
+          "name": "TextBox 25",
+          "type": 17,
+          "x": 2.128,
+          "y": 5.4,
+          "w": 0.904,
+          "h": 0.594,
+          "text": "ĐIỂM\n CHẠM",
+          "font_pt": 14.6
+        },
+        {
+          "name": "TextBox 26",
+          "type": 17,
+          "x": 1.64,
+          "y": 6.176,
+          "w": 1.196,
+          "h": 0.137,
+          "text": "Digital Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 27",
+          "type": 17,
+          "x": 1.301,
+          "y": 6.176,
+          "w": 0.114,
+          "h": 0.137,
+          "text": "16",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 28",
+          "type": 17,
+          "x": 1.633,
+          "y": 6.607,
+          "w": 1.288,
+          "h": 0.143,
+          "text": "Digital Poster Inside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 29",
+          "type": 17,
+          "x": 1.28,
+          "y": 6.613,
+          "w": 0.142,
+          "h": 0.137,
+          "text": "08",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 30",
+          "type": 17,
+          "x": 1.627,
+          "y": 6.391,
+          "w": 1.069,
+          "h": 0.137,
+          "text": "Giant Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 31",
+          "type": 17,
+          "x": 1.294,
+          "y": 6.391,
+          "w": 0.145,
+          "h": 0.137,
+          "text": "00",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 32",
+          "type": 17,
+          "x": 1.614,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Hành lang",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 33",
+          "type": 17,
+          "x": 5.699,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 1-2",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 34",
+          "type": 17,
+          "x": 9.706,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 3-4",
+          "font_pt": 20.0
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 3.837,
+          "y": 5.246,
+          "w": 8.72,
+          "h": 2.366,
+          "table": "4x3",
+          "cells": [
+            [
+              "Số lượng",
+              "Note",
+              "Hình thức"
+            ],
+            [
+              " ",
+              "  ",
+              ""
+            ],
+            [
+              "04",
+              "Tầng PL2",
+              "Digital Poster Outside"
+            ],
+            [
+              "",
+              "",
+              ""
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 17",
+          "type": 5,
+          "x": 0.851,
+          "y": 5.266,
+          "w": 2.467,
+          "h": 1.773
+        },
+        {
+          "name": "Freeform 18",
+          "type": 5,
+          "x": 1.51,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 19",
+          "type": 5,
+          "x": 5.595,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 20",
+          "type": 5,
+          "x": 9.602,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "TextBox 21",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "19 Ngõ 29 Láng Hạ, Ô Chợ Dừa, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 22",
+          "type": 17,
+          "x": 2.128,
+          "y": 0.069,
+          "w": 9.51,
+          "h": 0.66,
+          "text": "THE NELSON PRIVATE TƠWER 1",
+          "font_pt": 35.0
+        },
+        {
+          "name": "TextBox 23",
+          "type": 17,
+          "x": 0.707,
+          "y": 5.221,
+          "w": 2.707,
+          "h": 0.214,
+          "text": "INVENTORY OVERVIEW BLOCK A",
+          "font_pt": 11.4
+        },
+        {
+          "name": "TextBox 24",
+          "type": 17,
+          "x": 1.403,
+          "y": 5.313,
+          "w": 0.772,
+          "h": 0.546,
+          "text": "22",
+          "font_pt": 28.6
+        },
+        {
+          "name": "TextBox 25",
+          "type": 17,
+          "x": 2.128,
+          "y": 5.4,
+          "w": 0.904,
+          "h": 0.594,
+          "text": "ĐIỂM\n CHẠM",
+          "font_pt": 14.6
+        },
+        {
+          "name": "TextBox 26",
+          "type": 17,
+          "x": 1.64,
+          "y": 6.176,
+          "w": 1.196,
+          "h": 0.137,
+          "text": "Digital Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 27",
+          "type": 17,
+          "x": 1.301,
+          "y": 6.176,
+          "w": 0.114,
+          "h": 0.137,
+          "text": "16",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 28",
+          "type": 17,
+          "x": 1.633,
+          "y": 6.607,
+          "w": 1.288,
+          "h": 0.143,
+          "text": "Digital Poster Inside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 29",
+          "type": 17,
+          "x": 1.28,
+          "y": 6.613,
+          "w": 0.142,
+          "h": 0.137,
+          "text": "08",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 30",
+          "type": 17,
+          "x": 1.627,
+          "y": 6.391,
+          "w": 1.069,
+          "h": 0.137,
+          "text": "Giant Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 31",
+          "type": 17,
+          "x": 1.294,
+          "y": 6.391,
+          "w": 0.145,
+          "h": 0.137,
+          "text": "00",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 32",
+          "type": 17,
+          "x": 1.614,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Hành lang",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 33",
+          "type": 17,
+          "x": 5.699,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 1-2",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 34",
+          "type": 17,
+          "x": 9.706,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 3-4",
+          "font_pt": 20.0
+        }
+      ]
+    },
+    {
+      "index": 6,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 3.837,
+          "y": 5.246,
+          "w": 8.72,
+          "h": 2.366,
+          "table": "4x3",
+          "cells": [
+            [
+              "Số lượng",
+              "Note",
+              "Hình thức"
+            ],
+            [
+              " ",
+              "  ",
+              ""
+            ],
+            [
+              "04",
+              "Tầng PL3",
+              "Digital Poster Outside"
+            ],
+            [
+              "",
+              "",
+              ""
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 17",
+          "type": 5,
+          "x": 0.851,
+          "y": 5.266,
+          "w": 2.467,
+          "h": 1.773
+        },
+        {
+          "name": "Freeform 18",
+          "type": 5,
+          "x": 1.51,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 19",
+          "type": 5,
+          "x": 5.595,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 20",
+          "type": 5,
+          "x": 9.602,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "TextBox 21",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "19 Ngõ 29 Láng Hạ, Ô Chợ Dừa, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 22",
+          "type": 17,
+          "x": 2.128,
+          "y": 0.069,
+          "w": 9.51,
+          "h": 0.66,
+          "text": "THE NELSON PRIVATE TƠWER 1",
+          "font_pt": 35.0
+        },
+        {
+          "name": "TextBox 23",
+          "type": 17,
+          "x": 0.707,
+          "y": 5.221,
+          "w": 2.707,
+          "h": 0.214,
+          "text": "INVENTORY OVERVIEW BLOCK A",
+          "font_pt": 11.4
+        },
+        {
+          "name": "TextBox 24",
+          "type": 17,
+          "x": 1.403,
+          "y": 5.313,
+          "w": 0.772,
+          "h": 0.546,
+          "text": "22",
+          "font_pt": 28.6
+        },
+        {
+          "name": "TextBox 25",
+          "type": 17,
+          "x": 2.128,
+          "y": 5.4,
+          "w": 0.904,
+          "h": 0.594,
+          "text": "ĐIỂM\n CHẠM",
+          "font_pt": 14.6
+        },
+        {
+          "name": "TextBox 26",
+          "type": 17,
+          "x": 1.64,
+          "y": 6.176,
+          "w": 1.196,
+          "h": 0.137,
+          "text": "Digital Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 27",
+          "type": 17,
+          "x": 1.301,
+          "y": 6.176,
+          "w": 0.114,
+          "h": 0.137,
+          "text": "16",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 28",
+          "type": 17,
+          "x": 1.633,
+          "y": 6.607,
+          "w": 1.288,
+          "h": 0.143,
+          "text": "Digital Poster Inside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 29",
+          "type": 17,
+          "x": 1.28,
+          "y": 6.613,
+          "w": 0.142,
+          "h": 0.137,
+          "text": "08",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 30",
+          "type": 17,
+          "x": 1.627,
+          "y": 6.391,
+          "w": 1.069,
+          "h": 0.137,
+          "text": "Giant Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 31",
+          "type": 17,
+          "x": 1.294,
+          "y": 6.391,
+          "w": 0.145,
+          "h": 0.137,
+          "text": "00",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 32",
+          "type": 17,
+          "x": 1.614,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Hành lang",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 33",
+          "type": 17,
+          "x": 5.699,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 1-2",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 34",
+          "type": 17,
+          "x": 9.706,
+          "y": 1.261,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Cụm thang 3-4",
+          "font_pt": 20.0
+        }
+      ]
+    },
+    {
+      "index": 7,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 3.837,
+          "y": 5.246,
+          "w": 8.72,
+          "h": 1.741,
+          "table": "2x3",
+          "cells": [
+            [
+              "Hình thức",
+              "Số lượng",
+              "Note"
+            ],
+            [
+              "Digital Poster Inside",
+              "08",
+              ""
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 17",
+          "type": 5,
+          "x": 0.851,
+          "y": 5.266,
+          "w": 2.467,
+          "h": 1.773
+        },
+        {
+          "name": "Freeform 18",
+          "type": 5,
+          "x": 1.105,
+          "y": 1.509,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 21",
+          "type": 5,
+          "x": 4.113,
+          "y": 1.509,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 22",
+          "type": 5,
+          "x": 7.074,
+          "y": 1.509,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "Freeform 23",
+          "type": 5,
+          "x": 10.04,
+          "y": 1.568,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "TextBox 24",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "19 Ngõ 29 Láng Hạ, Ô Chợ Dừa, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 25",
+          "type": 17,
+          "x": 1.027,
+          "y": 0.069,
+          "w": 11.993,
+          "h": 0.66,
+          "text": "THE NELSON PRIVATE TƠWER 1",
+          "font_pt": 35.0
+        },
+        {
+          "name": "TextBox 26",
+          "type": 17,
+          "x": 0.707,
+          "y": 5.221,
+          "w": 2.707,
+          "h": 0.214,
+          "text": "INVENTORY OVERVIEW BLOCK A",
+          "font_pt": 11.4
+        },
+        {
+          "name": "TextBox 27",
+          "type": 17,
+          "x": 1.403,
+          "y": 5.313,
+          "w": 0.772,
+          "h": 0.546,
+          "text": "22",
+          "font_pt": 28.6
+        },
+        {
+          "name": "TextBox 28",
+          "type": 17,
+          "x": 2.128,
+          "y": 5.4,
+          "w": 0.904,
+          "h": 0.594,
+          "text": "ĐIỂM\n CHẠM",
+          "font_pt": 14.6
+        },
+        {
+          "name": "TextBox 29",
+          "type": 17,
+          "x": 1.64,
+          "y": 6.176,
+          "w": 1.288,
+          "h": 0.142,
+          "text": "Digital Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 30",
+          "type": 17,
+          "x": 1.301,
+          "y": 6.176,
+          "w": 0.095,
+          "h": 0.137,
+          "text": "17",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 31",
+          "type": 17,
+          "x": 1.633,
+          "y": 6.607,
+          "w": 1.288,
+          "h": 0.142,
+          "text": "Digital Poster Inside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 32",
+          "type": 17,
+          "x": 1.307,
+          "y": 6.607,
+          "w": 0.007,
+          "h": 0.137
+        },
+        {
+          "name": "TextBox 33",
+          "type": 17,
+          "x": 1.627,
+          "y": 6.391,
+          "w": 1.302,
+          "h": 0.142,
+          "text": "Giant Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 34",
+          "type": 17,
+          "x": 1.261,
+          "y": 6.391,
+          "w": 0.174,
+          "h": 0.137,
+          "text": "00",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 35",
+          "type": 17,
+          "x": 1.209,
+          "y": 1.485,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Thang 1",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 36",
+          "type": 17,
+          "x": 4.217,
+          "y": 1.485,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Thang 2",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 37",
+          "type": 17,
+          "x": 7.177,
+          "y": 1.485,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Thang 3",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 38",
+          "type": 17,
+          "x": 10.143,
+          "y": 1.545,
+          "w": 1.932,
+          "h": 0.412,
+          "text": "Thang 4",
+          "font_pt": 20.0
+        },
+        {
+          "name": "TextBox 39",
+          "type": 17,
+          "x": 1.294,
+          "y": 6.605,
+          "w": 0.148,
+          "h": 0.137,
+          "text": "08",
+          "font_pt": 8.1
+        }
+      ]
+    },
+    {
+      "index": 8,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 3.837,
+          "y": 5.246,
+          "w": 8.72,
+          "h": 2.366,
+          "table": "4x3",
+          "cells": [
+            [
+              "Số lượng",
+              "Note",
+              "Hình thức"
+            ],
+            [
+              " ",
+              "  ",
+              ""
+            ],
+            [
+              "01",
+              "Tầng G",
+              "Digital Poster Outside"
+            ],
+            [
+              "",
+              "",
+              ""
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 13",
+          "type": 5,
+          "x": 0.851,
+          "y": 5.266,
+          "w": 2.467,
+          "h": 1.773
+        },
+        {
+          "name": "Freeform 14",
+          "type": 5,
+          "x": 5.595,
+          "y": 1.285,
+          "w": 2.14,
+          "h": 1.07
+        },
+        {
+          "name": "TextBox 15",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "19 Ngõ 29 Láng Hạ, Ô Chợ Dừa, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 16",
+          "type": 17,
+          "x": 1.938,
+          "y": 0.184,
+          "w": 9.824,
+          "h": 0.66,
+          "text": "THE NELSON PRIVATE TOWER 2",
+          "font_pt": 35.0
+        },
+        {
+          "name": "TextBox 17",
+          "type": 17,
+          "x": 0.707,
+          "y": 5.221,
+          "w": 2.707,
+          "h": 0.214,
+          "text": "INVENTORY OVERVIEW BLOCK A",
+          "font_pt": 11.4
+        },
+        {
+          "name": "TextBox 18",
+          "type": 17,
+          "x": 1.403,
+          "y": 5.313,
+          "w": 0.772,
+          "h": 0.546,
+          "text": "3",
+          "font_pt": 28.6
+        },
+        {
+          "name": "TextBox 19",
+          "type": 17,
+          "x": 2.128,
+          "y": 5.4,
+          "w": 0.904,
+          "h": 0.594,
+          "text": "ĐIỂM\n CHẠM",
+          "font_pt": 14.6
+        },
+        {
+          "name": "TextBox 20",
+          "type": 17,
+          "x": 1.64,
+          "y": 6.176,
+          "w": 1.196,
+          "h": 0.137,
+          "text": "Digital Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 21",
+          "type": 17,
+          "x": 1.301,
+          "y": 6.176,
+          "w": 0.119,
+          "h": 0.137,
+          "text": "01",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 22",
+          "type": 17,
+          "x": 1.633,
+          "y": 6.607,
+          "w": 1.288,
+          "h": 0.143,
+          "text": "Digital Poster Inside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 23",
+          "type": 17,
+          "x": 1.301,
+          "y": 6.613,
+          "w": 0.139,
+          "h": 0.137,
+          "text": "03",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 24",
+          "type": 17,
+          "x": 1.627,
+          "y": 6.391,
+          "w": 1.069,
+          "h": 0.137,
+          "text": "Giant Poster Outside",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 25",
+          "type": 17,
+          "x": 1.294,
+          "y": 6.391,
+          "w": 0.145,
+          "h": 0.137,
+          "text": "00",
+          "font_pt": 8.1
+        },
+        {
+          "name": "TextBox 26",
+          "type": 17,
+          "x": 5.552,
+          "y": 1.299,
+          "w": 2.183,
+          "h": 0.368,
+          "text": "Cụm thang đơn",
+          "font_pt": 20.0
+        }
+      ]
+    },
+    {
+      "index": 9,
+      "items": [
+        {
+          "name": "Table 10",
+          "type": 19,
+          "x": 0.986,
+          "y": 2.42,
+          "w": 5.091,
+          "h": 3.098,
+          "table": "6x4",
+          "cells": [
+            [
+              "25 ADVERTISING POSITIONS",
+              "25 ADVERTISING POSITIONS",
+              "25 ADVERTISING POSITIONS",
+              "25 ADVERTISING POSITIONS"
+            ],
+            [
+              "BLOCK",
+              "Digital Poster\n Inside",
+              "Digital Poster\n Outside",
+              "Giant Poster\n Outside"
+            ],
+            [
+              "TOWER SA1",
+              "6",
+              "7",
+              "0"
+            ],
+            [
+              "TOWER SA2",
+              "2",
+              "6",
+              "0"
+            ]
+          ]
+        },
+        {
+          "name": "Freeform 15",
+          "type": 5,
+          "x": 0.901,
+          "y": 5.866,
+          "w": 5.328,
+          "h": 1.376
+        },
+        {
+          "name": "Freeform 16",
+          "type": 5,
+          "x": 2.983,
+          "y": 6.167,
+          "w": 0.576,
+          "h": 0.384
+        },
+        {
+          "name": "Freeform 17",
+          "type": 5,
+          "x": 4.188,
+          "y": 6.15,
+          "w": 0.338,
+          "h": 0.384
+        },
+        {
+          "name": "Freeform 18",
+          "type": 5,
+          "x": 5.327,
+          "y": 6.167,
+          "w": 0.31,
+          "h": 0.384
+        },
+        {
+          "name": "Freeform 19",
+          "type": 5,
+          "x": 1.25,
+          "y": 6.129,
+          "w": 0.457,
+          "h": 0.425
+        },
+        {
+          "name": "Freeform 20",
+          "type": 5,
+          "x": 2.201,
+          "y": 6.1,
+          "w": 0.331,
+          "h": 0.442
+        },
+        {
+          "name": "TextBox 29",
+          "type": 17,
+          "x": 3.014,
+          "y": 6.563,
+          "w": 0.636,
+          "h": 0.32,
+          "text": "600+",
+          "font_pt": 17.5
+        },
+        {
+          "name": "TextBox 30",
+          "type": 17,
+          "x": 2.983,
+          "y": 6.979,
+          "w": 0.685,
+          "h": 0.137,
+          "text": "RESIDENTS",
+          "font_pt": 7.5
+        },
+        {
+          "name": "TextBox 31",
+          "type": 17,
+          "x": 4.041,
+          "y": 6.548,
+          "w": 0.632,
+          "h": 0.314,
+          "text": "~200",
+          "font_pt": 17.0
+        },
+        {
+          "name": "TextBox 32",
+          "type": 17,
+          "x": 3.962,
+          "y": 6.953,
+          "w": 0.813,
+          "h": 0.143,
+          "text": "APARTMENTS",
+          "font_pt": 7.3
+        },
+        {
+          "name": "TextBox 33",
+          "type": 17,
+          "x": 4.859,
+          "y": 6.637,
+          "w": 1.246,
+          "h": 0.158,
+          "text": "HA NOI CITY",
+          "font_pt": 8.3
+        },
+        {
+          "name": "TextBox 34",
+          "type": 17,
+          "x": 4.917,
+          "y": 6.94,
+          "w": 1.129,
+          "h": 0.132,
+          "text": "Ô CHỢ DỪA WARD",
+          "font_pt": 7.5
+        },
+        {
+          "name": "TextBox 35",
+          "type": 17,
+          "x": 1.211,
+          "y": 6.973,
+          "w": 0.522,
+          "h": 0.143,
+          "text": "TOWERS",
+          "font_pt": 7.3
+        },
+        {
+          "name": "TextBox 36",
+          "type": 17,
+          "x": 1.391,
+          "y": 6.536,
+          "w": 0.175,
+          "h": 0.362,
+          "text": "2",
+          "font_pt": 19.6
+        },
+        {
+          "name": "TextBox 37",
+          "type": 17,
+          "x": 2.288,
+          "y": 6.592,
+          "w": 0.157,
+          "h": 0.32,
+          "text": "4",
+          "font_pt": 17.5
+        },
+        {
+          "name": "TextBox 38",
+          "type": 17,
+          "x": 2.009,
+          "y": 7.008,
+          "w": 0.715,
+          "h": 0.132,
+          "text": "ELEVATORS",
+          "font_pt": 7.5
+        },
+        {
+          "name": "TextBox 39",
+          "type": 17,
+          "x": 0.986,
+          "y": 1.26,
+          "w": 4.909,
+          "h": 0.848,
+          "text": "Vinhomes Skylake Phạm Hùng là tổ hợp căn hộ cao cấp kết hợp trung tâm thương mại do Tập đoàn Vingroup làm chủ đầu tư",
+          "font_pt": 14.7
+        },
+        {
+          "name": "TextBox 40",
+          "type": 17,
+          "x": 4.555,
+          "y": 0.736,
+          "w": 4.05,
+          "h": 0.267,
+          "text": "50 Phạm Hùng, Mỹ Đình, Hà Nội",
+          "font_pt": 14.0
+        },
+        {
+          "name": "TextBox 41",
+          "type": 17,
+          "x": 3.44,
+          "y": 0.076,
+          "w": 6.284,
+          "h": 0.66,
+          "text": "VinhomeS skylake",
+          "font_pt": 35.0
+        }
+      ]
+    },
+    {
+      "index": 10,
+      "items": [
+        {
+          "name": "TextBox 4",
+          "type": 17,
+          "x": 0.015,
+          "y": 3.214,
+          "w": 10.623,
+          "h": 2.337,
+          "text": "Thank  You",
+          "font_pt": 186.3
+        },
+        {
+          "name": "Freeform 7",
+          "type": 5,
+          "x": 5.764,
+          "y": 0.004,
+          "w": 8.378,
+          "h": 7.5
+        }
+      ]
+    }
+  ]
+}

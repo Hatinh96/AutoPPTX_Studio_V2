@@ -25,12 +25,14 @@ from .constants import (CONFIG_DIR, CONFIG_PATH, PRESET_DIR, DEFAULT_LAYOUT,
                         V1_CREDS_PATH, COLOR_PALETTE, find_asset,
                         WINDOW_ICONS, STAMP_LOGOS, BUILTIN_PRESETS,
                         builtin_pack, DEPT_UI, dept_key, dept_label,
-                        pack_for_dept)
+                        pack_for_dept, element_label, element_labels_for)
 from . import geometry as G
 from .datasource import (ExcelSource, ImageLibrary, AvatarIndex, match_row,
                          build_merged_groups, build_info_rows, build_info_table,
-                         channel_text, clean, build_overview, screen_qty,
-                         place_label, inspect_excel, build_photo_rename_plan,
+                         build_nelson_table, _address_line, channel_text, clean,
+                         build_overview, screen_qty,
+                         place_label, location_fx_fields, inspect_excel, looks_like_order_list,
+                         build_photo_rename_plan,
                          compare_list_with_master,
                          sort_codes_by_city, order_groups_by_city, order_groups,
                          filter_groups_by_geo, geo_field_values)
@@ -269,7 +271,7 @@ class App(ctk.CTk):
         if not folders and o.get('image_folder'):
             folders = [o['image_folder']]
         style = o.get('slide_style')
-        if style not in ('report', 'saleskit'):
+        if style not in ('report', 'saleskit', 'nelson'):
             try:
                 style = 'saleskit' if float(self.layout.get('info', {}).get('w') or 0) >= 8 else 'report'
             except Exception:
@@ -277,6 +279,7 @@ class App(ctk.CTk):
         self.opts = {
             'excel_path': o.get('excel_path', ''),
             'compare_list_path': o.get('compare_list_path', ''),
+            'order_list_path': o.get('order_list_path', ''),
             'image_folder': folders[0] if folders else '',
             'image_folders': folders,
             'scan_subfolders': bool(o.get('scan_subfolders', True)),
@@ -308,7 +311,7 @@ class App(ctk.CTk):
             'recent_colors': list(o.get('recent_colors') or []),
             'slide_style': style,
             'dept': o.get('dept') if o.get('dept') in ('sales', 'bd') else (
-                'bd' if style == 'saleskit' else 'sales'),
+                'bd' if style in ('saleskit', 'nelson') else 'sales'),
             'dept_state': dict(o.get('dept_state') or {}),
         }
         for rec in (self.opts.get('dept_state') or {}).values():
@@ -358,6 +361,7 @@ class App(ctk.CTk):
             cfg.get('supabase_key') or SUPABASE_ANON_KEY)
         self._bg_manifest = []
         self.excel = ExcelSource()
+        self.order_list = ExcelSource()
         self.imglib = ImageLibrary()
         self.avatars = AvatarIndex()
         self.thumbs = ThumbCache()
@@ -624,8 +628,8 @@ class App(ctk.CTk):
         self.seg_dept.pack(side='left', padx=2)
 
         ctk.CTkLabel(bar, text='Preset:', text_color=MUTED).pack(side='left', padx=(12, 4))
-        self.om_preset = ctk.CTkOptionMenu(bar, width=150, height=30,
-                                           values=['— Preset —'],
+        self.om_preset = ctk.CTkOptionMenu(bar, width=168, height=30,
+                                           values=['— Preset —'] + list(BUILTIN_PRESETS),
                                            fg_color=INPUT, button_color=INPUT,
                                            button_hover_color=BORDER,
                                            text_color=TEXT,
@@ -1266,6 +1270,11 @@ class App(ctk.CTk):
         dist = self.opts.get('district_filter', ALL_DISTRICTS)
         if dist and dist != ALL_DISTRICTS:
             parts.append(dist)
+        if self.opts.get('sort_mode') == 'list':
+            if getattr(self.order_list, 'rows', None):
+                parts.append('theo list up')
+            else:
+                parts.append('theo list')
         return ' · '.join(parts) if parts else 'Chưa có FILE TỔNG — mở ⚙ Cài đặt'
 
     def _update_data_brief(self):
@@ -1454,6 +1463,39 @@ class App(ctk.CTk):
             initial=self.opts.get('district_filter', ALL_DISTRICTS))
         if getattr(self.excel, 'rows', None):
             self._refresh_geo_filters()
+
+        row_sort = ctk.CTkFrame(f, fg_color='transparent')
+        row_sort.pack(fill='x', padx=10, pady=(6, 2))
+        ctk.CTkLabel(row_sort, text='Thứ tự', text_color=MUTED, width=44
+                     ).pack(side='left')
+        self.om_sort_nguon = ctk.CTkOptionMenu(
+            row_sort,
+            values=['Tỉnh Bắc → Nam', 'Theo thứ tự list Excel'],
+            width=200, height=28, fg_color=CARD,
+            button_color=CARD, button_hover_color=BORDER,
+            text_color=TEXT, command=self._on_sort_mode)
+        self.om_sort_nguon.set(self._sort_mode_label())
+        self.om_sort_nguon.pack(side='left', padx=(4, 0), fill='x', expand=True)
+        self.lbl_sort_hint = ctk.CTkLabel(
+            f, text=self._sort_hint_text(), text_color=MUTED,
+            font=ctk.CTkFont(size=10), anchor='w', wraplength=268, justify='left')
+        self.lbl_sort_hint.pack(fill='x', padx=10, pady=(0, 4))
+        row_list = ctk.CTkFrame(f, fg_color='transparent')
+        row_list.pack(fill='x', padx=10, pady=(0, 2))
+        ctk.CTkButton(
+            row_list, text='Up list Excel…', height=28, width=120,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=self._choose_order_list
+        ).pack(side='left')
+        ctk.CTkButton(
+            row_list, text='Bỏ', width=44, height=28,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            command=self._clear_order_list
+        ).pack(side='left', padx=(6, 0))
+        self.lbl_order_list = ctk.CTkLabel(
+            f, text=self._order_list_caption(), text_color=MUTED,
+            font=ctk.CTkFont(size=10), anchor='w', wraplength=268, justify='left')
+        self.lbl_order_list.pack(fill='x', padx=10, pady=(0, 6))
 
         self.frm_filter_chips = ctk.CTkFrame(f, fg_color='transparent')
         self._refresh_filter_chips()
@@ -1875,10 +1917,47 @@ class App(ctk.CTk):
         self._fx_sw(f, 'show_gps', 'In thêm toạ độ GPS (nếu ảnh có)')
         self._sync_loc_hint()
 
+        extra_sim = self._collapsible(
+            sc, 'gps_simulate', 'Giả lập địa chỉ',
+            start_open=bool(fx.get('simulate_no_gps') or fx.get('simulate_all')
+                            or fx.get('location_list')))
+        self._fx_sw(
+            extra_sim, 'simulate_no_gps',
+            'Chỉ ảnh không GPS → lấy địa chỉ list / Excel')
+        self._fx_sw(
+            extra_sim, 'simulate_all',
+            'Dùng địa chỉ list cho toàn bộ ảnh (ghi đè GPS)')
+        ctk.CTkLabel(
+            extra_sim,
+            text='Công tắc dưới ghi đè cả ảnh đã có EXIF GPS. Công tắc trên '
+                 'chỉ vá ảnh Zalo/Messenger mất GPS. Địa chỉ lấy từ ô list '
+                 'hoặc cột Address Excel. Mini-map geocode địa chỉ đó.',
+            text_color=MUTED, font=ctk.CTkFont(size=10), wraplength=300,
+            justify='left'
+        ).pack(anchor='w', padx=10, pady=(0, 6))
+        self.txt_loc_list = ctk.CTkTextbox(
+            extra_sim, height=88, fg_color=CARD, font=ctk.CTkFont(size=11))
+        self.txt_loc_list.pack(fill='x', padx=10, pady=(0, 4))
+        if fx.get('location_list'):
+            self.txt_loc_list.insert('1.0', fx.get('location_list'))
+        self.txt_loc_list.bind('<KeyRelease>', lambda e: self._on_location_list())
+        row = ctk.CTkFrame(extra_sim, fg_color='transparent')
+        row.pack(fill='x', padx=10, pady=(0, 8))
+        ctk.CTkButton(
+            row, text='Nạp địa chỉ Excel', width=130, height=26,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            command=self._fill_location_list_from_excel
+        ).pack(side='left')
+        self.lbl_loc_list = ctk.CTkLabel(
+            row, text='', text_color=MUTED, font=ctk.CTkFont(size=10),
+            anchor='w')
+        self.lbl_loc_list.pack(side='left', padx=8, fill='x', expand=True)
+        self._sync_loc_list_hint()
+
         f = self._card(sc, 'Mini-map GPS')
         self._fx_sw(f, 'minimap', 'Dán bản đồ mini góc ảnh (OpenStreetMap)')
         ctk.CTkLabel(
-            f, text='Cần EXIF GPS trên file ảnh. Lần đầu tải map cần mạng, lần sau dùng cache.',
+            f, text='Cần EXIF GPS, hoặc bật giả lập địa chỉ để geocode list. Lần đầu tải map cần mạng, lần sau dùng cache.',
             text_color=MUTED, font=ctk.CTkFont(size=10), wraplength=280,
             justify='left').pack(anchor='w', padx=10, pady=(0, 4))
         self.sl_mm_op = self._slider(
@@ -2208,9 +2287,24 @@ class App(ctk.CTk):
             width=220, height=28, fg_color=CARD,
             button_color=CARD, button_hover_color=BORDER,
             text_color=TEXT, command=self._on_sort_mode)
-        self.om_sort.set('Theo thứ tự list Excel' if self.opts.get('sort_mode') == 'list'
-                         else 'Tỉnh Bắc → Nam')
+        self.om_sort.set(self._sort_mode_label())
         self.om_sort.pack(fill='x', padx=10, pady=(0, 6))
+        row_ol = ctk.CTkFrame(f_region, fg_color='transparent')
+        row_ol.pack(fill='x', padx=10, pady=(0, 4))
+        ctk.CTkButton(
+            row_ol, text='Up list Excel…', height=28,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=self._choose_order_list
+        ).pack(side='left', expand=True, fill='x')
+        ctk.CTkButton(
+            row_ol, text='Bỏ list', width=70, height=28,
+            fg_color=CARD, hover_color=BORDER, text_color=TEXT,
+            command=self._clear_order_list
+        ).pack(side='left', padx=(6, 0))
+        self.lbl_order_list_export = ctk.CTkLabel(
+            f_region, text=self._order_list_caption(), text_color=MUTED,
+            font=ctk.CTkFont(size=10), anchor='w', wraplength=360, justify='left')
+        self.lbl_order_list_export.pack(fill='x', padx=10, pady=(0, 6))
         ctk.CTkLabel(f_region, text='Tách file PPTX theo', text_color=MUTED,
                      font=ctk.CTkFont(size=11)).pack(anchor='w', padx=10)
         self.om_split_geo = ctk.CTkOptionMenu(
@@ -2376,14 +2470,22 @@ class App(ctk.CTk):
         info_table = build_info_table(row, sibs or ([row] if row else []))
         if not info_table.get('school'):
             info_table['school'] = name_val
+        style = self.opts.get('slide_style') or 'report'
+        nelson_table = (build_nelson_table(row, sibs or ([row] if row else []))
+                        if style == 'nelson' else None)
+        if style == 'nelson':
+            channel_val = _address_line(row) if row else ''
+        else:
+            channel_val = channel_text(row, self.opts['channel_template'])
         self._content_cache = {
             'title': G.title_string(self.layout['title'], name_val, 1, K),
             'info_rows': build_info_rows(row, len(paths) or n),
             'info_table': info_table,
-            'slide_style': self.opts.get('slide_style') or 'report',
+            'nelson_table': nelson_table,
+            'slide_style': style,
             'n_screens': screen_qty(row),
             'n_photos': len(paths),
-            'channel': channel_text(row, self.opts['channel_template']),
+            'channel': channel_val,
             'images': paths,
             'avatar': avatar,
             'bg': (self.opts['bg_path']
@@ -2411,16 +2513,88 @@ class App(ctk.CTk):
 
     def fx_snapshot(self):
         fx = dict(self.opts.get('fx') or {})
-        fx['location_excel'] = self._excel_location_label()
+        fx.update(self._excel_location_fields())
         return fx
 
-    def _excel_location_label(self):
+    def _current_excel_row(self):
         codes = self._ordered_codes()
         if not codes:
-            return ''
+            return {}
         code = codes[max(0, min(self.group_idx, len(codes) - 1))]
         row, _, _ = match_row(code, self._by_code, self._merged)
-        return place_label(row)
+        return row or {}
+
+    def _excel_location_fields(self):
+        return location_fx_fields(self._current_excel_row())
+
+    def _excel_location_label(self):
+        return self._excel_location_fields().get('location_excel') or ''
+
+    def _on_location_list(self):
+        box = getattr(self, 'txt_loc_list', None)
+        if box is None:
+            return
+        try:
+            text = box.get('1.0', 'end-1c')
+        except Exception:
+            return
+        self._set_fx('location_list', text)
+        self._sync_loc_list_hint()
+
+    def _excel_address_pool(self):
+        seen, out = set(), []
+        for row in (getattr(self.excel, 'rows', None) or []):
+            addr = _address_line(row)
+            key = ' '.join(addr.casefold().split())
+            if addr and key not in seen:
+                seen.add(key)
+                out.append(addr)
+        if not out:
+            addr = _address_line(self._current_excel_row())
+            if addr:
+                out.append(addr)
+        return out
+
+    def _fill_location_list_from_excel(self):
+        pool = self._excel_address_pool()
+        if not pool:
+            messagebox.showinfo(
+                'Giả lập địa chỉ',
+                'Chưa có cột Address trên Excel đang mở. Dán list địa chỉ vào ô, mỗi dòng một địa chỉ.')
+            return
+        text = '\n'.join(pool)
+        box = getattr(self, 'txt_loc_list', None)
+        if box is not None:
+            box.delete('1.0', 'end')
+            box.insert('1.0', text)
+        self._set_fx('location_list', text)
+        self._set_fx('simulate_no_gps', True)
+        sw = getattr(self, 'sw_fx_simulate_no_gps', None)
+        if sw is not None:
+            try:
+                sw.select()
+            except Exception:
+                pass
+        self._sync_loc_list_hint()
+
+    def _sync_loc_list_hint(self):
+        lbl = getattr(self, 'lbl_loc_list', None)
+        if lbl is None:
+            return
+        n = len(FX.parse_address_list((self.opts.get('fx') or {}).get('location_list')))
+        cur = _address_line(self._current_excel_row())
+        if n == 1:
+            txt = '1 địa chỉ — mọi ảnh không GPS dùng dòng này'
+        elif n > 1:
+            txt = f'{n} địa chỉ trong list'
+            if cur:
+                txt += ' · mỗi điểm dùng Address Excel của điểm đó'
+        else:
+            txt = 'Điểm hiện tại: ' + (cur or 'chưa có Address Excel')
+        try:
+            lbl.configure(text=txt)
+        except Exception:
+            pass
 
     def _on_loc_mode(self, label):
         mode = (getattr(self, '_loc_mode_vals', {}) or {}).get(label, 'gps')
@@ -2445,10 +2619,20 @@ class App(ctk.CTk):
         if lbl is None:
             return
         mode = str((self.opts.get('fx') or {}).get('location_mode') or 'gps')
+        fx = self.opts.get('fx') or {}
+        if fx.get('simulate_all'):
+            extra = ' Địa chỉ list/Excel đang ghi đè mọi ảnh.'
+            gps_miss = 'Địa chỉ list/Excel đang ghi đè cả ảnh có GPS.'
+        elif fx.get('simulate_no_gps'):
+            extra = ' Ảnh không GPS lấy địa chỉ list/Excel.'
+            gps_miss = 'Ảnh không GPS lấy địa chỉ list/Excel.'
+        else:
+            extra = ''
+            gps_miss = 'Ảnh không GPS thì trống.'
         hints = {
-            'gps': 'Mỗi ảnh: toạ độ EXIF → tên đường (OpenStreetMap). Chưa tải được thì in lat/lon. Ảnh không GPS thì trống.',
-            'excel': 'Lấy Name · quận từ Excel theo mã trên tên file ảnh.',
-            'auto': 'Ưu tiên tên Excel theo mã. Không khớp → toạ độ EXIF.',
+            'gps': 'Mỗi ảnh: toạ độ EXIF → tên đường (OpenStreetMap). Chưa tải được thì in lat/lon. ' + gps_miss,
+            'excel': 'Lấy Địa chỉ · Quận · Việt Nam từ Excel theo mã trên tên file ảnh.' + extra,
+            'auto': 'Ưu tiên Địa chỉ · Quận · Việt Nam theo mã Excel. Không khớp → toạ độ EXIF.' + extra,
             'manual': 'Một dòng gõ tay cho mọi ảnh.',
         }
         try:
@@ -2461,7 +2645,13 @@ class App(ctk.CTk):
         if fx.get(key) == val:
             return
         fx[key] = val
-        if key in ('minimap', 'location_mode'):
+        if key in ('location_mode', 'simulate_no_gps', 'simulate_all'):
+            try:
+                self._sync_loc_hint()
+            except Exception:
+                pass
+        if key in ('minimap', 'location_mode', 'simulate_no_gps', 'simulate_all',
+                   'location_list', 'location_address'):
             self._mm_done.clear()
         try:
             self.editor.clear_fx_cache()
@@ -2573,7 +2763,8 @@ class App(ctk.CTk):
         except Exception:
             pass
         try:
-            self.lbl_fmt_sel.configure(text=ELEMENT_LABELS.get(name, name))
+            style = self.opts.get('slide_style') or 'report'
+            self.lbl_fmt_sel.configure(text=element_label(name, style))
         except Exception:
             pass
         is_text = name in ('title', 'info', 'channel')
@@ -2794,7 +2985,8 @@ class App(ctk.CTk):
     def prefetch_minimap(self, paths):
         fx = self.opts.get('fx') or {}
         want_map = bool(fx.get('minimap'))
-        want_geo = str(fx.get('location_mode') or '') in ('gps', 'auto')
+        want_geo = (str(fx.get('location_mode') or '') in ('gps', 'auto')
+                    or bool(fx.get('simulate_no_gps') or fx.get('simulate_all')))
         if not want_map and not want_geo:
             return
         todo = [p for p in (paths or []) if p and p not in self._mm_done]
@@ -2802,13 +2994,14 @@ class App(ctk.CTk):
             return
         self._mm_busy = True
         self._mm_done.update(todo)
+        snap = dict(fx)
 
         def work():
             try:
                 if want_map:
-                    FX.prefetch_maps(todo)
+                    FX.prefetch_maps(todo, snap)
                 if want_geo:
-                    FX.prefetch_geocode(todo)
+                    FX.prefetch_geocode(todo, snap)
             except Exception:
                 pass
 
@@ -2903,7 +3096,7 @@ class App(ctk.CTk):
 
     def on_select(self, name):
         if name:
-            self.om_elem.set(ELEMENT_LABELS[name])
+            self.om_elem.set(element_label(name, self.opts.get('slide_style') or 'report'))
         self._sync_inspector()
 
     def on_zoom(self, z):
@@ -2917,7 +3110,7 @@ class App(ctk.CTk):
         if name:
             self.editor.select(name)
             try:
-                self.om_elem.set(ELEMENT_LABELS.get(name, name))
+                self.om_elem.set(element_label(name, self.opts.get('slide_style') or 'report'))
             except Exception:
                 pass
             self._sync_inspector()
@@ -2929,7 +3122,8 @@ class App(ctk.CTk):
             return
         c = self.layout.get(name, {})
         font_cfg = self.layout.get('font', {})
-        self.lbl_style_for.configure(text=ELEMENT_LABELS.get(name, name))
+        self.lbl_style_for.configure(text=element_label(
+            name, self.opts.get('slide_style') or 'report'))
         is_text = name in ('title', 'info', 'channel')
         fn = c.get('font') or font_cfg.get('name', 'Arial')
         try:
@@ -3046,11 +3240,24 @@ class App(ctk.CTk):
         else:
             self._pick_color('body')
 
+    def _refresh_elem_menu(self):
+        if not hasattr(self, 'om_elem'):
+            return
+        style = self.opts.get('slide_style') or 'report'
+        labels = [element_label(n, style) for n in ELEMENT_NAMES]
+        cur = self.om_elem.get()
+        self.om_elem.configure(values=labels)
+        sel = self.editor.selected if hasattr(self, 'editor') else None
+        if sel:
+            self.om_elem.set(element_label(sel, style))
+        elif cur in labels:
+            self.om_elem.set(cur)
+
     # ════════════════════════ INSPECTOR ════════════════════════
     def _sel_name(self):
         label = self.om_elem.get()
-        return next((n for n, l in ELEMENT_LABELS.items() if l == label),
-                    'image')
+        labels = element_labels_for(self.opts.get('slide_style') or 'report')
+        return next((n for n, l in labels.items() if l == label), 'image')
 
     def _on_pick_elem(self, _=None):
         name = self._sel_name()
@@ -3471,6 +3678,9 @@ class App(ctk.CTk):
             # Cloud: đợi sync (show_main) — tránh load cache cũ rồi race với bản mới.
             if not (o.get('app_mode') == 'cloud' and self.cloud.logged_in()):
                 self._load_excel_async(excel)
+        order_list = o.get('order_list_path') or ''
+        if order_list and os.path.isfile(order_list):
+            self._load_order_list_async(order_list, announce=False)
         self._apply_mode_ui()
 
     def _first_show(self):
@@ -3647,12 +3857,17 @@ class App(ctk.CTk):
             pass
         self._update_data_brief()
         self.log(f'Đã đọc {len(self.excel.rows)} dòng Excel.')
+        if looks_like_order_list(path, getattr(self.excel, 'source_sheets', None)):
+            self.opts['sort_mode'] = 'list'
+            self.log('Thứ tự slide: theo STT trên list Excel.')
+        self._sync_sort_menus()
         try:
             self.lbl_list_master_compare.configure(
                 text=self._list_master_compare_caption())
         except Exception:
             pass
         self._invalidate()
+        self._rebuild_timeline()
         self._update_coverage_label()
         self._update_estimate()
 
@@ -3718,8 +3933,129 @@ class App(ctk.CTk):
         self._update_data_brief()
         self._schedule_save()
 
+    def _sort_mode_label(self):
+        return ('Theo thứ tự list Excel' if self.opts.get('sort_mode') == 'list'
+                else 'Tỉnh Bắc → Nam')
+
+    def _sort_hint_text(self):
+        if self.opts.get('sort_mode') == 'list':
+            if getattr(self.order_list, 'rows', None):
+                return 'Slide theo STT trên list vừa up. Ảnh không có trong list xếp cuối.'
+            return 'Chưa up list — đang theo STT FILE TỔNG. Bấm Up list Excel để chọn List CF…'
+        return 'Slide xếp tỉnh Bắc → Nam. Up list Excel nếu muốn theo STT file list.'
+
+    def _order_list_caption(self):
+        rows = getattr(self.order_list, 'rows', None) or []
+        path = (self.opts.get('order_list_path') or
+                getattr(self.order_list, 'path', None) or '')
+        if rows and path:
+            return f'{os.path.basename(path)} · {len(rows)} điểm'
+        if path:
+            return os.path.basename(path)
+        return 'Chưa up list — mặc định dùng FILE TỔNG'
+
+    def _sync_order_list_labels(self):
+        cap = self._order_list_caption()
+        for name in ('lbl_order_list', 'lbl_order_list_export'):
+            w = getattr(self, name, None)
+            if w is None:
+                continue
+            try:
+                w.configure(text=cap)
+            except Exception:
+                pass
+        self._sync_sort_menus()
+
+    def _sort_rows(self):
+        rows = getattr(self.order_list, 'rows', None) or []
+        if rows:
+            return list(rows)
+        return list(getattr(self.excel, 'rows', None) or [])
+
+    def _choose_order_list(self):
+        p = filedialog.askopenfilename(
+            title='Up list Excel để xếp slide (List CF, University List…)',
+            filetypes=[('Excel', '*.xlsx *.xlsm')])
+        if p:
+            self._load_order_list_async(p, announce=True)
+
+    def _clear_order_list(self):
+        self.order_list = ExcelSource()
+        self.opts['order_list_path'] = ''
+        self._sync_order_list_labels()
+        self._rebuild_timeline()
+        self._update_estimate()
+        self._schedule_save()
+        self.log('Đã bỏ list xếp slide — dùng lại FILE TỔNG.')
+
+    def _load_order_list_async(self, path, announce=True):
+        def work():
+            src = ExcelSource()
+            ok = src.load(path)
+            self.after(0, lambda: self._order_list_loaded(path, src, ok, announce))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _order_list_loaded(self, path, src, ok, announce=True):
+        if not ok:
+            messagebox.showerror(
+                'List Excel',
+                f'Không đọc được list:\n{src.error or ""}\n\n'
+                'Cần cột Report Code / Code_RP (kiểu List CF.xlsx).')
+            return
+        self.order_list = src
+        self.opts['order_list_path'] = path
+        self.opts['sort_mode'] = 'list'
+        if not getattr(self.excel, 'rows', None):
+            filled = ExcelSource()
+            filled.path = src.path
+            filled.mtime = src.mtime
+            filled.rows = list(src.rows)
+            filled.source_sheets = list(src.source_sheets or [])
+            self.excel = filled
+            self.opts['excel_path'] = path
+            self._rebuild_code_map()
+            self._refresh_geo_filters()
+            try:
+                self.lbl_excel.configure(
+                    text=f'{os.path.basename(path)} — {len(src.rows)} dòng (list xếp slide)')
+            except Exception:
+                pass
+        self._sync_order_list_labels()
+        self._rebuild_timeline()
+        self._update_coverage_label()
+        self._update_estimate()
+        self._schedule_save()
+        if announce:
+            self.log(f'Đã up list xếp slide: {os.path.basename(path)} · {len(src.rows)} điểm.')
+            messagebox.showinfo(
+                'List Excel',
+                f'Đã nạp {len(src.rows)} điểm từ\n{os.path.basename(path)}\n\n'
+                'Thứ tự slide đang theo STT trên list này.')
+
+    def _sync_sort_menus(self):
+        lab = self._sort_mode_label()
+        for w in (getattr(self, 'om_sort', None), getattr(self, 'om_sort_nguon', None)):
+            if w is None:
+                continue
+            try:
+                if w.get() != lab:
+                    w.set(lab)
+            except Exception:
+                pass
+        try:
+            if hasattr(self, 'lbl_sort_hint'):
+                self.lbl_sort_hint.configure(text=self._sort_hint_text())
+        except Exception:
+            pass
+        self._update_data_brief()
+
     def _on_sort_mode(self, v):
-        self.opts['sort_mode'] = 'list' if 'list' in (v or '').lower() else 'city'
+        mode = 'list' if 'list' in (v or '').lower() else 'city'
+        if self.opts.get('sort_mode') == mode:
+            self._sync_sort_menus()
+            return
+        self.opts['sort_mode'] = mode
+        self._sync_sort_menus()
         self._rebuild_timeline()
         self._update_estimate()
         self._schedule_save()
@@ -3769,7 +4105,8 @@ class App(ctk.CTk):
         groups = self._filtered_groups(groups)
         return order_groups(
             groups, self._by_code, self._merged, self.excel.rows,
-            self.opts.get('sort_mode', 'city'))
+            self.opts.get('sort_mode', 'city'),
+            order_rows=self._sort_rows())
 
     def select_images(self):
         self.add_image_folder()
@@ -4116,6 +4453,7 @@ class App(ctk.CTk):
         self.group_idx = max(0, min(idx, len(codes) - 1))
         self._invalidate()
         self._rebuild_timeline()
+        self._sync_loc_list_hint()
         try:
             paths = self.imglib.group_paths(codes[self.group_idx])
             self.prefetch_minimap(list(paths or [])[:8])
@@ -4148,9 +4486,12 @@ class App(ctk.CTk):
             return []
 
     def _refresh_preset_menu(self):
-        names = [n for n in self._preset_files() if n not in BUILTIN_PRESETS]
-        self.om_preset.configure(values=['— Preset —'] + names)
-        self.om_preset.set('— Preset —')
+        custom = [n for n in self._preset_files() if n not in BUILTIN_PRESETS]
+        names = ['— Preset —'] + list(BUILTIN_PRESETS) + custom
+        self.om_preset.configure(values=names)
+        cur = self.om_preset.get()
+        if cur not in names:
+            self.om_preset.set('— Preset —')
 
     def _snapshot_dept(self):
         key = self.opts.get('dept') or 'sales'
@@ -4207,7 +4548,7 @@ class App(ctk.CTk):
         self.layout.update(copy.deepcopy(pack['layout']))
         style = pack.get('slide_style') or 'report'
         self.opts['slide_style'] = style
-        self.opts['dept'] = 'bd' if style == 'saleskit' else 'sales'
+        self.opts['dept'] = 'bd' if style in ('saleskit', 'nelson') else 'sales'
         vis = self.opts.setdefault('visible', {})
         vis.update(pack.get('visible') or {})
         if 'channel_enabled' in pack:
@@ -4215,6 +4556,7 @@ class App(ctk.CTk):
         vis['channel'] = bool(self.opts.get('channel_enabled', True))
         self._sync_dept_ui()
         self._sync_channel_switch()
+        self._refresh_elem_menu()
         self._invalidate()
         if hasattr(self, 'editor'):
             self.editor.render()
@@ -5130,6 +5472,7 @@ class App(ctk.CTk):
             out_path=out_dir,
             fx=copy.deepcopy(self.opts.get('fx') or {}),
             sort_mode=self.opts.get('sort_mode', 'city'),
+            sort_rows=self._sort_rows(),
             city_filter=self.opts.get('city_filter', ALL_CITIES),
             district_filter=self.opts.get('district_filter', ALL_DISTRICTS),
         )
@@ -5305,6 +5648,7 @@ class App(ctk.CTk):
             slide_style=self.opts.get('slide_style') or 'report',
             pad_blank_slides=bool(self.opts.get('pad_blank_slides', False)),
             sort_mode=self.opts.get('sort_mode', 'city'),
+            sort_rows=self._sort_rows(),
             city_filter=self.opts.get('city_filter', ALL_CITIES),
             district_filter=self.opts.get('district_filter', ALL_DISTRICTS),
             split_export_by=self.opts.get('split_export_by', 'none'),

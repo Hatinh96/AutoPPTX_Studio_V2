@@ -36,6 +36,10 @@ DEFAULT_FX = {
     'bg_opacity': 100,
     'location_text': '',
     'location_mode': 'gps',   # gps | auto | excel | manual
+    'simulate_no_gps': False,
+    'simulate_all': False,
+    'location_list': '',
+    'location_address': '',
     'stamp_location': False,
     'display_mode': 'Ngày + Giờ',
     'date_format': 'DD/MM/YYYY',
@@ -154,8 +158,8 @@ def gps_cached(path):
     return g
 
 
-def gps_text(path):
-    g = gps_cached(path)
+def gps_text(path, fx=None):
+    g = resolve_gps(path, fx, allow_net=True)
     if not g:
         return ''
     lat, lon = g
@@ -240,6 +244,116 @@ def _nominatim_reverse(lat, lon):
         return ""
 
 
+def parse_address_list(text):
+    """Mỗi dòng một địa chỉ. Bỏ dòng trống và gạch đầu dòng."""
+    out, seen = [], set()
+    for raw in str(text or '').replace('\r\n', '\n').split('\n'):
+        line = raw.strip().lstrip('•-–—').strip()
+        if not line:
+            continue
+        key = ' '.join(line.casefold().split())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+    return out
+
+
+def simulated_address(path, fx):
+    """Địa chỉ giả lập khi ảnh không GPS: 1 dòng list → dùng chung; nhiều dòng + Excel điểm → địa chỉ điểm."""
+    fx = fx or {}
+    pool = parse_address_list(fx.get('location_list'))
+    if len(pool) == 1:
+        return pool[0]
+    addr = str(fx.get('location_address') or '').strip()
+    if addr:
+        return addr
+    if pool:
+        seed = int(hashlib.md5(str(path or '').encode('utf-8', 'replace')).hexdigest()[:8], 16)
+        return pool[seed % len(pool)]
+    return str(fx.get('location_excel') or '').strip()
+
+
+def _fwd_key(addr):
+    return 'fwd:' + ' '.join(str(addr or '').casefold().split())
+
+
+def _nominatim_search(addr):
+    global _geo_fail_ts, _geo_last_net
+    if time.time() - _geo_fail_ts < 60:
+        return None
+    wait = 1.05 - (time.time() - _geo_last_net)
+    if wait > 0:
+        time.sleep(min(wait, 1.2))
+    try:
+        import urllib.parse
+        import urllib.request
+        q = urllib.parse.urlencode({
+            'q': addr, 'format': 'jsonv2', 'limit': '1',
+            'countrycodes': 'vn', 'accept-language': 'vi',
+        })
+        req = urllib.request.Request(
+            'https://nominatim.openstreetmap.org/search?' + q,
+            headers={'User-Agent': OSM_UA})
+        _geo_last_net = time.time()
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode('utf-8', errors='replace') or '[]')
+        if not isinstance(data, list) or not data:
+            return None
+        lat, lon = float(data[0]['lat']), float(data[0]['lon'])
+        return (lat, lon)
+    except Exception:
+        _geo_fail_ts = time.time()
+        return None
+
+
+def geocode_address(addr, allow_net=True):
+    """(lat, lon) từ địa chỉ list/Excel. Cache theo chuỗi đã chuẩn hoá."""
+    addr = str(addr or '').strip()
+    if not addr:
+        return None
+    key = _fwd_key(addr)
+    with _geo_lock:
+        hit = _geo_mem.get(key)
+        if isinstance(hit, (list, tuple)) and len(hit) == 2:
+            return (float(hit[0]), float(hit[1]))
+        disk = _load_geo_disk()
+        hit = disk.get(key)
+        if isinstance(hit, (list, tuple)) and len(hit) == 2:
+            _geo_mem[key] = hit
+            return (float(hit[0]), float(hit[1]))
+    if not allow_net:
+        return None
+    found = _nominatim_search(addr)
+    if found:
+        with _geo_lock:
+            _geo_mem[key] = found
+            _load_geo_disk()[key] = found
+            _save_geo_disk()
+    return found
+
+
+def wants_simulated_address(path, fx):
+    """Bật list cho toàn ảnh, hoặc chỉ ảnh không GPS."""
+    fx = fx or {}
+    if fx.get('simulate_all'):
+        return True
+    return bool(fx.get('simulate_no_gps') and not gps_cached(path))
+
+
+def resolve_gps(path, fx=None, allow_net=True):
+    """Toạ độ EXIF, hoặc geocode địa chỉ giả lập khi bật công tắc."""
+    if wants_simulated_address(path, fx):
+        addr = simulated_address(path, fx)
+        found = geocode_address(addr, allow_net=allow_net) if addr else None
+        if found:
+            return found
+        if (fx or {}).get('simulate_all'):
+            return gps_cached(path)
+        return None
+    return gps_cached(path)
+
+
 def place_name_from_gps(path, allow_net=True):
     """Tên đường/khu vực từ EXIF GPS. Cache theo toạ độ ~11 m."""
     g = gps_cached(path)
@@ -297,7 +411,7 @@ def location_stamp_lines(text):
             bits = [p.strip() for p in raw.split(',') if p.strip()]
         else:
             bits = [raw]
-    skip = {'vietnam', 'việt nam', 'vn'}
+    skip = set()
     out, seen = [], set()
     for b in bits:
         key = b.lower()
@@ -318,6 +432,10 @@ def resolve_location(path, fx, allow_net=True):
     manual = str(fx.get('location_text') or '').strip()
     if mode == 'manual':
         return manual
+    if wants_simulated_address(path, fx):
+        fake = simulated_address(path, fx)
+        if fake:
+            return fake
     if mode == 'excel':
         return excel or location_from_exif(path, allow_net=allow_net) or manual
     exif_loc = location_from_exif(path, allow_net=allow_net)
@@ -326,12 +444,16 @@ def resolve_location(path, fx, allow_net=True):
     return exif_loc or manual
 
 
-def prefetch_geocode(paths):
+def prefetch_geocode(paths, fx=None):
     """Nominatim nền — 1 ảnh/giây, bỏ qua nếu đã có cache."""
     got = False
     for p in paths or []:
         if place_name_from_gps(p, allow_net=True):
             got = True
+        if wants_simulated_address(p, fx):
+            addr = simulated_address(p, fx)
+            if addr and geocode_address(addr, allow_net=True):
+                got = True
     return got
 
 
@@ -636,7 +758,7 @@ def render_timestamp(img, path, fx, allow_net=True):
         else:
             txt_date = dt.strftime(f"{date_fmt} {time_fmt}")
 
-        gps_line = gps_text(path) if fx.get('show_gps') else ''
+        gps_line = gps_text(path, fx) if fx.get('show_gps') else ''
         loc = resolve_location(path, fx, allow_net=allow_net) if fx.get('stamp_location') else ''
         base_font_h = max(1, int(h * (float(fx.get('font_scale', 3.5)) / 100)))
         min_font_h = max(6, int(h * 0.015))
@@ -927,7 +1049,7 @@ def process_photo(path, src=None, fx=None, box=None, fit='fill', radius=0,
             pass
 
     if fx.get('minimap'):
-        gps = gps_cached(path)
+        gps = resolve_gps(path, fx, allow_net=not preview)
         if gps:
             try:
                 im = stamp_minimap(im, gps[0], gps[1],
@@ -976,11 +1098,11 @@ def clear_preview_cache():
         _preview_cache.clear()
 
 
-def prefetch_maps(paths):
+def prefetch_maps(paths, fx=None):
     """Tải tile OSM nền — gọi từ worker. Trả True nếu có tile mới."""
     got = False
     for p in paths or []:
-        gps = gps_cached(p)
+        gps = resolve_gps(p, fx, allow_net=True)
         if not gps:
             continue
         try:
@@ -1022,7 +1144,7 @@ def stamp_original(path, fx=None, allow_net=True):
             pass
 
     if fx.get('minimap'):
-        gps = gps_cached(path)
+        gps = resolve_gps(path, fx, allow_net=allow_net)
         if gps:
             try:
                 im = stamp_minimap(im, gps[0], gps[1],
