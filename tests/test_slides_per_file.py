@@ -6,6 +6,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from autopptx2 import geometry as G
+from autopptx2.constants import scale_layout, slide_inches
 from autopptx2.exporter import estimate
 
 
@@ -47,6 +48,16 @@ class TestSlidesPerFile(unittest.TestCase):
         groups = {f'C{i}': ['a.jpg'] for i in range(250)}
         _ng, _ns, np_ = estimate(groups, 1, slides_per_file=100)
         self.assertEqual(np_, 3)
+
+    def test_slide_size_43_and_scale_layout(self):
+        self.assertEqual(slide_inches('16:9'), (13.33, 7.5))
+        self.assertEqual(slide_inches('4:3'), (10.0, 7.5))
+        lay = {'image': {'x': 4.0, 'y': 1.0, 'w': 8.0, 'h': 5.0}}
+        scale_layout(lay, 13.33, 7.5, 10.0, 7.5)
+        self.assertAlmostEqual(lay['image']['x'], 4.0 * 10 / 13.33, places=2)
+        self.assertAlmostEqual(lay['image']['w'], 8.0 * 10 / 13.33, places=2)
+        self.assertEqual(lay['image']['y'], 1.0)
+        self.assertEqual(lay['image']['h'], 5.0)
 
 
 if __name__ == '__main__':

@@ -23,7 +23,13 @@ jobs:
             artifact_name: AutoPPTX_Studio_V2-Windows.exe
             build_type: windows
           - os: macos-latest
-            artifact_name: AutoPPTX_Studio_V2-macOS.zip
+            artifact_name: AutoPPTX_Studio_V2-macOS-AppleSilicon.zip
+            zip_name: AutoPPTX_Studio_V2-macOS-AppleSilicon.zip
+            build_type: macos
+          # Mac chip Intel: macos-15-intel là image x86_64 cuối cùng (đến 8/2027).
+          - os: macos-15-intel
+            artifact_name: AutoPPTX_Studio_V2-macOS-Intel.zip
+            zip_name: AutoPPTX_Studio_V2-macOS-Intel.zip
             build_type: macos
 
     steps:
@@ -42,9 +48,46 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
+      # Python của setup-python link _tkinter với Tcl/Tk 8.6 trong Homebrew.
+      # Runner Intel hay thiếu symlink 'tcl-tk' (Homebrew đã đổi sang tcl-tk@8)
+      # -> import tkinter lỗi, hoặc build xong mở app là tắt ngay.
+      - name: Ensure Tcl/Tk 8.6 for tkinter (macOS)
+        if: matrix.build_type == 'macos'
+        run: |
+          set -e
+          PREFIX="$(brew --prefix)"
+          brew list tcl-tk@8 >/dev/null 2>&1 || brew install tcl-tk@8 || brew install tcl-tk || true
+          for name in tcl-tk@8 tcl-tk; do
+            SRC="$PREFIX/opt/$name"
+            if [ ! -d "$SRC" ]; then continue; fi
+            if [ "$name" != "tcl-tk" ]; then
+              ln -sfn "$SRC" "$PREFIX/opt/tcl-tk" || true
+            fi
+            for lib in libtcl8.6.dylib libtk8.6.dylib; do
+              if [ -f "$SRC/lib/$lib" ] && [ ! -e "$PREFIX/lib/$lib" ]; then
+                ln -sfn "$SRC/lib/$lib" "$PREFIX/lib/$lib" || true
+              fi
+            done
+            break
+          done
+          python -c "import tkinter; print('Tk', tkinter.TkVersion, '| patch', tkinter.Tcl().eval('info patchlevel'))"
+          python -c "import customtkinter; print('customtkinter', customtkinter.__version__)"
+
       - name: Build executable with PyInstaller
         run: |
-          pyinstaller --noconfirm AutoPPTX_Studio_V2.spec
+          pyinstaller --clean --noconfirm AutoPPTX_Studio_V2.spec
+
+      # Bắt sớm bản build sai chip / thiếu Tk, thay vì để người dùng phát hiện.
+      - name: Verify macOS build
+        if: matrix.build_type == 'macos'
+        run: |
+          set -e
+          EXE="dist/AutoPPTX_Studio_V2.app/Contents/MacOS/AutoPPTX_Studio_V2"
+          [ -x "$EXE" ] || { echo "Không thấy tệp chạy trong .app"; exit 1; }
+          ARCHS="$(lipo -archs "$EXE")"
+          echo "Runner: $(uname -m) | slice trong app: $ARCHS"
+          echo "$ARCHS" | tr ' ' '\n' | grep -qx "$(uname -m)" \
+            || { echo "LỖI: app không có slice $(uname -m)"; exit 1; }
 
       - name: Prepare Windows artifact
         if: matrix.build_type == 'windows'
@@ -63,12 +106,57 @@ jobs:
         if: matrix.build_type == 'macos'
         run: |
           mkdir -p release_out
-          ditto -c -k --sequesterRsrc --keepParent "dist/AutoPPTX_Studio_V2.app" "release_out/AutoPPTX_Studio_V2-macOS.zip"
+          echo "Kiến trúc build: $(uname -m)"
+          xattr -cr "dist/AutoPPTX_Studio_V2.app" 2>/dev/null || true
+          ditto -c -k --sequesterRsrc --keepParent "dist/AutoPPTX_Studio_V2.app" "release_out/${{ matrix.zip_name }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
+          path: release_out/*
+          retention-days: 30
+
+      - name: Attach to GitHub Release (on tag push)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release_out/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Gộp 2 bản Mac thành 1 .app duy nhất: launcher tự chọn theo chip máy.
+  bundle-macos:
+    name: Bundle macOS (1 app cho cả Intel & Apple Silicon)
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Apple Silicon build
+        uses: actions/download-artifact@v4
+        with:
+          name: AutoPPTX_Studio_V2-macOS-AppleSilicon.zip
+          path: dl/arm64
+
+      - name: Download Intel build
+        uses: actions/download-artifact@v4
+        with:
+          name: AutoPPTX_Studio_V2-macOS-Intel.zip
+          path: dl/x86_64
+
+      - name: Assemble single .app for both architectures
+        run: |
+          bash tools/make_mac_dual_app.sh \
+            "$(ls dl/arm64/*.zip | head -n 1)" \
+            "$(ls dl/x86_64/*.zip | head -n 1)" \
+            release_out
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoPPTX_Studio_V2-macOS-Universal.zip
           path: release_out/*
           retention-days: 30
 

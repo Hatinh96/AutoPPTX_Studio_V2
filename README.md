@@ -72,7 +72,11 @@ autopptx2/
 
 ### 1. Tự động build qua Git (GitHub Actions)
 Dự án đã được cấu hình CI/CD tự động trong `.github/workflows/build.yml`.
-- **Tự động build khi push code:** Mỗi khi push lên nhánh `master`/`main`, GitHub Actions sẽ tự động dựng file `AutoPPTX_Studio_V2.exe` (Windows) và `AutoPPTX_Studio_V2-macOS.zip` (macOS).
+- **Tự động build khi push code:** Mỗi khi push lên nhánh `master`/`main`, GitHub Actions dựng 4 bản:
+  - `AutoPPTX_Studio_V2.exe` — Windows
+  - `AutoPPTX_Studio_V2-macOS-Universal.zip` — **1 app dùng cho cả Mac Intel và Apple Silicon** (nên gửi bản này)
+  - `AutoPPTX_Studio_V2-macOS-AppleSilicon.zip` — chỉ Mac M1/M2/M3+, nhẹ hơn
+  - `AutoPPTX_Studio_V2-macOS-Intel.zip` — chỉ Mac Intel, nhẹ hơn
 - **Tải bản build:** Vào tab **Actions** trên GitHub repository để tải bản Artifacts mới nhất.
 - **Tự động tạo Release:** Push tag phiên bản (ví dụ: `git tag v1.0.0 && git push origin v1.0.0`) sẽ tự động tạo GitHub Release kèm file đính kèm cho cả Windows và macOS.
 
@@ -92,7 +96,53 @@ Dùng file `.spec` (đóng gói `LOGO`, `app_icon.ico`, `app_icon.icns`).
   chmod +x build_mac.sh
   ./build_mac.sh
   ```
-  File `.app` và `.zip` sẽ được tạo tại `dist/AutoPPTX_Studio_V2-macOS.zip`.
+  File `.app` và `.zip` được tạo tại `dist/AutoPPTX_Studio_V2-macOS-<Intel|AppleSilicon>.zip`.
+
+### 3. Một app cho cả Mac Intel & Apple Silicon
+Bản `.app` do PyInstaller dựng chỉ chạy đúng chip của máy đã build. Bản arm64
+**không** chạy trên Mac Intel — Rosetta chỉ dịch Intel → Apple Silicon, không dịch ngược.
+
+Workflow tự gộp 2 bản thành **một** `AutoPPTX_Studio_V2-macOS-Universal.zip`:
+`.app` ngoài chỉ chứa script `Contents/MacOS/launch`, script đọc `uname -m` rồi chạy
+bản tương ứng trong `Contents/Resources/arm64/` hoặc `Contents/Resources/x86_64/`.
+Người dùng chỉ thấy 1 app, double-click là chạy. Đổi lại dung lượng gấp đôi.
+
+Gộp tay trên bất kỳ máy Mac nào (nếu đã có 2 file zip):
+```bash
+bash tools/make_mac_dual_app.sh <AppleSilicon>.zip <Intel>.zip release_out
+```
+
+Không dùng `lipo` để ghép 2 file PyInstaller **onefile**: bản ghép chỉ chạy được 1 chip,
+vì PKG archive nhúng bên trong chỉ thuộc một slice.
+
+Bản `universal2` thật (1 binary fat) hiện **không** dựng được trực tiếp: PyInstaller đòi
+mọi thư viện nhị phân phải là fat binary, mà `Pillow` và `pydantic-core` không phát hành
+wheel `universal2`. Muốn làm thì phải ghép wheel bằng `delocate-merge` trước mỗi lần build.
+
+Hai cách khác cho Mac Intel:
+- **Chạy trực tiếp từ source** (không cần đóng gói):
+  ```bash
+  python3 -m pip install -r requirements.txt
+  python3 AutoPPTX_Studio_V2.py
+  ```
+  Cần Python 3.10+ bản x86_64 (tải ở python.org, đã kèm Tk 8.6).
+- **Build ngay trên máy Mac Intel** bằng `./build_mac.sh`.
+
+GitHub chỉ còn cấp runner Intel (`macos-15-intel`) đến 8/2027.
+
+**Nếu job Mac lỗi:** nguyên nhân hay gặp nhất là Tcl/Tk. Python của `setup-python`
+link `_tkinter` với Tcl/Tk 8.6 của Homebrew, mà runner Intel thường thiếu symlink
+`tcl-tk` (Homebrew đã tách thành `tcl-tk@8`) — build vẫn xong nhưng mở app là tắt ngay.
+Workflow đã có bước `Ensure Tcl/Tk 8.6` tạo symlink và chạy thử `import tkinter`
+trước khi build, cùng bước `Verify macOS build` kiểm `lipo -archs` để chặn bản sai chip.
+Xem log 2 bước này trước khi tìm chỗ khác.
+
+App chưa ký số nên lần đầu mở: right-click → **Open**, hoặc chạy
+`xattr -cr /Applications/AutoPPTX_Studio_V2.app`.
+
+Lưu ý khi chạy trên macOS: kéo-thả thư mục vào cửa sổ (`windnd`) và xuất PDF kèm PPTX
+(cần Microsoft PowerPoint qua COM) là tính năng chỉ có trên Windows — app vẫn chạy,
+chỉ ghi log bỏ qua. Mở file PPTX rồi "Save as PDF" nếu cần.
 
 
 ## Ghi chú

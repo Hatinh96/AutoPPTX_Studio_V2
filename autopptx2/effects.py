@@ -12,6 +12,7 @@ import hashlib
 import random
 import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 
 from PIL import Image, ImageDraw, ImageFont, ImageColor, ImageEnhance, ImageOps, ImageStat, ImageFilter
@@ -82,10 +83,20 @@ _geo_mem = {}
 _geo_disk = None
 _geo_lock = threading.Lock()
 _minimap_cache = OrderedDict()
+_minimap_lock = threading.Lock()
 _MINIMAP_MAX = 40
 _preview_cache = OrderedDict()
 _preview_lock = threading.Lock()
-_PREVIEW_MAX = 32
+_PREVIEW_MAX = 48
+_preview_inflight = set()
+_preview_waiters = {}
+_preview_ready = []
+_preview_ui = None
+_preview_pump_job = None
+_preview_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix='fxprev')
+_exif_dt_cache = OrderedDict()
+_exif_lock = threading.Lock()
+_EXIF_DT_MAX = 4000
 
 
 def needed(fx):
@@ -459,16 +470,30 @@ def prefetch_geocode(paths, fx=None):
 
 def _exif_datetime(path):
     try:
+        mt = os.path.getmtime(path)
+    except Exception:
+        mt = 0
+    key = (str(path), mt)
+    with _exif_lock:
+        if key in _exif_dt_cache:
+            _exif_dt_cache.move_to_end(key)
+            return _exif_dt_cache[key]
+    val = None
+    try:
         with Image.open(path) as im:
             exif = im.getexif()
-        if not exif:
-            return None
-        for tag in (36867, 306):
-            if tag in exif:
-                return datetime.datetime.strptime(str(exif.get(tag)), "%Y:%m:%d %H:%M:%S")
+        if exif:
+            for tag in (36867, 306):
+                if tag in exif:
+                    val = datetime.datetime.strptime(str(exif.get(tag)), "%Y:%m:%d %H:%M:%S")
+                    break
     except Exception:
-        return None
-    return None
+        val = None
+    with _exif_lock:
+        _exif_dt_cache[key] = val
+        while len(_exif_dt_cache) > _EXIF_DT_MAX:
+            _exif_dt_cache.popitem(last=False)
+    return val
 
 
 def has_exif_datetime(path):
@@ -653,10 +678,11 @@ def _finish_map(base_rgba, lat, lon, W, H):
 
 def compose_minimap(lat, lon, W, H, allow_net=True):
     key = (round(lat, 5), round(lon, 5), W, H)
-    m = _minimap_cache.get(key)
-    if m is not None:
-        _minimap_cache.move_to_end(key)
-        return m
+    with _minimap_lock:
+        m = _minimap_cache.get(key)
+        if m is not None:
+            _minimap_cache.move_to_end(key)
+            return m
     RW, RH = 512, 384
     base = _render_real_map(lat, lon, RW, RH, allow_net=allow_net)
     if base is None:
@@ -670,9 +696,10 @@ def compose_minimap(lat, lon, W, H, allow_net=True):
                (cx + int(r * 0.7), cy - r // 2)], fill=(220, 38, 38))
     scaled = base.convert("RGBA").resize((W, H), Image.Resampling.LANCZOS)
     m = _finish_map(scaled, lat, lon, W, H)
-    _minimap_cache[key] = m
-    while len(_minimap_cache) > _MINIMAP_MAX:
-        _minimap_cache.popitem(last=False)
+    with _minimap_lock:
+        _minimap_cache[key] = m
+        while len(_minimap_cache) > _MINIMAP_MAX:
+            _minimap_cache.popitem(last=False)
     return m
 
 
@@ -1068,29 +1095,144 @@ def _fx_sig(fx):
     return json.dumps(fx or {}, sort_keys=True, default=str)
 
 
-def cached_preview(path, src, fx, fit, radius, box_ar):
-    """Ảnh đã đóng dấu ở kích thước ổn định — resize ra ô preview (kéo không lag)."""
+def _preview_key(path, fx, fit, radius, box_ar):
     try:
         mt = os.path.getmtime(path)
     except Exception:
         mt = 0
-    key = (path, mt, _fx_sig(fx), fit, int(radius or 0), round(float(box_ar or 1), 3), 'locstack')
+    return (path, mt, _fx_sig(fx), fit, int(radius or 0),
+            round(float(box_ar or 1), 3), 'locstack')
+
+
+def peek_preview(path, fx, fit, radius, box_ar):
+    """Trả ảnh đóng dấu đã cache — không tính trên luồng UI."""
+    key = _preview_key(path, fx, fit, radius, box_ar)
     with _preview_lock:
         hit = _preview_cache.get(key)
         if hit is not None:
             _preview_cache.move_to_end(key)
             return hit.copy()
+    return None
+
+
+def bind_ui(widget):
+    """Bơm callback đóng dấu trên luồng Tk — không gọi Tcl từ worker."""
+    global _preview_ui
+    _preview_ui = widget
+    _ensure_preview_pump()
+
+
+def _ensure_preview_pump():
+    global _preview_pump_job
+    w = _preview_ui
+    if w is None or _preview_pump_job is not None:
+        return
+    try:
+        if not w.winfo_exists():
+            return
+        _preview_pump_job = w.after(20, _preview_pump)
+    except Exception:
+        _preview_pump_job = None
+
+
+def _preview_pump():
+    global _preview_pump_job
+    _preview_pump_job = None
+    batch = []
+    more = False
+    with _preview_lock:
+        if _preview_ready:
+            batch = list(_preview_ready)
+            _preview_ready.clear()
+        more = bool(_preview_inflight or _preview_waiters or _preview_ready)
+    for widget, callback, path, im in batch:
+        if im is None:
+            continue
+        try:
+            if widget is None or widget.winfo_exists():
+                callback(path, im)
+        except Exception:
+            pass
+    if more:
+        _ensure_preview_pump()
+
+
+def request_preview(path, src, fx, fit, radius, box_ar, widget=None, callback=None):
+    """Đóng dấu preview ở luồng nền. Trả cache nếu đã có."""
+    hit = peek_preview(path, fx, fit, radius, box_ar)
+    if hit is not None:
+        return hit
+    key = _preview_key(path, fx, fit, radius, box_ar)
+    start = False
+    with _preview_lock:
+        hit = _preview_cache.get(key)
+        if hit is not None:
+            _preview_cache.move_to_end(key)
+            return hit.copy()
+        if callback is not None and widget is not None:
+            _preview_waiters.setdefault(key, []).append((widget, callback, path))
+        if key not in _preview_inflight:
+            _preview_inflight.add(key)
+            start = True
+    if not start:
+        _ensure_preview_pump()
+        return None
+    src_copy = src.copy() if src is not None else None
+    fx_copy = dict(fx or {})
+
+    def work():
+        im = None
+        try:
+            tw = 720
+            th = max(4, int(tw / max(0.2, box_ar)))
+            im = process_photo(path, src_copy, fx_copy, box=(tw, th),
+                               fit=fit, radius=radius, preview=True)
+            if im is not None:
+                with _preview_lock:
+                    _preview_cache[key] = im
+                    while len(_preview_cache) > _PREVIEW_MAX:
+                        _preview_cache.popitem(last=False)
+        except Exception:
+            im = None
+        with _preview_lock:
+            _preview_inflight.discard(key)
+            waiters = _preview_waiters.pop(key, [])
+            if im is not None:
+                for w, cb, p in waiters:
+                    _preview_ready.append((w, cb, p, im))
+
+    _preview_pool.submit(work)
+    _ensure_preview_pump()
+    return None
+
+
+def cached_preview(path, src, fx, fit, radius, box_ar):
+    """Ảnh đã đóng dấu ở kích thước ổn định — resize ra ô preview (kéo không lag)."""
+    hit = peek_preview(path, fx, fit, radius, box_ar)
+    if hit is not None:
+        return hit
     tw = 720
     th = max(4, int(tw / max(0.2, box_ar)))
     im = process_photo(path, src, fx, box=(tw, th), fit=fit, radius=radius,
                        preview=True)
     if im is None:
         return None
+    key = _preview_key(path, fx, fit, radius, box_ar)
     with _preview_lock:
         _preview_cache[key] = im
         while len(_preview_cache) > _PREVIEW_MAX:
             _preview_cache.popitem(last=False)
     return im.copy()
+
+
+def invalidate_preview_paths(paths):
+    """Bỏ cache đóng dấu của vài file — không xoá hết preview đang xem."""
+    want = {str(p) for p in (paths or []) if p}
+    if not want:
+        return
+    with _preview_lock:
+        for key in [k for k in _preview_cache if str(k[0]) in want]:
+            _preview_cache.pop(key, None)
 
 
 def clear_preview_cache():

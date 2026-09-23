@@ -3,9 +3,19 @@ import os
 import re
 import sys
 
-# ── Slide 16:9 chuẩn ──
+# ── Khổ slide PowerPoint: 16:9 mặc định, 4:3 = 10″ × 7.5″ ──
 SLIDE_W_IN = 13.33
 SLIDE_H_IN = 7.5
+SLIDE_SIZES = {
+    '16:9': (13.33, 7.5),
+    '4:3': (10.0, 7.5),
+}
+
+
+def slide_inches(label):
+    """(rộng, cao) inch theo khổ 16:9 hoặc 4:3."""
+    key = str(label or '').strip()
+    return SLIDE_SIZES.get(key, SLIDE_SIZES['16:9'])
 # Gợi ý cắt file (preset 200). Xuất thật dùng opts['slides_per_file'] (0 = một file).
 MAX_SLIDES_PER_FILE = 200
 
@@ -108,6 +118,34 @@ AR_CHOICES = {
 }
 
 ELEMENT_NAMES = ("image", "avatar", "title", "info", "channel")
+
+
+def scale_layout(layout, from_w, from_h, to_w, to_h):
+    """Đổi toạ độ bố cục khi đổi khổ slide. Mẫu gốc thiết kế trên 16:9."""
+    if not layout:
+        return layout
+    try:
+        sx = float(to_w) / float(from_w or 1)
+        sy = float(to_h) / float(from_h or 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return layout
+    if abs(sx - 1) < 1e-6 and abs(sy - 1) < 1e-6:
+        return layout
+    for name in ELEMENT_NAMES:
+        c = layout.get(name)
+        if not isinstance(c, dict):
+            continue
+        if 'x' in c:
+            c['x'] = round(float(c.get('x') or 0) * sx, 3)
+        if 'y' in c:
+            c['y'] = round(float(c.get('y') or 0) * sy, 3)
+        if 'w' in c:
+            c['w'] = round(float(c.get('w') or 0) * sx, 3)
+        if name != 'avatar' and 'h' in c:
+            c['h'] = round(float(c.get('h') or 0) * sy, 3)
+    return layout
+
+
 ELEMENT_LABELS = {
     "image": "Vùng ảnh",
     "avatar": "Avatar",

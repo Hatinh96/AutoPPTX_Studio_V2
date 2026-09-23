@@ -33,7 +33,7 @@ from .datasource import (match_row, build_merged_groups, build_info_rows,
                          build_info_table, build_nelson_table, channel_text,
                          clean, build_overview, wrap_info_cell, info_row_weights,
                          _info_value_wrap_chars, _address_line,
-                         location_fx_fields,
+                         location_fx_fields, build_store_index,
                          order_groups, filter_groups_by_geo,
                          group_export_chunks, screen_qty)
 
@@ -46,7 +46,7 @@ class ExportCancelled(Exception):
 class ExportJob:
     layout: dict                      # snapshot bố cục (deep copy)
     groups: dict                      # OrderedDict {mã: [đường dẫn ảnh tuyệt đối]}
-    excel_by_code: dict               # {MÃ: row} (đã lọc kênh)
+    excel_by_code: dict               # {MÃ: row} đủ kênh — dùng để KHỚP ảnh
     avatar_map: dict                  # {MÃ: đường dẫn avatar} dựng sẵn ở main thread
     out_path: str
     n_per_slide: int = 4
@@ -66,6 +66,13 @@ class ExportJob:
     district_filter: str = ''
     split_export_by: str = 'none'                 # none | city | district
     export_pdf: bool = False
+    qty_show: dict = field(default_factory=dict)  # LCD/DP/DS/GP hiện trên Quantity
+    store_index: bool = True                      # slide + Excel list theo thứ tự ảnh
+    # {MÃ: row} bó theo kênh đang chọn — chỉ dùng cho slide Overview, để
+    # 'list chưa có ảnh' không kê nhầm cửa hàng của kênh khác.
+    excel_scope_by_code: dict | None = None
+    slide_w: float = SLIDE_W_IN
+    slide_h: float = SLIDE_H_IN
 
 
 @dataclass
@@ -81,7 +88,8 @@ class ExportReport:
 
 
 def estimate(groups, n_per_slide, overview_rows=0, slides_per_file=0,
-             by_code=None, merged=None, pad_blank=False):
+             by_code=None, merged=None, pad_blank=False, store_index=False,
+             qty_show=None):
     """(số nhóm, số slide dự kiến, số file dự kiến)."""
     by_code = by_code or {}
     if merged is None and by_code:
@@ -89,10 +97,12 @@ def estimate(groups, n_per_slide, overview_rows=0, slides_per_file=0,
     slides = 0
     for code, paths in (groups or {}).items():
         row, _, _ = match_row(code, by_code, merged)
-        sq = screen_qty(row) if pad_blank else 0
+        sq = screen_qty(row, qty_show) if pad_blank else 0
         slides += G.slides_for_group(paths, n_per_slide, sq, pad_blank)
     if overview_rows:
         slides += overview_page_count(overview_rows)
+    if store_index and groups:
+        slides += store_index_page_count(len(groups))
     parts = G.file_part_count(slides, slides_per_file)
     return len(groups or {}), slides, parts
 
@@ -105,6 +115,7 @@ def _safe_filename_part(text, max_len=48):
 
 OV_FIRST = 12
 OV_NEXT = 16
+IDX_PER = 18
 
 
 def overview_page_count(n_rows):
@@ -114,12 +125,85 @@ def overview_page_count(n_rows):
     return 1 + math.ceil((n_rows - OV_FIRST) / OV_NEXT)
 
 
+def store_index_page_count(n_rows):
+    n_rows = max(0, int(n_rows or 0))
+    if n_rows <= 0:
+        return 0
+    return max(1, math.ceil(n_rows / IDX_PER))
+
+
+def store_index_xlsx_path(pptx_path):
+    root, _ = os.path.splitext(pptx_path or '')
+    return root + '_list_cuahang.xlsx'
+
+
+def write_store_index_xlsx(path, rows):
+    """Excel list khách: STT = thứ tự ảnh / slide."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'List cửa hàng'
+    headers = ('STT', 'Mã ảnh', 'Mã Excel', 'Tên điểm', 'Quận', 'Tỉnh',
+               'Kênh', 'Số ảnh')
+    head_fill = PatternFill('solid', fgColor='1E3A8A')
+    head_font = Font(bold=True, color='FFFFFF', name='Calibri', size=11)
+    body = Font(name='Calibri', size=11)
+    thin = Border(
+        left=Side(style='thin', color='D1D5DB'),
+        right=Side(style='thin', color='D1D5DB'),
+        top=Side(style='thin', color='D1D5DB'),
+        bottom=Side(style='thin', color='D1D5DB'))
+    ws.append(headers)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(1, col)
+        cell.fill = head_fill
+        cell.font = head_font
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+    for rec in rows or []:
+        ws.append([
+            rec.get('stt'), rec.get('code'), rec.get('excel_code'),
+            rec.get('name'), rec.get('district'), rec.get('city'),
+            rec.get('channel'), rec.get('photos'),
+        ])
+    for r in ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=8):
+        for i, cell in enumerate(r, 1):
+            cell.font = body
+            cell.border = thin
+            if i in (1, 8):
+                cell.alignment = Alignment(horizontal='center')
+    widths = (8, 22, 22, 42, 20, 18, 22, 10)
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.auto_filter.ref = f'A1:H{max(1, len(rows or []) + 1)}'
+    ws.freeze_panes = 'A2'
+    wb.save(path)
+    return path
+
+
 # ────────────────────────────────────────────────────────────
-def _new_prs():
+def _new_prs(slide_w=None, slide_h=None):
     prs = Presentation()
-    prs.slide_width = Inches(SLIDE_W_IN)
-    prs.slide_height = Inches(SLIDE_H_IN)
+    prs.slide_width = Inches(slide_w or SLIDE_W_IN)
+    prs.slide_height = Inches(slide_h or SLIDE_H_IN)
     return prs
+
+
+def _job_slide_wh(job):
+    return (
+        float(getattr(job, 'slide_w', None) or SLIDE_W_IN),
+        float(getattr(job, 'slide_h', None) or SLIDE_H_IN),
+    )
+
+
+def _ov_metrics(job):
+    sw, sh = _job_slide_wh(job)
+    sx = sw / SLIDE_W_IN
+    mx = 0.45 * sx
+    tw = max(8.8, sw - mx * 2)
+    return sw, sh, sx, mx, tw
 
 
 def _blank_layout(prs):
@@ -762,7 +846,7 @@ def _render_pie_chart(data_dict, temp_dir):
 
 def _add_dashboard_slide(prs, layout_slide, job, temp_dir, total_slides):
     """Tương thích cũ — gọi overview đối chiếu ảnh × màn hình."""
-    return _add_overview_slides(prs, layout_slide, job, temp_dir)
+    return _add_overview_slides(prs, layout_slide, job, temp_dir, job.groups)
 
 
 def _ov_fill_cell(cell, text, *, size=11, bold=False, rgb=(15, 23, 42),
@@ -807,10 +891,12 @@ def _ov_status_style(status):
     return (224, 242, 254), (30, 64, 175)
 
 
-def _add_overview_slides(prs, layout_slide, job, temp_dir):
+def _add_overview_slides(prs, layout_slide, job, temp_dir, groups=None):
     """Trang đầu: từng cửa hàng — số ảnh vs số màn hình (đủ / thiếu)."""
-    merged = build_merged_groups(job.excel_by_code)
-    ov = build_overview(job.groups, job.excel_by_code, merged)
+    src = groups if groups is not None else job.groups
+    by_code = job.excel_scope_by_code or job.excel_by_code
+    merged = build_merged_groups(by_code)
+    ov = build_overview(src, by_code, merged, job.qty_show)
     rows = ov['rows']
     n_pages = overview_page_count(len(rows))
     added = 0
@@ -821,16 +907,17 @@ def _add_overview_slides(prs, layout_slide, job, temp_dir):
         start = OV_FIRST + (page - 1) * OV_NEXT
         return rows[start:start + OV_NEXT]
 
+    sw, sh, sx, mx, tw = _ov_metrics(job)
     for page in range(n_pages):
         slide = prs.slides.add_slide(layout_slide)
-        bg = _gradient_bg(1333, 750)
+        bg = _gradient_bg(int(sw * 100), int(sh * 100))
         bg_path = os.path.join(temp_dir, f"ov_bg_{page}.png")
         bg.save(bg_path, "PNG")
         slide.shapes.add_picture(bg_path, 0, 0,
                                  width=prs.slide_width, height=prs.slide_height)
 
-        tb = slide.shapes.add_textbox(Inches(0.45), Inches(0.22),
-                                      Inches(12.4), Inches(0.55))
+        tb = slide.shapes.add_textbox(Inches(mx), Inches(0.22),
+                                      Inches(tw), Inches(0.55))
         p = tb.text_frame.paragraphs[0]
         title = "TỔNG QUAN — ẢNH × MÀN HÌNH"
         if n_pages > 1:
@@ -841,8 +928,8 @@ def _add_overview_slides(prs, layout_slide, job, temp_dir):
         p.font.color.rgb = RGBColor(255, 255, 255)
         p.font.name = 'Arial'
 
-        sub = slide.shapes.add_textbox(Inches(0.48), Inches(0.72),
-                                       Inches(12.3), Inches(0.32))
+        sub = slide.shapes.add_textbox(Inches(mx + 0.03), Inches(0.72),
+                                       Inches(tw - 0.1), Inches(0.32))
         sp = sub.text_frame.paragraphs[0]
         extra = ov['excel_no_photo']
         note = ""
@@ -863,18 +950,18 @@ def _add_overview_slides(prs, layout_slide, job, temp_dir):
                      ("ĐỦ", ov['n_du']),
                      ("THIẾU ảnh", ov['n_thieu'])]
             card_path = _render_stats_card(stats, temp_dir)
-            slide.shapes.add_picture(card_path, Inches(0.45), Inches(1.08),
-                                     width=Inches(12.4))
+            slide.shapes.add_picture(card_path, Inches(mx), Inches(1.08),
+                                     width=Inches(tw))
             y_table = 2.42
 
         part = chunk(page)
         n_tbl = len(part) + 1
         headers = ['Mã', 'Tên điểm', 'Ảnh', 'Màn hình', 'Chênh', 'Kết luận']
-        widths = [1.9, 4.55, 1.15, 1.45, 1.15, 2.15]
+        widths = [w * sx for w in (1.9, 4.55, 1.15, 1.45, 1.15, 2.15)]
         tbl_h = max(0.7, 0.32 * n_tbl)
         gt = slide.shapes.add_table(
-            n_tbl, 6, Inches(0.45), Inches(y_table),
-            Inches(12.4), Inches(min(tbl_h, 7.5 - y_table - 0.2)))
+            n_tbl, 6, Inches(mx), Inches(y_table),
+            Inches(tw), Inches(min(tbl_h, sh - y_table - 0.2)))
         table = gt.table
         table.first_row = True
         for i, w in enumerate(widths):
@@ -903,6 +990,81 @@ def _add_overview_slides(prs, layout_slide, job, temp_dir):
     return added
 
 
+def _add_store_index_slides(prs, layout_slide, job, groups, temp_dir):
+    """Trang đầu PPTX: list cửa hàng kiểu Overview, STT = thứ tự slide ảnh."""
+    merged = build_merged_groups(job.excel_by_code)
+    rows = build_store_index(groups, job.excel_by_code, merged, job.qty_show)
+    n_pages = store_index_page_count(len(rows))
+    if n_pages <= 0:
+        return 0
+    added = 0
+    sw, sh, sx, mx, tw = _ov_metrics(job)
+    for page in range(n_pages):
+        part = rows[page * IDX_PER:(page + 1) * IDX_PER]
+        slide = prs.slides.add_slide(layout_slide)
+        bg = _gradient_bg(int(sw * 100), int(sh * 100))
+        bg_path = os.path.join(temp_dir, f"idx_bg_{id(groups)}_{page}.png")
+        bg.save(bg_path, "PNG")
+        slide.shapes.add_picture(bg_path, 0, 0,
+                                 width=prs.slide_width, height=prs.slide_height)
+
+        tb = slide.shapes.add_textbox(Inches(mx), Inches(0.22),
+                                      Inches(tw), Inches(0.55))
+        p = tb.text_frame.paragraphs[0]
+        title = "LIST CỬA HÀNG — THỨ TỰ SLIDE"
+        if n_pages > 1:
+            title += f"   ({page + 1}/{n_pages})"
+        p.text = title
+        p.font.size = Pt(26)
+        p.font.bold = True
+        p.font.color.rgb = RGBColor(255, 255, 255)
+        p.font.name = 'Arial'
+
+        sub = slide.shapes.add_textbox(Inches(mx + 0.03), Inches(0.72),
+                                       Inches(tw - 0.1), Inches(0.32))
+        sp = sub.text_frame.paragraphs[0]
+        sp.text = (f"STT {part[0]['stt']}–{part[-1]['stt']} / {len(rows)} điểm  ·  "
+                   "Cùng thứ tự ảnh phía sau  ·  không xếp lại theo đủ/thiếu  ·  "
+                   + datetime.datetime.now().strftime("%d/%m/%Y %H:%M"))
+        sp.font.size = Pt(12)
+        sp.font.color.rgb = RGBColor(230, 240, 255)
+        sp.font.name = 'Arial'
+
+        n_tbl = len(part) + 1
+        headers = ['STT', 'Mã', 'Tên điểm', 'Ảnh', 'Màn hình', 'Kết luận']
+        widths = [w * sx for w in (0.7, 2.05, 4.55, 1.15, 1.45, 2.5)]
+        y_table = 1.12
+        tbl_h = max(0.7, 0.32 * n_tbl)
+        gt = slide.shapes.add_table(
+            n_tbl, 6, Inches(mx), Inches(y_table),
+            Inches(tw), Inches(min(tbl_h, sh - y_table - 0.2)))
+        table = gt.table
+        table.first_row = True
+        for i, w in enumerate(widths):
+            table.columns[i].width = Inches(w)
+        for i, h in enumerate(headers):
+            _ov_fill_cell(table.cell(0, i), h, size=11, bold=True,
+                          rgb=(255, 255, 255), fill=(14, 86, 200),
+                          align='center' if i in (0, 3, 4, 5) else 'left')
+        for r, rec in enumerate(part, 1):
+            bg_c, fg_c = _ov_status_style(rec.get('status'))
+            name = rec['name']
+            vals = [
+                rec['stt'],
+                rec['code'],
+                (name[:42] + ('…' if len(name) > 42 else '')),
+                rec['photos'],
+                rec.get('screens') or '—',
+                rec.get('label') or '',
+            ]
+            aligns = ['center', 'left', 'left', 'center', 'center', 'center']
+            for c, (val, al) in enumerate(zip(vals, aligns)):
+                _ov_fill_cell(table.cell(r, c), val, size=11, bold=(c in (0, 5)),
+                              rgb=fg_c, fill=bg_c, align=al)
+        added += 1
+    return added
+
+
 # ════════════════════════════════════════════════════════════
 #  Hàm xuất chính
 # ════════════════════════════════════════════════════════════
@@ -925,7 +1087,8 @@ def _try_export_pdf(pptx_path, log):
 
 
 def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_cb,
-                         cancel, done_start, total_slides, include_overview=False):
+                         cancel, done_start, total_slides, include_overview=False,
+                         include_store_index=False):
     """Ghi một file PPTX từ dict groups."""
     L = job.layout
     font_cfg = L.get('font', {})
@@ -938,7 +1101,7 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
 
     stem, ext = os.path.splitext(out_path)
     ext = ext or '.pptx'
-    prs = _new_prs()
+    prs = _new_prs(job.slide_w, job.slide_h)
     layout_slide = _blank_layout(prs)
     slide_count, part, done = 0, 1, done_start
     part_cap = G.file_part_limit(job.slides_per_file)
@@ -952,9 +1115,22 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
         if job.export_pdf:
             _try_export_pdf(target, log)
 
+    if include_store_index and job.store_index and groups:
+        try:
+            n_add = _add_store_index_slides(
+                prs, layout_slide, job, groups, temp_dir)
+            slide_count += n_add
+            rep.slides += n_add
+            done += n_add
+            log(f'Đã tạo {n_add} slide list cửa hàng (trang đầu, đúng thứ tự ảnh).')
+            if progress_cb:
+                progress_cb(done, total_slides)
+        except Exception as e:
+            log(f'Lỗi list cửa hàng: {e}')
+
     if include_overview and fx.get('dashboard'):
         try:
-            n_add = _add_overview_slides(prs, layout_slide, job, temp_dir)
+            n_add = _add_overview_slides(prs, layout_slide, job, temp_dir, groups)
             slide_count += n_add
             rep.slides += n_add
             done += n_add
@@ -971,7 +1147,7 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
     for code, paths in groups.items():
         if cancel is not None and cancel.is_set():
             raise ExportCancelled()
-        paths = sorted(p for p in (paths or []) if p)
+        paths = [p for p in (paths or []) if p]
         row, mcode, kind = match_row(code, job.excel_by_code, merged)
         if kind == 'fuzzy':
             rep.fuzzy.append((code, mcode))
@@ -980,14 +1156,14 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
             rep.unmatched.append(code)
 
         name_val = str(clean(row.get('Name'))).strip() or code
-        sq = screen_qty(row) if job.pad_blank_slides else 0
+        sq = screen_qty(row, job.qty_show) if job.pad_blank_slides else 0
         photo_n = len(paths)
-        info_rows = build_info_rows(row, photo_n or sq or 1)
+        info_rows = build_info_rows(row, photo_n or sq or 1, job.qty_show)
         sibs = [r for r in (job.excel_rows or [])
                 if str(r.get('Code_RP') or '').strip().upper()
                 == str((row or {}).get('Code_RP') or mcode or code or '').upper()]
-        info_table = build_info_table(row, sibs or [row])
-        nelson_table = (build_nelson_table(row, sibs or [row])
+        info_table = build_info_table(row, sibs or [row], job.qty_show)
+        nelson_table = (build_nelson_table(row, sibs or [row], job.qty_show)
                         if (job.slide_style or 'report') == 'nelson' else None)
         avatar_path = job.avatar_map.get(code.upper())
         if not avatar_path and shown('avatar'):
@@ -1002,7 +1178,7 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
             if part_cap > 0 and slide_count >= part_cap:
                 save_part()
                 part += 1
-                prs = _new_prs()
+                prs = _new_prs(job.slide_w, job.slide_h)
                 layout_slide = _blank_layout(prs)
                 slide_count = 0
 
@@ -1028,7 +1204,7 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
 
             if shown('title'):
                 tcfg = L['title']
-                tx, ty, tw, thh = G.title_box(tcfg)
+                tx, ty, tw, thh = G.title_box(tcfg, job.slide_w)
                 tb = slide.shapes.add_textbox(Inches(tx), Inches(ty),
                                               Inches(tw), Inches(thh))
                 _style_fit_textbox(
@@ -1080,6 +1256,18 @@ def _export_groups_to_pptx(job, groups, out_path, rep, temp_dir, log, progress_c
                 progress_cb(done, total_slides)
 
     save_part(last=True)
+    if include_store_index and job.store_index and groups:
+        try:
+            rows = build_store_index(
+                groups, job.excel_by_code,
+                build_merged_groups(job.excel_by_code), job.qty_show)
+            xlsx = store_index_xlsx_path(out_path)
+            write_store_index_xlsx(xlsx, rows)
+            if xlsx not in rep.files:
+                rep.files.append(xlsx)
+            log(f'List cửa hàng (Excel): {xlsx}')
+        except Exception as e:
+            log(f'Không ghi được Excel list cửa hàng: {e}')
     return done
 
 
@@ -1100,19 +1288,28 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
     rep.groups = len(groups)
 
     fx = job.fx or {}
-    ov_rows = 0
-    if fx.get('dashboard'):
-        ov = build_overview(groups, job.excel_by_code, merged)
-        ov_rows = len(ov['rows'])
-    _, total_slides, _ = estimate(
-        groups, job.n_per_slide, overview_rows=ov_rows,
+    chunks = group_export_chunks(
+        groups, job.excel_by_code, merged, job.split_export_by, job.excel_rows)
+    ov_by_code = job.excel_scope_by_code or job.excel_by_code
+    ov_merged = merged if ov_by_code is job.excel_by_code else build_merged_groups(ov_by_code)
+    extra_pages = 0
+    for cg in chunks.values():
+        if not cg:
+            continue
+        if fx.get('dashboard'):
+            extra_pages += overview_page_count(
+                len(build_overview(cg, ov_by_code, ov_merged, job.qty_show)['rows']))
+        if job.store_index:
+            extra_pages += store_index_page_count(len(cg))
+    _, body_slides, _ = estimate(
+        groups, job.n_per_slide, overview_rows=0,
         slides_per_file=job.slides_per_file, by_code=job.excel_by_code,
-        merged=merged, pad_blank=job.pad_blank_slides)
+        merged=merged, pad_blank=job.pad_blank_slides, store_index=False,
+        qty_show=job.qty_show)
+    total_slides = body_slides + extra_pages
 
     stem, ext = os.path.splitext(job.out_path)
     ext = ext or '.pptx'
-    chunks = group_export_chunks(
-        groups, job.excel_by_code, merged, job.split_export_by, job.excel_rows)
 
     try:
         if job.pad_blank_slides:
@@ -1125,7 +1322,6 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
             log('Gộp mọi slide vào một file PPTX.')
 
         done = 0
-        first = True
         for chunk_name, chunk_groups in chunks.items():
             if not chunk_groups:
                 continue
@@ -1135,8 +1331,9 @@ def export_pptx(job: ExportJob, progress_cb=None, log_cb=None, cancel=None):
                 out_path = job.out_path
             done = _export_groups_to_pptx(
                 job, chunk_groups, out_path, rep, temp_dir, log, progress_cb,
-                cancel, done, total_slides, include_overview=first and bool(fx.get('dashboard')))
-            first = False
+                cancel, done, total_slides,
+                include_overview=bool(fx.get('dashboard')),
+                include_store_index=bool(job.store_index))
     except ExportCancelled:
         rep.cancelled = True
         log('Đã huỷ xuất — không lưu file dở dang.')
@@ -1171,7 +1368,8 @@ def export_stamped_images(job: ExportJob, out_dir, progress_cb=None, log_cb=None
     groups = order_groups(
         groups, job.excel_by_code, merged, job.excel_rows, job.sort_mode,
         order_rows=job.sort_rows or job.excel_rows)
-    items = [(code, p) for code, paths in groups.items() for p in sorted(paths)]
+    items = [(code, p) for code, paths in groups.items()
+             for p in (paths or []) if p]
     total = max(1, len(items))
     log(f'Đóng dấu {len(items)} ảnh → {out_dir}')
 

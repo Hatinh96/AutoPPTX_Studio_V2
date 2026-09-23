@@ -31,6 +31,19 @@ class TestExcelCloudCache(unittest.TestCase):
                 self.assertEqual(cloud.excel_local_display_name(cache), 'Master_GOP.xlsx')
             self.assertEqual(cloud.excel_local_display_name('/tmp/other.xlsx'), 'other.xlsx')
 
+    def test_api_error_hides_42501(self):
+        raw = ("{'message': 'permission denied for table excel_data_files', "
+               "'code': '42501'}")
+        msg = CloudClient._api_error(raw)
+        self.assertIn('Đăng xuất', msg)
+        self.assertNotIn('42501', msg)
+
+    def test_broadcast_empty_profiles_is_failure(self):
+        cloud = CloudClient()
+        r = cloud.upload_excel_broadcast('x.xlsx', [])
+        self.assertFalse(r.get('ok'))
+        self.assertIn('tài khoản', r.get('msg', ''))
+
 
 if __name__ == '__main__':
     unittest.main()

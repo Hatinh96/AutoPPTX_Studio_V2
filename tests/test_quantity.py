@@ -119,6 +119,11 @@ class QuantityScreensTests(unittest.TestCase):
         )
         self.assertEqual(screen_qty(row), 13)
 
+    def test_qty_show_hides_gp_from_screen_count(self):
+        row = {'LCD': 2, 'DP': 6, 'GP': 10}
+        self.assertEqual(screen_qty(row), 18)
+        self.assertEqual(screen_qty(row, {'GP': False}), 8)
+
 
 class InfoTableDisplayTests(unittest.TestCase):
     def test_district_strips_quan_prefix(self):

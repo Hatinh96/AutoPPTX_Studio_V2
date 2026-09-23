@@ -190,6 +190,7 @@ class CloudClient:
         self.url = (url or SUPABASE_URL).strip()
         self.key = (key or SUPABASE_ANON_KEY).strip()
         self._client = None
+        self._access_token = None
         self._api_lock = threading.Lock()
         self.user_id = None
         self.email = None
@@ -214,13 +215,52 @@ class CloudClient:
             except Exception as e:
                 print('Supabase client err:', e)
                 self._client = None
+        if self._client is not None:
+            self._attach_session(self._client)
         return self._client
+
+    def _attach_session(self, sb, access_token=None):
+        """Gắn JWT vào PostgREST/Storage — sign_in không luôn đẩy token sang các client con."""
+        token = access_token or self._access_token
+        if not token and sb is not None:
+            try:
+                sess = sb.auth.get_session()
+                token = getattr(sess, 'access_token', None) if sess else None
+            except Exception:
+                token = None
+        if not token or sb is None:
+            return False
+        self._access_token = token
+        try:
+            sb.postgrest.auth(token)
+        except Exception:
+            pass
+        try:
+            storage = getattr(sb, 'storage', None)
+            inner = getattr(storage, '_client', None)
+            headers = getattr(inner, 'headers', None)
+            if isinstance(headers, dict):
+                headers['Authorization'] = f'Bearer {token}'
+                headers['apikey'] = self.key
+        except Exception:
+            pass
+        return True
+
+    @staticmethod
+    def _api_error(exc):
+        text = str(exc or '')
+        low = text.casefold()
+        if '42501' in text or 'permission denied' in low:
+            return ('Phiên Cloud chưa được xác thực. Đăng xuất rồi đăng nhập lại '
+                    'trước khi đồng bộ FILE TỔNG / avatar.')
+        return text
 
     def _select_all(self, table, columns='*', page=1000):
         """Đọc hết hàng. PostgREST mặc định cắt 1000 — phải lật trang."""
         sb = self.client()
         if not sb:
             return []
+        self._attach_session(sb)
         out, start = [], 0
         page = max(100, int(page or 1000))
         while True:
@@ -249,8 +289,11 @@ class CloudClient:
         try:
             res = sb.auth.sign_in_with_password({'email': email, 'password': password})
             user = getattr(res, 'user', None)
+            session = getattr(res, 'session', None)
             if user is None:
                 return False, 'Sai email hoặc mật khẩu.'
+            token = getattr(session, 'access_token', None) if session else None
+            self._attach_session(sb, token)
             self.user_id = user.id
             try:
                 prof = (sb.table('profiles').select('full_name, role')
@@ -273,6 +316,7 @@ class CloudClient:
         except Exception:
             pass
         self._client = None
+        self._access_token = None
         self.user_id = self.email = self.name = None
         self.role = 'user'
 
@@ -320,7 +364,7 @@ class CloudClient:
                    .eq('owner_id', uid).limit(1).execute())
             rows = res.data or []
         except Exception as e:
-            return {'ok': False, 'msg': f'Lỗi kết nối: {e}'}
+            return {'ok': False, 'msg': f'Lỗi kết nối: {self._api_error(e)}'}
         if not rows:
             return {'ok': False, 'msg': 'Chưa có file Excel trên Cloud cho tài khoản này.'}
         row = rows[0]
@@ -354,7 +398,11 @@ class CloudClient:
         return {'ok': True, 'path': cache_path, 'file_name': row.get('file_name'),
                 'fresh': True, 'msg': 'Đã tải Excel từ Cloud.'}
 
-    def upload_excel(self, local_path, target_user_id=None):
+    def upload_excel(self, local_path, target_user_id=None, progress=None):
+        def prog(frac, text):
+            if progress:
+                progress(frac, text)
+
         sb = self.client()
         uid = self.user_id
         if not sb or not uid:
@@ -366,12 +414,15 @@ class CloudClient:
         file_name = os.path.basename(local_path)
         cache_path = excel_cache_path(target)
         try:
+            prog(0.12, 'Đang đọc file…')
             with open(local_path, 'rb') as f:
                 data = f.read()
+            prog(0.4, 'Đang tải lên Cloud…')
             sb.storage.from_('excel-data').upload(
                 storage_path, data,
                 {'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                  'upsert': 'true'})
+            prog(0.78, 'Đang ghi thông tin…')
             now_iso = _utc_now_iso()
             sb.table('excel_data_files').upsert({
                 'owner_id': target,
@@ -391,25 +442,32 @@ class CloudClient:
                     'file_name': file_name,
                 }
                 _write_json(self.excel_meta_path(), meta)
+            prog(1.0, 'Đã đẩy xong')
             return {'ok': True, 'msg': 'Đã đẩy Excel lên Cloud.',
                     'path': cache_path or local_path, 'file_name': file_name}
         except Exception as e:
-            return {'ok': False, 'msg': str(e)}
+            return {'ok': False, 'msg': self._api_error(e)}
 
-    def upload_excel_broadcast(self, local_path, profiles):
+    def upload_excel_broadcast(self, local_path, profiles, progress=None):
         """Admin: đẩy cùng 1 file cho mọi tài khoản trong danh sách profiles."""
+        targets = [p for p in (profiles or []) if p.get('id')]
+        if not targets:
+            return {'ok': False,
+                    'msg': 'Không lấy được danh sách tài khoản. Đăng xuất rồi đăng nhập lại.'}
         ok = err = 0
         last = ''
-        for p in profiles:
-            uid = p.get('id')
-            if not uid:
-                continue
-            r = self.upload_excel(local_path, target_user_id=uid)
+        n = max(1, len(targets))
+        for i, p in enumerate(targets, 1):
+            if progress:
+                progress((i - 1) / n, f'Đẩy {i}/{n} tài khoản…')
+            r = self.upload_excel(local_path, target_user_id=p.get('id'))
             if r.get('ok'):
                 ok += 1
             else:
                 err += 1
                 last = r.get('msg', '')
+        if progress:
+            progress(1.0, f'Xong {ok}/{n} tài khoản')
         return {'ok': err == 0, 'msg': f'Đã đẩy cho {ok} tài khoản' + (f', {err} lỗi ({last})' if err else '')}
 
     # ── Avatar ──
@@ -443,7 +501,7 @@ class CloudClient:
             rows = self._select_all(
                 'avatar_files', 'storage_path, file_name, updated_at')
         except Exception as e:
-            return {'ok': False, 'msg': f'Lỗi kết nối kho avatar: {e}'}
+            return {'ok': False, 'msg': f'Lỗi kết nối kho avatar: {self._api_error(e)}'}
         cache = avatar_cache_dir()
         meta = _read_json(self.avatar_meta_path())
         files_meta = meta.get('files', {})

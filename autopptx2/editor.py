@@ -93,8 +93,8 @@ class EditorCanvas(tk.Canvas):
         self.ctrl = ctrl
         self.zoom = 100
         self.S = BASE_PPI
-        self.CW = int(SLIDE_W_IN * self.S)
-        self.CH = int(SLIDE_H_IN * self.S)
+        self.CW = int(self.SW * self.S)
+        self.CH = int(self.SH * self.S)
         self.snap_on = True
         self.grid_on = False
         self.selected = None
@@ -108,6 +108,8 @@ class EditorCanvas(tk.Canvas):
         self._rs_job = None
         self._rs_last = 0.0
         self._render_job = None
+        self._retry_job = None
+        self._retry_n = 0
 
         self.bind('<Button-1>', self._on_press)
         self.bind('<B1-Motion>', self._on_motion)
@@ -121,6 +123,20 @@ class EditorCanvas(tk.Canvas):
         self.bind('<Shift-MouseWheel>', self._on_wheel)
         self.bind('<Control-MouseWheel>', self._on_wheel)
         self.bind('<Configure>', lambda e: self._update_scrollregion())
+
+    @property
+    def SW(self):
+        try:
+            return float(self.ctrl.slide_wh()[0])
+        except Exception:
+            return SLIDE_W_IN
+
+    @property
+    def SH(self):
+        try:
+            return float(self.ctrl.slide_wh()[1])
+        except Exception:
+            return SLIDE_H_IN
 
     # ══════════════════════════════ RENDER ══════════════════════════════
     def schedule_render(self, delay=30):
@@ -147,6 +163,10 @@ class EditorCanvas(tk.Canvas):
         self._draw_selection()
         self._restack()
         self._update_scrollregion()
+        if self._missing_thumbs():
+            self._arm_thumb_retry()
+        else:
+            self._retry_n = 0
 
     def _visible(self, name):
         return (self._ct or {}).get('visible', {}).get(name, True)
@@ -199,7 +219,7 @@ class EditorCanvas(tk.Canvas):
 
     def _draw_element(self, name):
         L = self.ctrl.layout
-        x, y, w, h = G.elem_box(L, name)
+        x, y, w, h = G.elem_box(L, name, self.SW)
         S = self.S
         x0, y0 = x * S, y * S
         wpx, hpx = max(8, w * S), max(8, h * S)
@@ -275,11 +295,20 @@ class EditorCanvas(tk.Canvas):
                 use_fx = False
             if use_fx:
                 box_ar = w / max(1, h)
-                im = FX.cached_preview(path, src, fx, fit, radius_pct, box_ar)
+                im = FX.peek_preview(path, fx, fit, radius_pct, box_ar)
                 if im is None:
-                    return None
-                im = G.resize_into_box(im, w, h, fit)
-                self._kick_minimap(path, fx)
+                    FX.request_preview(path, src, fx, fit, radius_pct, box_ar,
+                                       self, self._thumb_ready)
+                    im = G.resize_into_box(src, w, h, fit)
+                    if radius_pct > 0:
+                        im = im.convert('RGBA')
+                        rad = int((radius_pct / 100) * (min(im.size) / 2))
+                        mask = Image.new('L', im.size, 0)
+                        ImageDraw.Draw(mask).rounded_rectangle(
+                            [0, 0, im.width, im.height], radius=rad, fill=255)
+                        im.putalpha(mask)
+                else:
+                    im = G.resize_into_box(im, w, h, fit)
             else:
                 im = G.resize_into_box(src, w, h, fit)
                 # Lúc kéo resize: chỉ ảnh cache, không bo góc / đóng dấu / map.
@@ -624,18 +653,53 @@ class EditorCanvas(tk.Canvas):
         self._photos[name].append(ph)
         self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)
 
-    def _thumb_ready(self, path, img):
-        """Thumbnail decode xong ở luồng nền → vẽ lại đúng phần tử liên quan."""
+    def _missing_thumbs(self):
         ct = self._ct or {}
-        if path == ct.get('bg'):
-            self.schedule_render(20)
+        try:
+            thumbs = self.ctrl.thumbs
+        except Exception:
+            return False
+        for p in list(ct.get('images') or []) + [ct.get('avatar'), ct.get('bg')]:
+            if p and thumbs.get(p) is None:
+                return True
+        return False
+
+    def _arm_thumb_retry(self):
+        """Ảnh decode xong sau prefetch — vẽ lại, đừng để ô xám mãi."""
+        if self._retry_job:
+            try:
+                self.after_cancel(self._retry_job)
+            except Exception:
+                pass
+        self._retry_n = int(self._retry_n or 0) + 1
+        if self._retry_n > 30:
             return
-        if path == ct.get('avatar'):
-            self.after_idle(lambda: (self._redraw_element('avatar'),
-                                     self._draw_selection()))
-        if path in (ct.get('images') or []):
-            self.after_idle(lambda: (self._redraw_element('image'),
-                                     self._draw_selection()))
+        delay = 40 if self._retry_n < 10 else 150
+        self._retry_job = self.after(delay, self._on_thumb_retry)
+
+    def _on_thumb_retry(self):
+        self._retry_job = None
+        ct = self._ct or {}
+        wanted = [p for p in list(ct.get('images') or [])
+                  + [ct.get('avatar'), ct.get('bg')] if p]
+        if not wanted:
+            self._retry_n = 0
+            return
+        try:
+            thumbs = self.ctrl.thumbs
+        except Exception:
+            return
+        if any(thumbs.get(p) is not None for p in wanted):
+            self.schedule_render(0)
+        else:
+            self._arm_thumb_retry()
+
+    def _thumb_ready(self, path, img):
+        """Thumbnail decode xong ở luồng nền → vẽ lại slide đang mở."""
+        ct = self._ct or {}
+        images = ct.get('images') or []
+        if path == ct.get('bg') or path == ct.get('avatar') or path in images:
+            self.schedule_render(10)
 
     # ══════════════════════════ SELECTION ══════════════════════════
     def select(self, name):
@@ -664,7 +728,7 @@ class EditorCanvas(tk.Canvas):
         name = self.selected
         if not name or not self._visible(name):
             return
-        x, y, w, h = G.elem_box(self.ctrl.layout, name)
+        x, y, w, h = G.elem_box(self.ctrl.layout, name, self.SW)
         S = self.S
         x0, y0, x1, y1 = x * S, y * S, (x + w) * S, (y + h) * S
         self.create_rectangle(x0, y0, x1, y1, outline=ACCENT, width=2,
@@ -708,7 +772,7 @@ class EditorCanvas(tk.Canvas):
         handle, elem = self._hit(cx, cy)
         if handle and self.selected and not self._locked(self.selected):
             name = self.selected
-            bx, by, bw, bh = G.elem_box(self.ctrl.layout, name)
+            bx, by, bw, bh = G.elem_box(self.ctrl.layout, name, self.SW)
             self.push_undo()
             self._drag = dict(mode='resize', name=name, hk=handle,
                               box=(bx, by, bw, bh),
@@ -751,7 +815,7 @@ class EditorCanvas(tk.Canvas):
         name = d['name']
         c = self.ctrl.layout[name]
         S = self.S
-        _, _, w, h = G.elem_box(self.ctrl.layout, name)
+        _, _, w, h = G.elem_box(self.ctrl.layout, name, self.SW)
         nx = d['sx'] + (cx - d['mx']) / S
         ny = d['sy'] + (cy - d['my']) / S
         # tiêu đề full-width: chỉ di chuyển dọc
@@ -762,8 +826,8 @@ class EditorCanvas(tk.Canvas):
                       and t.get('align') in ('center', 'right'))
         if lock_x:
             nx = d['sx']
-        nx = _clamp(nx, 0, max(0, SLIDE_W_IN - w))
-        ny = _clamp(ny, 0, max(0, SLIDE_H_IN - h))
+        nx = _clamp(nx, 0, max(0, self.SW - w))
+        ny = _clamp(ny, 0, max(0, self.SH - h))
         guides = []
         if self.snap_on and not alt:
             nx, ny, guides = self._snap_move(nx, ny, w, h, lock_x)
@@ -789,7 +853,7 @@ class EditorCanvas(tk.Canvas):
         if name == 'avatar':
             ar = c.get('ar') or (4 / 3)
             sign = 1 if 'e' in hk else -1
-            w = _clamp(bw + sign * dx, MIN_SIZE_IN, SLIDE_W_IN)
+            w = _clamp(bw + sign * dx, MIN_SIZE_IN, self.SW)
             h = w / ar
             if 'w' in hk:
                 x0 = x1 - w
@@ -828,10 +892,10 @@ class EditorCanvas(tk.Canvas):
             x0, y0, x1, y1, guides = self._snap_resize(hk, x0, y0, x1, y1)
 
         # chặn nhỏ nhất + nằm trong slide
-        x0 = _clamp(x0, 0, SLIDE_W_IN)
-        x1 = _clamp(x1, 0, SLIDE_W_IN)
-        y0 = _clamp(y0, 0, SLIDE_H_IN)
-        y1 = _clamp(y1, 0, SLIDE_H_IN)
+        x0 = _clamp(x0, 0, self.SW)
+        x1 = _clamp(x1, 0, self.SW)
+        y0 = _clamp(y0, 0, self.SH)
+        y1 = _clamp(y1, 0, self.SH)
         if x1 - x0 < MIN_SIZE_IN:
             if 'w' in hk:
                 x0 = x1 - MIN_SIZE_IN
@@ -937,12 +1001,12 @@ class EditorCanvas(tk.Canvas):
 
     # ══════════════════════════ SNAP ══════════════════════════
     def _build_snap_targets(self, exclude=None):
-        xs = [0.0, SLIDE_W_IN / 2, SLIDE_W_IN]
-        ys = [0.0, SLIDE_H_IN / 2, SLIDE_H_IN]
+        xs = [0.0, self.SW / 2, self.SW]
+        ys = [0.0, self.SH / 2, self.SH]
         for other in _DRAW_ORDER:
             if other == exclude or not self._visible(other):
                 continue
-            ox, oy, ow, oh = G.elem_box(self.ctrl.layout, other)
+            ox, oy, ow, oh = G.elem_box(self.ctrl.layout, other, self.SW)
             xs += [ox, ox + ow / 2, ox + ow]
             ys += [oy, oy + oh / 2, oy + oh]
         self._snap_xs, self._snap_ys = xs, ys
@@ -1050,14 +1114,14 @@ class EditorCanvas(tk.Canvas):
 
     def _apply_scale(self):
         self.S = BASE_PPI * self.zoom / 100.0
-        self.CW = int(SLIDE_W_IN * self.S)
-        self.CH = int(SLIDE_H_IN * self.S)
+        self.CW = int(self.SW * self.S)
+        self.CH = int(self.SH * self.S)
 
     def zoom_fit(self):
         vw = max(100, self.winfo_width())
         vh = max(100, self.winfo_height())
-        pct = min((vw - 50) / (SLIDE_W_IN * BASE_PPI),
-                  (vh - 50) / (SLIDE_H_IN * BASE_PPI)) * 100
+        pct = min((vw - 50) / (self.SW * BASE_PPI),
+                  (vh - 50) / (self.SH * BASE_PPI)) * 100
         self.zoom = _clamp(int(pct), 25, 400)
         self._apply_scale()
         self.render()
@@ -1115,9 +1179,9 @@ class EditorCanvas(tk.Canvas):
             return
         self.push_undo()
         c = self.ctrl.layout[name]
-        _, _, w, h = G.elem_box(self.ctrl.layout, name)
-        c['x'] = _clamp(c['x'] + dx_in, 0, max(0, SLIDE_W_IN - w))
-        c['y'] = _clamp(c['y'] + dy_in, 0, max(0, SLIDE_H_IN - h))
+        _, _, w, h = G.elem_box(self.ctrl.layout, name, self.SW)
+        c['x'] = _clamp(c['x'] + dx_in, 0, max(0, self.SW - w))
+        c['y'] = _clamp(c['y'] + dy_in, 0, max(0, self.SH - h))
         self._redraw_element(name)
         self._draw_selection()
         self.ctrl.on_layout_change()
@@ -1129,19 +1193,19 @@ class EditorCanvas(tk.Canvas):
             return
         self.push_undo()
         c = self.ctrl.layout[name]
-        _, _, w, h = G.elem_box(self.ctrl.layout, name)
+        _, _, w, h = G.elem_box(self.ctrl.layout, name, self.SW)
         if mode == 'left':
             c['x'] = 0.35
         elif mode == 'cx':
-            c['x'] = (SLIDE_W_IN - w) / 2
+            c['x'] = (self.SW - w) / 2
         elif mode == 'right':
-            c['x'] = SLIDE_W_IN - w - 0.35
+            c['x'] = self.SW - w - 0.35
         elif mode == 'top':
             c['y'] = 0.35
         elif mode == 'cy':
-            c['y'] = (SLIDE_H_IN - h) / 2
+            c['y'] = (self.SH - h) / 2
         elif mode == 'bottom':
-            c['y'] = SLIDE_H_IN - h - 0.35
+            c['y'] = self.SH - h - 0.35
         self._redraw_element(name)
         self._draw_selection()
         self.ctrl.on_layout_change()

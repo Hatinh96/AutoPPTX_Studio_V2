@@ -175,9 +175,9 @@ def build_slide_batches(paths, n_per_slide, screen_count=0, pad_blank=False):
     n = per_slide_max(n_per_slide)
     paths = [p for p in (paths or []) if p]
     if pad_blank and int(screen_count or 0) > 0:
-        total_cells = int(math.ceil(int(screen_count) / n) * n)
+        need = int(math.ceil(int(screen_count) / n) * n)
+        total_cells = max(len(paths), need)
         cells = paths + [None] * max(0, total_cells - len(paths))
-        cells = cells[:total_cells]
         return [cells[i:i + n] for i in range(0, len(cells), n)]
     if not paths:
         return []
@@ -404,23 +404,24 @@ def fit_block_size(text, width_in, height_in, default_size,
 # ════════════════════════════════════════════════════════════
 #  Khung phần tử
 # ════════════════════════════════════════════════════════════
-def title_box(tcfg):
+def title_box(tcfg, slide_w=None):
     """(x, y, w, h) thực dùng của khung tiêu đề.
 
     full_width_on_slide + align center/right → trải hết bề ngang slide
     (chừa lề 0.35") để căn giữa/căn phải theo SLIDE chứ không theo khung."""
     al = tcfg.get('align', 'left')
+    sw = float(slide_w or SLIDE_W_IN)
     if tcfg.get('full_width_on_slide', True) and al in ('center', 'right'):
         m = 0.35
-        return m, tcfg['y'], SLIDE_W_IN - m * 2, tcfg['h']
+        return m, tcfg['y'], sw - m * 2, tcfg['h']
     return tcfg['x'], tcfg['y'], tcfg['w'], tcfg['h']
 
 
-def elem_box(layout, name):
+def elem_box(layout, name, slide_w=None):
     """(x, y, w, h) inch của phần tử — nguồn sự thật duy nhất."""
     c = layout[name]
     if name == 'title':
-        return title_box(c)
+        return title_box(c, slide_w)
     if name == 'avatar':
         ar = c.get('ar') or (4 / 3)
         return c['x'], c['y'], c['w'], c['w'] / ar

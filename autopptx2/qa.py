@@ -43,7 +43,10 @@ def check(groups, by_code, merged=None):
     """groups: {mã ảnh: [paths]}, by_code: {MÃ EXCEL: row} đã lọc kênh."""
     groups = groups or {}
     by_code = by_code or {}
-    rep = QAReport(list_count=len(by_code), photo_groups=len(groups),
+    n_active = sum(
+        1 for row in by_code.values()
+        if str((row or {}).get('_SiteStatus') or '').strip().casefold() != 'off')
+    rep = QAReport(list_count=n_active, photo_groups=len(groups),
                    has_excel=bool(by_code))
     if not by_code:
         rep.scope_note = (
@@ -78,10 +81,15 @@ def check(groups, by_code, merged=None):
         covered.add(str(code).strip().upper())
         matched_rows.append(row or {})
 
+        is_off = str((row or {}).get('_SiteStatus') or '').strip().casefold() == 'off'
         if kind == 'fuzzy':
             item.status = 'fuzzy'
             item.note = f'Gần đúng với Excel {mcode} — kiểm tra tên file.'
             rep.fuzzy.append(item)
+        elif is_off:
+            item.status = 'ok'
+            item.note = 'Tạm off — nhận ảnh cũ'
+            rep.ok.append(item)
         else:
             item.status = 'ok'
             item.note = 'Đủ ảnh'
@@ -100,6 +108,8 @@ def check(groups, by_code, merged=None):
     for k, row in by_code.items():
         ku = str(k).strip().upper()
         if ku in covered:
+            continue
+        if str((row or {}).get('_SiteStatus') or '').strip().casefold() == 'off':
             continue
         if scope_ch and _norm(row.get('Channel')) not in scope_ch:
             continue

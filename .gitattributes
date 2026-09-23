@@ -1,0 +1,3 @@
+# Script chạy trên macOS/Linux phải giữ kết thúc dòng LF.
+# CRLF làm vỡ heredoc và dòng shebang -> script không chạy.
+*.sh text eol=lf

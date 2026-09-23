@@ -25,7 +25,8 @@ from .constants import (CONFIG_DIR, CONFIG_PATH, PRESET_DIR, DEFAULT_LAYOUT,
                         V1_CREDS_PATH, COLOR_PALETTE, find_asset,
                         WINDOW_ICONS, STAMP_LOGOS, BUILTIN_PRESETS,
                         builtin_pack, DEPT_UI, dept_key, dept_label,
-                        pack_for_dept, element_label, element_labels_for)
+                        pack_for_dept, element_label, element_labels_for,
+                        slide_inches, scale_layout, SLIDE_W_IN, SLIDE_H_IN)
 from . import geometry as G
 from .datasource import (ExcelSource, ImageLibrary, AvatarIndex, match_row,
                          build_merged_groups, build_info_rows, build_info_table,
@@ -35,7 +36,8 @@ from .datasource import (ExcelSource, ImageLibrary, AvatarIndex, match_row,
                          build_photo_rename_plan,
                          compare_list_with_master,
                          sort_codes_by_city, order_groups_by_city, order_groups,
-                         filter_groups_by_geo, geo_field_values)
+                         filter_groups_by_geo, drop_off_groups, geo_field_values,
+                         scope_by_channel)
 from .thumbs import ThumbCache
 from .editor import EditorCanvas
 from . import exporter
@@ -47,10 +49,39 @@ from . import cloud as Cloud
 from .cloud import CloudClient, avatar_cache_dir
 from .login import build_login
 
+from PIL import Image, ImageDraw, ImageTk
+
 try:
     import windnd                    # kéo-thả file vào cửa sổ (chỉ Windows)
 except Exception:
     windnd = None
+
+
+def _undo_redo_icon(redo=False, size=40):
+    """Icon hoàn tác / làm lại — mũi tên cong, không dùng ký tự Back."""
+    def paint(hex_color):
+        im = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        d = ImageDraw.Draw(im)
+        try:
+            r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+        except Exception:
+            r, g, b = (232, 232, 236)
+        col = (r, g, b, 255)
+        pad = 6
+        box = [pad, pad + 2, size - pad, size - pad + 2]
+        if redo:
+            d.arc(box, start=200, end=70, fill=col, width=4)
+            ax, ay = size - pad - 1, size // 2 + 1
+            d.polygon([(ax + 2, ay), (ax - 9, ay - 7), (ax - 9, ay + 7)], fill=col)
+        else:
+            d.arc(box, start=110, end=340, fill=col, width=4)
+            ax, ay = pad + 1, size // 2 + 1
+            d.polygon([(ax - 2, ay), (ax + 9, ay - 7), (ax + 9, ay + 7)], fill=col)
+        return im
+
+    light = paint('#1f1f23')
+    dark = paint('#e8e8ec')
+    return ctk.CTkImage(light_image=light, dark_image=dark, size=(18, 18))
 
 _TL_W, _TL_H = 118, 66               # kích thước 1 ô timeline
 
@@ -289,6 +320,7 @@ class App(ctk.CTk):
             'n_per_slide': G.parse_n_per_slide(o.get('n_per_slide', 0)),
             'slides_per_file': G.parse_slides_per_file(o.get('slides_per_file', 0)),
             'ar_label': o.get('ar_label', '4:3'),
+            'slide_size': '4:3' if str(o.get('slide_size') or '') == '4:3' else '16:9',
             'channel_filter': o.get('channel_filter', ALL_CHANNELS),
             'city_filter': o.get('city_filter', ALL_CITIES),
             'district_filter': o.get('district_filter', ALL_DISTRICTS),
@@ -302,7 +334,14 @@ class App(ctk.CTk):
             'channel_template': o.get('channel_template', 'Report {channel} 2026'),
             'open_after_export': bool(o.get('open_after_export', True)),
             'write_checklist': bool(o.get('write_checklist', True)),
+            'store_index': bool(o.get('store_index', True)),
             'qa_gate': bool(o.get('qa_gate', True)),
+            'qty_show': {
+                'LCD': True, 'DP': True, 'DS': True, 'GP': True,
+                **({} if not isinstance(o.get('qty_show'), dict) else {
+                    str(k).upper(): bool(v) for k, v in o.get('qty_show').items()
+                }),
+            },
             # Mỗi lần mở app: Đám mây. Có thể đổi sang Máy này trong phiên.
             'app_mode': 'cloud',
             'visible': {n: True for n in ELEMENT_NAMES} | o.get('visible', {}),
@@ -367,6 +406,8 @@ class App(ctk.CTk):
         self.thumbs = ThumbCache()
         self.group_idx = 0
         self._by_code = {}
+        self._by_code_scope = {}
+        self._merged_scope = {}
         self._merged = {}
         self._content_cache = None
         self._save_job = None
@@ -374,6 +415,8 @@ class App(ctk.CTk):
         self._tl_pending = {}
         self._tl_photos = {}
         self._tl_items = []
+        self._tl_sel_idx = None
+        self._codes_cache = None
         self._search = ''
         self._ui_built = False
         self._bg_photos = []
@@ -591,89 +634,111 @@ class App(ctk.CTk):
         bar = ctk.CTkFrame(host, height=46, fg_color=CARD, corner_radius=0)
         bar.pack(fill='x', side='top')
         bar.pack_propagate(False)
+        self._toolbar = bar
+        bar.grid_columnconfigure(0, weight=1)
+        bar.grid_columnconfigure(1, weight=0)
+        bar.grid_rowconfigure(0, weight=1)
 
-        def tbtn(text, cmd, w=34, tip=None):
-            return ctk.CTkButton(bar, text=text, width=w, height=30,
+        left = ctk.CTkFrame(bar, fg_color='transparent')
+        left.grid(row=0, column=0, sticky='w', padx=(8, 4))
+        right = ctk.CTkFrame(bar, fg_color='transparent')
+        right.grid(row=0, column=1, sticky='e', padx=(4, 8))
+
+        def tbtn(parent, text, cmd, w=32):
+            return ctk.CTkButton(parent, text=text, width=w, height=30,
                                  corner_radius=6, fg_color='transparent',
                                  hover_color=INPUT, text_color=TEXT,
                                  font=ctk.CTkFont(size=14), command=cmd)
 
-        tbtn('↩', lambda: self.editor.undo()).pack(side='left', padx=(10, 2), pady=8)
-        tbtn('↪', lambda: self.editor.redo()).pack(side='left', padx=2)
-        ctk.CTkFrame(bar, width=1, height=24, fg_color=BORDER).pack(side='left', padx=8)
-        tbtn('−', lambda: self.editor.set_zoom(self.editor.zoom - 10)).pack(side='left', padx=2)
-        self.lbl_zoom = ctk.CTkLabel(bar, text='100%', width=46, text_color=TEXT)
+        self._tb_icon_undo = _undo_redo_icon(False)
+        self._tb_icon_redo = _undo_redo_icon(True)
+        self.btn_undo = ctk.CTkButton(
+            left, text='', image=self._tb_icon_undo, width=32, height=30,
+            corner_radius=6, fg_color='transparent', hover_color=INPUT,
+            command=lambda: self.editor.undo())
+        self.btn_undo.pack(side='left', padx=(0, 1), pady=8)
+        self.btn_redo = ctk.CTkButton(
+            left, text='', image=self._tb_icon_redo, width=32, height=30,
+            corner_radius=6, fg_color='transparent', hover_color=INPUT,
+            command=lambda: self.editor.redo())
+        self.btn_redo.pack(side='left', padx=1)
+        ctk.CTkFrame(left, width=1, height=22, fg_color=BORDER).pack(side='left', padx=6)
+        tbtn(left, '−', lambda: self.editor.set_zoom(self.editor.zoom - 10), w=28).pack(side='left')
+        self.lbl_zoom = ctk.CTkLabel(left, text='100%', width=40, text_color=TEXT)
         self.lbl_zoom.pack(side='left')
-        tbtn('+', lambda: self.editor.set_zoom(self.editor.zoom + 10)).pack(side='left', padx=2)
-        tbtn('Vừa', lambda: self.editor.zoom_fit(), w=44).pack(side='left', padx=2)
-        tbtn('100%', lambda: self.editor.set_zoom(100), w=48).pack(side='left', padx=2)
-        ctk.CTkFrame(bar, width=1, height=24, fg_color=BORDER).pack(side='left', padx=8)
-        self.sw_snap = ctk.CTkSwitch(bar, text='Hít', width=60,
+        tbtn(left, '+', lambda: self.editor.set_zoom(self.editor.zoom + 10), w=28).pack(side='left')
+        self._tb_zoom_extra = ctk.CTkFrame(left, fg_color='transparent')
+        self._tb_zoom_extra.pack(side='left')
+        tbtn(self._tb_zoom_extra, 'Vừa', lambda: self.editor.zoom_fit(), w=40).pack(side='left', padx=2)
+        tbtn(self._tb_zoom_extra, '100%', lambda: self.editor.set_zoom(100), w=44).pack(side='left')
+
+        self._tb_mid = ctk.CTkFrame(left, fg_color='transparent')
+        self._tb_mid.pack(side='left')
+        ctk.CTkFrame(self._tb_mid, width=1, height=22, fg_color=BORDER).pack(side='left', padx=6)
+        self.sw_snap = ctk.CTkSwitch(self._tb_mid, text='Hít', width=56,
                                      command=self._toggle_snap,
                                      progress_color=ACCENT)
         self.sw_snap.select()
-        self.sw_snap.pack(side='left', padx=4)
-        self.sw_grid = ctk.CTkSwitch(bar, text='Lưới', width=66,
+        self.sw_snap.pack(side='left', padx=2)
+        self.sw_grid = ctk.CTkSwitch(self._tb_mid, text='Lưới', width=60,
                                      command=self._toggle_grid,
                                      progress_color=ACCENT)
-        self.sw_grid.pack(side='left', padx=4)
+        self.sw_grid.pack(side='left', padx=2)
 
-        ctk.CTkLabel(bar, text='Phòng:', text_color=MUTED).pack(side='left', padx=(16, 4))
+        self._tb_dept = ctk.CTkFrame(left, fg_color='transparent')
+        self._tb_dept.pack(side='left')
         self._dept_ready = False
         self.seg_dept = self._seg_btn(
-            bar, DEPT_UI, dept_label(self.opts.get('dept')),
+            self._tb_dept, DEPT_UI, dept_label(self.opts.get('dept')),
             command=self._on_dept,
             selected_color=ACCENT, selected_hover_color=ACCENT_HOVER,
-            width=160, height=30)
-        self.seg_dept.pack(side='left', padx=2)
+            width=132, height=28)
+        self.seg_dept.pack(side='left', padx=(8, 0))
 
-        ctk.CTkLabel(bar, text='Preset:', text_color=MUTED).pack(side='left', padx=(12, 4))
-        self.om_preset = ctk.CTkOptionMenu(bar, width=168, height=30,
-                                           values=['— Preset —'] + list(BUILTIN_PRESETS),
-                                           fg_color=INPUT, button_color=INPUT,
-                                           button_hover_color=BORDER,
-                                           text_color=TEXT,
-                                           command=self._apply_preset)
-        self.om_preset.pack(side='left', padx=2)
-        tbtn('💾', self._save_preset, w=34).pack(side='left', padx=2)
-        tbtn('🗑', self._delete_preset, w=34).pack(side='left', padx=2)
-        tbtn('↺', self._reset_layout, w=34).pack(side='left', padx=6)
+        self._tb_preset = ctk.CTkFrame(left, fg_color='transparent')
+        self._tb_preset.pack(side='left')
+        self.om_preset = ctk.CTkOptionMenu(
+            self._tb_preset, width=140, height=28,
+            values=['— Preset —'] + list(BUILTIN_PRESETS),
+            fg_color=INPUT, button_color=INPUT,
+            button_hover_color=BORDER, text_color=TEXT,
+            command=self._apply_preset)
+        self.om_preset.pack(side='left', padx=(8, 2))
+        tbtn(self._tb_preset, '💾', self._save_preset).pack(side='left', padx=1)
+        tbtn(self._tb_preset, '🗑', self._delete_preset).pack(side='left', padx=1)
+        tbtn(self._tb_preset, '↺', self._reset_layout).pack(side='left', padx=1)
 
-        self.btn_theme = tbtn('☀', self._toggle_appearance, w=34)
-        self.btn_theme.pack(side='right', padx=(2, 6))
-        who = self.cloud.name or self.cloud.email or 'Tài khoản'
-        self.btn_account = ctk.CTkButton(
-            bar, text='👤', width=40, height=30, corner_radius=6,
-            fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
-            font=ctk.CTkFont(size=14), command=self._show_account_menu)
-        self.btn_account.pack(side='right', padx=(2, 10))
-        ctk.CTkLabel(bar, text=who, text_color=MUTED,
-                     font=ctk.CTkFont(size=11)).pack(side='right', padx=4)
-
-        act = ctk.CTkFrame(bar, fg_color='transparent')
-        act.pack(side='right', padx=(8, 10))
-        ctk.CTkButton(
-            act, text='Xuất PPTX', width=108, height=30,
+        self.btn_export_pptx = ctk.CTkButton(
+            right, text='Xuất PPTX', width=96, height=30,
             font=ctk.CTkFont(size=13, weight='bold'),
             fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            command=self.export
-        ).pack(side='left')
-        ctk.CTkButton(
-            act, text='Xuất ảnh', width=88, height=30,
+            command=self.export)
+        self.btn_export_pptx.pack(side='left', pady=8)
+        self.btn_export_img = ctk.CTkButton(
+            right, text='Xuất ảnh', width=80, height=30,
             font=ctk.CTkFont(size=12, weight='bold'),
             fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
-            command=self.export_stamped
-        ).pack(side='left', padx=(6, 0))
+            command=self.export_stamped)
+        self.btn_export_img.pack(side='left', padx=(6, 0), pady=8)
         ctk.CTkButton(
-            act, text='⚙', width=32, height=30,
+            right, text='⚙', width=30, height=30,
             fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
             command=self._open_export_opts
-        ).pack(side='left', padx=(6, 0))
+        ).pack(side='left', padx=(6, 0), pady=8)
         self.btn_insp = ctk.CTkButton(
-            act, text='Khung', width=58, height=30,
+            right, text='Khung', width=54, height=30,
             fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
             command=self._toggle_inspector)
-        self.btn_insp.pack(side='left', padx=(6, 0))
+        self.btn_insp.pack(side='left', padx=(6, 0), pady=8)
+        self.btn_theme = tbtn(right, '☀', self._toggle_appearance)
+        self.btn_theme.pack(side='left', padx=(8, 0), pady=8)
+        self.btn_account = ctk.CTkButton(
+            right, text='👤', width=36, height=30, corner_radius=6,
+            fg_color=INPUT, hover_color=BORDER, text_color=TEXT,
+            font=ctk.CTkFont(size=14), command=self._show_account_menu)
+        self.btn_account.pack(side='left', padx=(4, 0), pady=8)
+        bar.bind('<Configure>', self._on_toolbar_resize)
+        self.after(80, lambda: self._on_toolbar_resize())
 
         # ── Thân: rail | panel | canvas | inspector ──
         body = ctk.CTkFrame(host, fg_color='transparent')
@@ -729,6 +794,8 @@ class App(ctk.CTk):
 
         self.editor = EditorCanvas(center, self)
         self.editor.pack(fill='both', expand=True)
+        self.thumbs.bind_ui(self)
+        FX.bind_ui(self)
 
         # ── Timeline nhóm ảnh ──
         tl_row = ctk.CTkFrame(center, fg_color=CARD, corner_radius=10)
@@ -791,6 +858,84 @@ class App(ctk.CTk):
             def set(_self, name):
                 self._goto_panel(name)
         self.sidebar = _Nav()
+
+    def _on_toolbar_resize(self, event=None):
+        """Ẩn Hít/Lưới/Preset/zoom phụ khi hẹp — luôn giữ Xuất PPTX / Xuất ảnh."""
+        bar = getattr(self, '_toolbar', None)
+        if bar is None:
+            return
+        try:
+            w = int(event.width) if event is not None else int(bar.winfo_width())
+        except Exception:
+            w = 1400
+        if w < 80:
+            return
+        if w >= 1360:
+            mode = 'full'
+        elif w >= 1180:
+            mode = 'mid'
+        elif w >= 980:
+            mode = 'tight'
+        else:
+            mode = 'mini'
+        if getattr(self, '_tb_mode', None) == mode:
+            return
+        self._tb_mode = mode
+
+        def show(frm, after=None):
+            if frm is None:
+                return
+            try:
+                if frm.winfo_ismapped():
+                    return
+                kw = {'side': 'left'}
+                if after is not None:
+                    kw['after'] = after
+                frm.pack(**kw)
+            except Exception:
+                pass
+
+        def hide(frm):
+            if frm is None:
+                return
+            try:
+                frm.pack_forget()
+            except Exception:
+                pass
+
+        zoom = getattr(self, '_tb_zoom_extra', None)
+        mid = getattr(self, '_tb_mid', None)
+        dept = getattr(self, '_tb_dept', None)
+        preset = getattr(self, '_tb_preset', None)
+        if mode == 'full':
+            show(zoom)
+            show(mid, after=zoom)
+            show(dept, after=mid)
+            show(preset, after=dept)
+        elif mode == 'mid':
+            hide(zoom)
+            show(mid)
+            show(dept, after=mid)
+            show(preset, after=dept)
+        elif mode == 'tight':
+            hide(zoom)
+            hide(preset)
+            show(mid)
+            show(dept, after=mid)
+        else:
+            hide(zoom)
+            hide(mid)
+            hide(dept)
+            hide(preset)
+        try:
+            if mode == 'mini':
+                self.btn_export_pptx.configure(text='PPTX', width=64)
+                self.btn_export_img.configure(text='Ảnh', width=52)
+            else:
+                self.btn_export_pptx.configure(text='Xuất PPTX', width=96)
+                self.btn_export_img.configure(text='Xuất ảnh', width=80)
+        except Exception:
+            pass
 
     def _tl_chrome(self):
         light = ctk.get_appearance_mode() == 'Light'
@@ -1275,6 +1420,9 @@ class App(ctk.CTk):
                 parts.append('theo list up')
             else:
                 parts.append('theo list')
+        n_off = len(getattr(self.excel, 'off_rows', None) or [])
+        if n_off:
+            parts.append(f'{n_off} tạm off')
         return ' · '.join(parts) if parts else 'Chưa có FILE TỔNG — mở ⚙ Cài đặt'
 
     def _update_data_brief(self):
@@ -1347,15 +1495,18 @@ class App(ctk.CTk):
             return 'Chưa có dữ liệu — đồng bộ / chọn FILE TỔNG'
         ov, n_ov = None, 0
         if self.opts.get('fx', {}).get('dashboard', True):
-            ov = build_overview(groups, self._by_code, self._merged)
+            ov = build_overview(groups, self._by_code_scope, self._merged_scope,
+                                self._qty_show())
             n_ov = len(ov['rows'])
         ng, ns, np_ = exporter.estimate(
             groups, self.opts['n_per_slide'],
             overview_rows=n_ov,
             slides_per_file=self.opts.get('slides_per_file', 0),
             by_code=self._by_code, merged=self._merged,
-            pad_blank=self.opts.get('pad_blank_slides', False))
-        qa = QA.check(groups, self._by_code, self._merged)
+            pad_blank=self.opts.get('pad_blank_slides', False),
+            store_index=bool(self.opts.get('store_index', True)),
+            qty_show=self._qty_show())
+        qa = QA.check(groups, self._by_code_scope, self._merged_scope)
         cap = G.file_part_limit(self.opts.get('slides_per_file', 0))
         if np_ <= 1:
             files_txt = '1 file'
@@ -1707,6 +1858,19 @@ class App(ctk.CTk):
             text_color=MUTED, font=ctk.CTkFont(size=11),
             wraplength=220, justify='left', anchor='w'
         ).pack(fill='x', padx=10, pady=(8, 0))
+        f_sz = self._card(sc, 'Khổ slide')
+        ctk.CTkLabel(
+            f_sz,
+            text='Khổ file PPTX / canvas. Mẫu Báo cáo · SALESKIT · NELSON thiết kế 16:9; chọn 4:3 sẽ co ngang cho vừa.',
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=240, justify='left', anchor='w'
+        ).pack(fill='x', padx=10, pady=(0, 4))
+        self.seg_slide_size = self._seg_btn(
+            f_sz, ['16:9', '4:3'],
+            self.opts.get('slide_size', '16:9'),
+            command=self._on_slide_size,
+            selected_color=ACCENT, selected_hover_color=ACCENT_HOVER)
+        self.seg_slide_size.pack(fill='x', padx=10, pady=(0, 8))
         self._build_tab_elems(sc)
         self._sync_ctx_panels('image')
 
@@ -1759,6 +1923,8 @@ class App(ctk.CTk):
         self._build_title_extra(self.frm_title_extra)
         self.frm_channel_extra = ctk.CTkFrame(tab, fg_color='transparent')
         self._build_channel_extra(self.frm_channel_extra)
+        self.frm_info_extra = ctk.CTkFrame(tab, fg_color='transparent')
+        self._build_info_extra(self.frm_info_extra)
 
         self.frm_type_image = ctk.CTkFrame(tab, fg_color='transparent')
         f = self._card(self.frm_type_image, 'Vùng ảnh')
@@ -2250,6 +2416,43 @@ class App(ctk.CTk):
             self.sw_fullw.select()
         self.sw_fullw.pack(anchor='w', padx=10, pady=(0, 8))
 
+    def _qty_show(self):
+        show = self.opts.get('qty_show') or {}
+        return {
+            'LCD': bool(show.get('LCD', True)),
+            'DP': bool(show.get('DP', True)),
+            'DS': bool(show.get('DS', True)),
+            'GP': bool(show.get('GP', True)),
+        }
+
+    def _build_info_extra(self, tab):
+        f = self._card(tab, 'Số lượng trên slide')
+        ctk.CTkLabel(
+            f, text='Ẩn loại không cần. Ví dụ University: tắt GP để chỉ còn LCD/DP.',
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=320, justify='left', anchor='w'
+        ).pack(fill='x', padx=10, pady=(0, 6))
+        self._qty_switches = {}
+        show = self._qty_show()
+        for key, label in (
+                ('LCD', 'Hiện LCD'), ('DP', 'Hiện DP'),
+                ('DS', 'Hiện DS'), ('GP', 'Hiện GP')):
+            sw = ctk.CTkSwitch(
+                f, text=label, progress_color=ACCENT,
+                command=lambda k=key: self._on_qty_show(k))
+            if show.get(key, True):
+                sw.select()
+            sw.pack(anchor='w', padx=10, pady=2)
+            self._qty_switches[key] = sw
+
+    def _on_qty_show(self, key):
+        show = self._qty_show()
+        sw = (self._qty_switches or {}).get(key)
+        show[key] = bool(sw.get()) if sw is not None else show.get(key, True)
+        self.opts['qty_show'] = show
+        self._invalidate()
+        self._schedule_save()
+
     def _build_channel_extra(self, tab):
         f = self._card(tab, 'Tuỳ chọn kênh')
         self.sw_channel = ctk.CTkSwitch(f, text='Hiện phần tử Kênh',
@@ -2406,6 +2609,17 @@ class App(ctk.CTk):
         ctk.CTkLabel(tab, text='File Excel nội bộ cạnh PPTX: điểm list chưa có ảnh, tên file lệch mã.',
                      text_color=MUTED, font=ctk.CTkFont(size=11),
                      wraplength=360, justify='left').pack(anchor='w', padx=16, pady=(0, 8))
+        self.sw_store_index = ctk.CTkSwitch(
+            tab, text='Trang đầu PPTX: list cửa hàng đúng thứ tự ảnh',
+            command=self._on_store_index, progress_color=ACCENT)
+        if self.opts.get('store_index', True):
+            self.sw_store_index.select()
+        self.sw_store_index.pack(anchor='w', padx=16, pady=(0, 4))
+        ctk.CTkLabel(
+            tab,
+            text='Slide đầu file PPTX, cùng kiểu bảng Overview (ảnh × màn, đủ/thiếu) nhưng STT lần lượt theo thứ tự cửa hàng / slide ảnh. Có thêm file *_list_cuahang.xlsx.',
+            text_color=MUTED, font=ctk.CTkFont(size=11),
+            wraplength=360, justify='left').pack(anchor='w', padx=16, pady=(0, 8))
         f_stamp = self._card(tab, 'Xuất ảnh đóng dấu')
         ctk.CTkLabel(
             f_stamp,
@@ -2467,11 +2681,13 @@ class App(ctk.CTk):
         avatar = self._resolve_avatar(code, row=row, mcode=mcode, kind=kind)
         code_key = str((row or {}).get('Code_RP') or code or '').upper()
         sibs = self.excel.rows_of(code_key) if code_key else []
-        info_table = build_info_table(row, sibs or ([row] if row else []))
+        info_table = build_info_table(
+            row, sibs or ([row] if row else []), self._qty_show())
         if not info_table.get('school'):
             info_table['school'] = name_val
         style = self.opts.get('slide_style') or 'report'
-        nelson_table = (build_nelson_table(row, sibs or ([row] if row else []))
+        nelson_table = (build_nelson_table(row, sibs or ([row] if row else []),
+                                          self._qty_show())
                         if style == 'nelson' else None)
         if style == 'nelson':
             channel_val = _address_line(row) if row else ''
@@ -2479,11 +2695,11 @@ class App(ctk.CTk):
             channel_val = channel_text(row, self.opts['channel_template'])
         self._content_cache = {
             'title': G.title_string(self.layout['title'], name_val, 1, K),
-            'info_rows': build_info_rows(row, len(paths) or n),
+            'info_rows': build_info_rows(row, len(paths) or n, self._qty_show()),
             'info_table': info_table,
             'nelson_table': nelson_table,
             'slide_style': style,
-            'n_screens': screen_qty(row),
+            'n_screens': screen_qty(row, self._qty_show()),
             'n_photos': len(paths),
             'channel': channel_val,
             'images': paths,
@@ -2505,11 +2721,12 @@ class App(ctk.CTk):
         vis['channel'] = vis.get('channel', True) and self.opts['channel_enabled']
         return self._content_cache
 
-    def _invalidate(self, render=True):
+    def _invalidate(self, render=True, save=True):
         self._content_cache = None
         if render and hasattr(self, 'editor'):
             self.editor.schedule_render()
-        self._schedule_save()
+        if save:
+            self._schedule_save()
 
     def fx_snapshot(self):
         fx = dict(self.opts.get('fx') or {})
@@ -3007,9 +3224,17 @@ class App(ctk.CTk):
 
             def done():
                 self._mm_busy = False
-                FX.clear_preview_cache()
-                if hasattr(self, 'editor'):
-                    self.editor.schedule_render()
+                FX.invalidate_preview_paths(todo)
+                cur = set()
+                try:
+                    codes = self._ordered_codes()
+                    if codes:
+                        i = max(0, min(self.group_idx, len(codes) - 1))
+                        cur = set(self.imglib.group_paths(codes[i]) or [])
+                except Exception:
+                    cur = set()
+                if cur & set(todo) and hasattr(self, 'editor'):
+                    self.editor.schedule_render(20)
             try:
                 self.after(0, done)
             except Exception:
@@ -3270,7 +3495,7 @@ class App(ctk.CTk):
         self._insp_updating = True
         try:
             name = self.editor.selected or self._sel_name()
-            x, y, w, h = G.elem_box(self.layout, name)
+            x, y, w, h = G.elem_box(self.layout, name, self.slide_wh()[0])
             c = self.layout[name]
             vals = {'x': c['x'], 'y': c['y'], 'w': c['w'],
                     'h': c.get('h', h)}
@@ -3297,14 +3522,14 @@ class App(ctk.CTk):
         name = name or 'image'
         mapping = {
             'title': ('frm_type_text', 'frm_title_extra'),
-            'info': ('frm_type_text',),
+            'info': ('frm_type_text', 'frm_info_extra'),
             'channel': ('frm_type_text', 'frm_channel_extra'),
             'image': ('frm_type_image',),
             'avatar': ('frm_type_avatar',),
         }
         want = mapping.get(name, ('frm_type_image',))
         for key in ('frm_type_text', 'frm_title_extra', 'frm_channel_extra',
-                    'frm_type_image', 'frm_type_avatar'):
+                    'frm_info_extra', 'frm_type_image', 'frm_type_avatar'):
             frm = getattr(self, key, None)
             if frm is None:
                 continue
@@ -3439,6 +3664,27 @@ class App(ctk.CTk):
         self._schedule_save()
         self._update_estimate()
         self._refresh_spf_ui()
+
+    def slide_wh(self):
+        return slide_inches(self.opts.get('slide_size', '16:9'))
+
+    def _on_slide_size(self, v):
+        nxt = '4:3' if str(v).strip() == '4:3' else '16:9'
+        cur = self.opts.get('slide_size', '16:9')
+        if nxt == cur:
+            return
+        ow, oh = slide_inches(cur)
+        nw, nh = slide_inches(nxt)
+        scale_layout(self.layout, ow, oh, nw, nh)
+        self.opts['slide_size'] = nxt
+        try:
+            self.editor._apply_scale()
+            self.editor.zoom_fit()
+        except Exception:
+            pass
+        self._invalidate()
+        self._schedule_save()
+        self.log(f'Khổ slide {nxt} ({nw:g}″ × {nh:g}″).')
 
     def _on_ar(self, v):
         self.opts['ar_label'] = v
@@ -3650,6 +3896,14 @@ class App(ctk.CTk):
             pass
         self._schedule_save()
 
+    def _on_store_index(self):
+        try:
+            self.opts['store_index'] = bool(self.sw_store_index.get())
+        except Exception:
+            pass
+        self._update_estimate()
+        self._schedule_save()
+
     def _on_qa_gate(self):
         try:
             self.opts['qa_gate'] = bool(self.sw_qa_gate.get())
@@ -3693,6 +3947,45 @@ class App(ctk.CTk):
     def select_excel(self):
         self.pick_master_excel(purpose='local')
 
+    def _excel_job_window(self, title):
+        """Một cửa sổ FILE TỔNG — tái sử dụng, không chồng popup."""
+        win = getattr(self, '_excel_job_win', None)
+        if win is not None:
+            try:
+                if win.winfo_exists():
+                    for child in win.winfo_children():
+                        child.destroy()
+                    win.title(title)
+                    win.lift()
+                    return win
+            except Exception:
+                pass
+        win = ctk.CTkToplevel(self)
+        win.title(title)
+        win.geometry('480x420')
+        try:
+            parent = getattr(self, '_settings_win', None)
+            win.transient(parent if parent and parent.winfo_exists() else self)
+        except Exception:
+            try:
+                win.transient(self)
+            except Exception:
+                pass
+        win.attributes('-topmost', True)
+        win.protocol('WM_DELETE_WINDOW', lambda: self._close_excel_job_win())
+        self._excel_job_win = win
+        return win
+
+    def _close_excel_job_win(self):
+        win = getattr(self, '_excel_job_win', None)
+        self._excel_job_win = None
+        if win is None:
+            return
+        try:
+            win.destroy()
+        except Exception:
+            pass
+
     def pick_master_excel(self, purpose='local'):
         """Chọn FILE TỔNG: local = dùng máy; push = đẩy Cloud (trong Cài đặt)."""
         if purpose == 'push' and not self.cloud.logged_in():
@@ -3706,16 +3999,26 @@ class App(ctk.CTk):
             filetypes=[('Excel', '*.xlsx *.xlsm')])
         if not p:
             return
-        pop = ctk.CTkToplevel(self)
-        pop.title('Đang kiểm tra list…')
-        pop.geometry('320x100')
-        pop.attributes('-topmost', True)
-        ctk.CTkLabel(pop, text='Đang đọc file Excel…',
-                     font=ctk.CTkFont(size=13, weight='bold')).pack(pady=28)
+        win = self._excel_job_window(
+            'Đẩy FILE TỔNG lên Cloud' if purpose == 'push' else 'FILE TỔNG / MASTER')
+        ctk.CTkLabel(
+            win, text=os.path.basename(p),
+            font=ctk.CTkFont(size=15, weight='bold')
+        ).pack(fill='x', padx=16, pady=(18, 6))
+        lbl = ctk.CTkLabel(win, text='Đang đọc file…', text_color=MUTED)
+        lbl.pack(fill='x', padx=16, pady=(0, 8))
+        pb = ctk.CTkProgressBar(win, height=10, progress_color=ACCENT)
+        pb.pack(fill='x', padx=16)
+        pb.set(0.18)
+        ctk.CTkButton(
+            win, text='Huỷ', width=90, fg_color=INPUT,
+            hover_color=BORDER, text_color=TEXT,
+            command=self._close_excel_job_win
+        ).pack(pady=16)
 
         def work():
             info = inspect_excel(p)
-            self.after(0, lambda: self._list_inspected(pop, p, info, purpose=purpose))
+            self.after(0, lambda: self._list_inspected(win, p, info, purpose=purpose))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -3723,89 +4026,99 @@ class App(ctk.CTk):
         """Tương thích cũ — chọn file trên máy."""
         self.pick_master_excel(purpose='local')
 
-    def _list_inspected(self, pop, path, info, purpose='local'):
-        try:
-            pop.destroy()
-        except Exception:
-            pass
-        if not info.get('ok'):
-            messagebox.showerror(
-                'FILE TỔNG / MASTER',
-                'Không nhận được file tổng chuẩn.\n\n'
-                f"{info.get('error') or ''}\n\n"
-                'Cần cột Code_RP (hoặc Code / Mã báo cáo) ở sheet đầu.')
+    def _list_inspected(self, win, path, info, purpose='local'):
+        if win is None or not getattr(win, 'winfo_exists', lambda: False)():
             return
-        win = ctk.CTkToplevel(self)
-        win.title('Đẩy FILE TỔNG lên Cloud' if purpose == 'push'
-                  else 'FILE TỔNG / MASTER')
-        win.geometry('520x460')
-        win.attributes('-topmost', True)
-        ctk.CTkLabel(
-            win, text=os.path.basename(path),
-            font=ctk.CTkFont(size=15, weight='bold')
-        ).pack(fill='x', padx=16, pady=(16, 4))
+        for child in win.winfo_children():
+            child.destroy()
+        if not info.get('ok'):
+            ctk.CTkLabel(
+                win, text='Không nhận được file tổng chuẩn.',
+                font=ctk.CTkFont(size=14, weight='bold')
+            ).pack(fill='x', padx=16, pady=(18, 6))
+            ctk.CTkLabel(
+                win,
+                text=(info.get('error') or '')
+                     + '\n\nCần cột Code_RP (hoặc Code / Mã báo cáo) ở sheet đầu.',
+                text_color=MUTED, wraplength=440, justify='left', anchor='w'
+            ).pack(fill='x', padx=16)
+            ctk.CTkButton(
+                win, text='Đóng', height=34, fg_color=INPUT,
+                hover_color=BORDER, text_color=TEXT,
+                command=self._close_excel_job_win
+            ).pack(fill='x', padx=16, pady=16)
+            return
         n = int(info.get('n') or 0)
         chans = info.get('channels') or []
         found = info.get('found') or []
         missing = info.get('missing') or []
         sample = info.get('sample_codes') or []
         ctk.CTkLabel(
+            win, text=os.path.basename(path),
+            font=ctk.CTkFont(size=15, weight='bold')
+        ).pack(fill='x', padx=16, pady=(16, 4))
+        ctk.CTkLabel(
             win,
-            text=f'{n} điểm  ·  {len(chans)} kênh  ·  cột: {", ".join(found)}',
-            text_color=MUTED, wraplength=480, justify='left', anchor='w'
+            text=f'{n} điểm  ·  {len(chans)} kênh'
+                 + (f'  ·  {int(info.get("n_off") or 0)} tạm off' if info.get('n_off') else '')
+                 + f'  ·  cột: {", ".join(found)}',
+            text_color=MUTED, wraplength=440, justify='left', anchor='w'
         ).pack(fill='x', padx=16)
         if missing:
             ctk.CTkLabel(
                 win,
                 text='Thiếu cột (vẫn dùng được): ' + ', '.join(missing),
-                text_color='#ca8a04', wraplength=480, justify='left', anchor='w'
+                text_color='#ca8a04', wraplength=440, justify='left', anchor='w'
             ).pack(fill='x', padx=16, pady=(4, 0))
         if sample:
             ctk.CTkLabel(
                 win, text='Mã mẫu: ' + ', '.join(sample),
-                text_color=MUTED, wraplength=480, justify='left', anchor='w'
+                text_color=MUTED, wraplength=440, justify='left', anchor='w'
             ).pack(fill='x', padx=16, pady=(4, 8))
-        tb = ctk.CTkTextbox(win, height=90, font=ctk.CTkFont(size=12))
-        tb.pack(fill='x', padx=16, pady=(0, 8))
-        tb.insert('1.0', (
-            'Đẩy lên Cloud để máy khác đồng bộ cùng FILE TỔNG / MASTER.'
-            if purpose == 'push' else
-            'FILE TỔNG / MASTER dùng để tạo slide và gắn ảnh theo Code_RP trên máy này.'))
-        tb.configure(state='disabled')
+        note = ('Đẩy lên Cloud để máy khác đồng bộ cùng FILE TỔNG / MASTER.'
+                if purpose == 'push' else
+                'FILE TỔNG / MASTER dùng để tạo slide và gắn ảnh theo Code_RP trên máy này.')
+        ctk.CTkLabel(
+            win, text=note, text_color=MUTED, wraplength=440,
+            justify='left', anchor='w'
+        ).pack(fill='x', padx=16, pady=(0, 8))
+
+        frm_prog = ctk.CTkFrame(win, fg_color='transparent')
+        pb = ctk.CTkProgressBar(frm_prog, height=10, progress_color=ACCENT)
+        pb.pack(fill='x')
+        pb.set(0)
+        lbl_prog = ctk.CTkLabel(
+            frm_prog, text='', text_color=ACCENT,
+            font=ctk.CTkFont(size=11), anchor='w')
+        lbl_prog.pack(fill='x', pady=(4, 0))
+
+        bar = ctk.CTkFrame(win, fg_color='transparent')
+        bar.pack(fill='x', padx=16, pady=(0, 16), side='bottom')
+        frm_prog.pack(fill='x', padx=16, pady=(0, 8), side='bottom')
 
         def use_local():
-            try:
-                win.destroy()
-            except Exception:
-                pass
+            self._close_excel_job_win()
             self._load_excel_async(path)
 
         def push_me():
             if not self.cloud.logged_in():
-                messagebox.showwarning('Cloud', 'Cần đăng nhập để đẩy list lên Cloud.')
+                lbl_prog.configure(text='Cần đăng nhập Cloud.')
                 return
-            try:
-                win.destroy()
-            except Exception:
-                pass
-            self._do_upload_excel(path, None, None, then_load=True)
+            self._do_upload_excel(path, None, win, then_load=True,
+                                 pb=pb, lbl=lbl_prog, bar=bar)
 
         def push_all():
             if not self.cloud.is_admin():
-                messagebox.showwarning('Cloud', 'Chỉ quản trị mới đẩy list cho mọi tài khoản.')
+                lbl_prog.configure(text='Chỉ quản trị mới đẩy cho mọi tài khoản.')
                 return
-            if not messagebox.askyesno(
-                    'FILE TỔNG / MASTER',
-                    f'Đẩy FILE TỔNG «{os.path.basename(path)}» ({n} điểm) cho TẤT CẢ tài khoản?'):
+            if getattr(win, '_confirm_all', False):
+                self._do_upload_excel(path, 'all', win, then_load=True,
+                                     pb=pb, lbl=lbl_prog, bar=bar)
                 return
-            try:
-                win.destroy()
-            except Exception:
-                pass
-            self._do_upload_excel(path, 'all', None, then_load=True)
+            win._confirm_all = True
+            lbl_prog.configure(
+                text=f'Bấm lại «Đẩy cho TẤT CẢ» để xác nhận ({n} điểm).')
 
-        bar = ctk.CTkFrame(win, fg_color='transparent')
-        bar.pack(fill='x', padx=16, pady=(0, 16))
         if purpose == 'local':
             ctk.CTkButton(bar, text='Dùng trên máy này', height=34, fg_color=ACCENT,
                           hover_color=ACCENT_HOVER, command=use_local
@@ -3821,6 +4134,11 @@ class App(ctk.CTk):
         elif purpose == 'push':
             ctk.CTkLabel(bar, text='Cần đăng nhập để đẩy Cloud.',
                          text_color=MUTED).pack(pady=4)
+        ctk.CTkButton(
+            bar, text='Đóng', height=30, fg_color=INPUT,
+            hover_color=BORDER, text_color=TEXT,
+            command=self._close_excel_job_win
+        ).pack(fill='x', pady=(6, 0))
 
     def _load_excel_async(self, path):
         if hasattr(self, 'lbl_excel'):
@@ -3849,17 +4167,25 @@ class App(ctk.CTk):
         self._refresh_geo_filters()
         self._rebuild_code_map()
         display = self.cloud.excel_local_display_name(path)
+        n_off = len(getattr(self.excel, 'off_rows', None) or [])
         cap = (f'{display} — {len(self.excel.rows)} dòng, '
                f'{len(chans) - 1} kênh')
+        if n_off:
+            cap += f' · {n_off} tạm off'
         try:
             self.lbl_excel.configure(text=cap)
         except Exception:
             pass
         self._update_data_brief()
         self.log(f'Đã đọc {len(self.excel.rows)} dòng Excel.')
+        if n_off:
+            self.log(f'Có {n_off} cửa hàng tạm off — vẫn nhận ảnh cũ nếu còn file.')
         if looks_like_order_list(path, getattr(self.excel, 'source_sheets', None)):
             self.opts['sort_mode'] = 'list'
             self.log('Thứ tự slide: theo STT trên list Excel.')
+        else:
+            self.opts['sort_mode'] = 'city'
+            self.log('Thứ tự slide: tỉnh Bắc → Nam (mặc định FILE TỔNG).')
         self._sync_sort_menus()
         try:
             self.lbl_list_master_compare.configure(
@@ -3872,18 +4198,61 @@ class App(ctk.CTk):
         self._update_estimate()
 
     def _rebuild_code_map(self):
-        ch = self.opts['channel_filter']
-        self._by_code = self.excel.by_code(None if ch == ALL_CHANNELS else ch)
+        self._by_code = self.excel.by_code(None, include_off=True)
         self._merged = build_merged_groups(self._by_code)
+        self._rebuild_scope_map()
 
-    def _on_channel(self, v):
-        self.opts['channel_filter'] = v
-        self._rebuild_code_map()
-        self._refresh_geo_filters()
+    def _rebuild_scope_map(self):
+        """Bảng mã bó theo kênh đang chọn — dùng cho QA / Overview.
+
+        Khớp ảnh vẫn dùng self._by_code (đủ kênh) để ảnh lệch kênh không mất
+        tên và địa chỉ.
+        """
+        ch = self.opts.get('channel_filter', ALL_CHANNELS)
+        if ch == ALL_CHANNELS or not self._by_code:
+            self._by_code_scope = self._by_code
+            self._merged_scope = self._merged
+            return
+        self._by_code_scope = scope_by_channel(self._by_code, ch, ALL_CHANNELS)
+        self._merged_scope = build_merged_groups(self._by_code_scope)
+
+    def _visible_code(self):
+        try:
+            codes = self._ordered_codes()
+            if codes and 0 <= self.group_idx < len(codes):
+                return codes[self.group_idx]
+        except Exception:
+            pass
+        return None
+
+    def _apply_scope(self, keep_code=None):
+        """Lọc kênh/tỉnh/quận/sort — xóa cache slide, giữ điểm đang xem nếu còn."""
+        self._content_cache = None
+        self._codes_cache = None
+        codes = self._ordered_codes()
+        if keep_code and keep_code in codes:
+            self.group_idx = codes.index(keep_code)
+        elif codes:
+            self.group_idx = max(0, min(int(self.group_idx or 0), len(codes) - 1))
+        else:
+            self.group_idx = 0
+        if hasattr(self, 'editor'):
+            self.editor.schedule_render()
         self._rebuild_timeline()
+        try:
+            self._prefetch_nearby_groups()
+        except Exception:
+            pass
         self._update_estimate()
         self._update_data_brief()
         self._schedule_save()
+
+    def _on_channel(self, v):
+        keep = self._visible_code()
+        self.opts['channel_filter'] = v
+        self._rebuild_scope_map()
+        self._refresh_geo_filters()
+        self._apply_scope(keep)
 
     def _refresh_geo_filters(self):
         rows = self.excel.rows if getattr(self.excel, 'rows', None) else []
@@ -3917,21 +4286,17 @@ class App(ctk.CTk):
             pass
 
     def _on_city_filter(self, v):
+        keep = self._visible_code()
         self.opts['city_filter'] = v
         if v != ALL_CITIES:
             self.opts['district_filter'] = ALL_DISTRICTS
         self._refresh_geo_filters()
-        self._rebuild_timeline()
-        self._update_estimate()
-        self._update_data_brief()
-        self._schedule_save()
+        self._apply_scope(keep)
 
     def _on_district_filter(self, v):
+        keep = self._visible_code()
         self.opts['district_filter'] = v
-        self._rebuild_timeline()
-        self._update_estimate()
-        self._update_data_brief()
-        self._schedule_save()
+        self._apply_scope(keep)
 
     def _sort_mode_label(self):
         return ('Theo thứ tự list Excel' if self.opts.get('sort_mode') == 'list'
@@ -4054,11 +4419,10 @@ class App(ctk.CTk):
         if self.opts.get('sort_mode') == mode:
             self._sync_sort_menus()
             return
+        keep = self._visible_code()
         self.opts['sort_mode'] = mode
         self._sync_sort_menus()
-        self._rebuild_timeline()
-        self._update_estimate()
-        self._schedule_save()
+        self._apply_scope(keep)
 
     def _on_split_geo(self, v):
         m = {'Không tách': 'none', 'Theo tỉnh': 'city', 'Theo quận': 'district'}
@@ -4093,13 +4457,26 @@ class App(ctk.CTk):
             self._sync_format_bar()
         self._schedule_save()
 
+    def _photo_groups_for_list(self, groups=None):
+        """Giữ mọi nhóm ảnh — mã tạm off vẫn nhận để chạy ảnh cũ."""
+        return OrderedDict(groups if groups is not None else self.imglib.groups())
+
+    def _off_photo_count(self, groups=None):
+        groups = groups if groups is not None else self.imglib.groups()
+        off = getattr(self.excel, 'off_codes', None) or set()
+        if not groups or not off:
+            return 0
+        return len(groups) - len(drop_off_groups(groups, off))
+
     def _filtered_groups(self, groups=None):
-        groups = OrderedDict(groups if groups is not None else self.imglib.groups())
+        groups = self._photo_groups_for_list(groups)
         return filter_groups_by_geo(
             groups, self._by_code, self._merged,
             city=self.opts.get('city_filter', ALL_CITIES),
             district=self.opts.get('district_filter', ALL_DISTRICTS),
-            all_cities=ALL_CITIES, all_districts=ALL_DISTRICTS)
+            channel=self.opts.get('channel_filter', ALL_CHANNELS),
+            all_cities=ALL_CITIES, all_districts=ALL_DISTRICTS,
+            all_channels=ALL_CHANNELS)
 
     def _ordered_groups(self, groups=None):
         groups = self._filtered_groups(groups)
@@ -4355,8 +4732,29 @@ class App(ctk.CTk):
             self._update_estimate()
 
     # ════════════════════════ TIMELINE ════════════════════════
+    def _order_cache_key(self):
+        return (
+            self.imglib._sig(),
+            self.opts.get('sort_mode'),
+            self.opts.get('city_filter'),
+            self.opts.get('district_filter'),
+            self.opts.get('channel_filter'),
+            getattr(self.excel, 'path', None),
+            getattr(self.excel, 'mtime', None),
+            getattr(self.order_list, 'path', None),
+            getattr(self.order_list, 'mtime', None),
+            len(getattr(self.excel, 'rows', None) or []),
+            len(getattr(self.order_list, 'rows', None) or []),
+        )
+
     def _ordered_codes(self):
-        return list(self._ordered_groups().keys())
+        key = self._order_cache_key()
+        cache = getattr(self, '_codes_cache', None)
+        if cache and cache[0] == key:
+            return list(cache[1])
+        codes = list(self._ordered_groups().keys())
+        self._codes_cache = (key, codes)
+        return list(codes)
 
     def _filtered_codes(self):
         codes = self._ordered_codes()
@@ -4382,17 +4780,18 @@ class App(ctk.CTk):
             pass
         groups = self.imglib.groups()
         all_codes = self._ordered_codes()
+        idx_of = {c: i for i, c in enumerate(all_codes)}
         codes = self._filtered_codes()
         x = 8
         for code in codes:
-            idx = all_codes.index(code)
+            idx = idx_of.get(code, 0)
             selected = (idx == self.group_idx)
             self._tl_items.append((code, idx, x))
             tl.create_rectangle(x - 2, 6, x + _TL_W + 2, 10 + _TL_H + 14,
                                 outline=(ACCENT if selected else ch['outline']),
                                 width=2 if selected else 1,
                                 fill=ch['card'],
-                                tags=(f'g_{idx}',))
+                                tags=(f'g_{idx}', f'sel_{idx}'))
             tl.create_rectangle(x, 8, x + _TL_W, 8 + _TL_H, fill=ch['slot'],
                                 outline='', tags=(f'g_{idx}',))
             paths = self.imglib.group_paths(code)
@@ -4401,7 +4800,7 @@ class App(ctk.CTk):
                 if src is not None:
                     self._tl_set_photo(code, idx, x, src)
                 else:
-                    self._tl_pending[paths[0]] = (code, idx, x)
+                    self._tl_pending.setdefault(paths[0], []).append((code, idx, x))
             label = code if len(code) <= 16 else code[:15] + '…'
             nphotos = len(groups.get(code, []))
             exif_note = ''
@@ -4414,15 +4813,8 @@ class App(ctk.CTk):
                            tags=(f'g_{idx}',))
             x += _TL_W + 12
         tl.configure(scrollregion=(0, 0, x, _TL_H + 30))
-        n = len(all_codes)
-        cur = (self.group_idx + 1) if n else 0
-        hint = ''
-        if n and self.opts.get('visible', {}).get('avatar', True) and self.opts.get('avatar_folder'):
-            cur_code = all_codes[max(0, min(self.group_idx, n - 1))]
-            if not self._resolve_avatar(cur_code):
-                hint = ' · Không có avatar'
-        self.lbl_group.configure(
-            text=(f'Nhóm {cur}/{n}{hint}' if n else 'Chưa có ảnh'))
+        self._tl_sel_idx = self.group_idx if all_codes else None
+        self._update_group_label(all_codes)
 
     def _tl_set_photo(self, code, idx, x, src):
         fit = G.photo_fit_mode('fill', src.width, src.height)
@@ -4435,8 +4827,12 @@ class App(ctk.CTk):
         self.tl.create_image(ox, oy, anchor='nw', image=ph, tags=(f'g_{idx}',))
 
     def _tl_thumb_ready(self, path, img):
-        info = self._tl_pending.pop(path, None)
-        if info:
+        infos = self._tl_pending.pop(path, None)
+        if not infos:
+            return
+        if infos and not isinstance(infos[0], (list, tuple)):
+            infos = [infos]
+        for info in infos:
             self._tl_set_photo(info[0], info[1], info[2], img)
 
     def _tl_click(self, ev):
@@ -4446,13 +4842,82 @@ class App(ctk.CTk):
                 self._select_group(idx)
                 return
 
+    def _update_group_label(self, codes=None):
+        codes = list(codes if codes is not None else self._ordered_codes())
+        n = len(codes)
+        cur = (self.group_idx + 1) if n else 0
+        hint = ''
+        if n and self.opts.get('visible', {}).get('avatar', True) and self.opts.get('avatar_folder'):
+            cur_code = codes[max(0, min(self.group_idx, n - 1))]
+            if not self._resolve_avatar(cur_code):
+                hint = ' · Không có avatar'
+        try:
+            self.lbl_group.configure(
+                text=(f'Nhóm {cur}/{n}{hint}' if n else 'Chưa có ảnh'))
+        except Exception:
+            pass
+
+    def _paint_tl_sel(self, idx, on):
+        if idx is None:
+            return
+        ch = self._tl_chrome()
+        for item in self.tl.find_withtag(f'sel_{idx}'):
+            try:
+                self.tl.itemconfigure(
+                    item,
+                    outline=ACCENT if on else ch['outline'],
+                    width=2 if on else 1)
+            except Exception:
+                pass
+
+    def _scroll_timeline_to(self, idx):
+        x = next((ix for _c, i, ix in self._tl_items if i == idx), None)
+        if x is None:
+            return
+        try:
+            parts = str(self.tl.cget('scrollregion') or '').split()
+            total = float(parts[2]) if len(parts) >= 3 else 0
+            width = max(1, int(self.tl.winfo_width() or 1))
+            if total <= width:
+                return
+            left = max(0.0, min(total - width, x - (width - _TL_W) / 2))
+            self.tl.xview_moveto(left / total)
+        except Exception:
+            pass
+
+    def _refresh_timeline_selection(self):
+        old = getattr(self, '_tl_sel_idx', None)
+        new = self.group_idx
+        if old != new:
+            self._paint_tl_sel(old, False)
+            self._paint_tl_sel(new, True)
+            self._tl_sel_idx = new
+        self._scroll_timeline_to(new)
+        self._update_group_label()
+
+    def _prefetch_nearby_groups(self):
+        codes = self._ordered_codes()
+        i = self.group_idx
+        for j in (i - 1, i, i + 1, i + 2):
+            if 0 <= j < len(codes):
+                for path in (self.imglib.group_paths(codes[j]) or [])[:4]:
+                    try:
+                        self.thumbs.request(path, self, None)
+                    except Exception:
+                        pass
+
     def _select_group(self, idx):
         codes = self._ordered_codes()
         if not codes:
             return
-        self.group_idx = max(0, min(idx, len(codes) - 1))
-        self._invalidate()
-        self._rebuild_timeline()
+        nxt = max(0, min(idx, len(codes) - 1))
+        if nxt == self.group_idx and self._content_cache is not None:
+            self._refresh_timeline_selection()
+            return
+        self.group_idx = nxt
+        self._invalidate(save=False)
+        self._refresh_timeline_selection()
+        self._prefetch_nearby_groups()
         self._sync_loc_list_hint()
         try:
             paths = self.imglib.group_paths(codes[self.group_idx])
@@ -4546,6 +5011,8 @@ class App(ctk.CTk):
             self.editor.push_undo()
         self.layout.clear()
         self.layout.update(copy.deepcopy(pack['layout']))
+        tw, th = self.slide_wh()
+        scale_layout(self.layout, SLIDE_W_IN, SLIDE_H_IN, tw, th)
         style = pack.get('slide_style') or 'report'
         self.opts['slide_style'] = style
         self.opts['dept'] = 'bd' if style in ('saleskit', 'nelson') else 'sales'
@@ -4691,7 +5158,7 @@ class App(ctk.CTk):
         return up_map[hits[0]] if hits else None
 
     def _coverage(self):
-        groups = self.imglib.groups()
+        groups = self._photo_groups_for_list()
         res = {'exact': [], 'merged': [], 'fuzzy': [], 'none': [],
                'no_avatar': []}
         by_code = self._by_code or {}
@@ -4708,34 +5175,39 @@ class App(ctk.CTk):
                 self.lbl_compare_list.configure(text=self._current_list_caption())
         except Exception:
             pass
-        groups = self.imglib.groups()
-        if not groups:
+        raw = self.imglib.groups()
+        if not raw:
             self.lbl_coverage.configure(text='')
             return
+        groups = self._photo_groups_for_list(raw)
+        n_off_img = self._off_photo_count(raw)
         if not self._list_is_loaded() or not self._by_code:
             extra = ' · chưa có list' if not self._list_is_loaded() else ''
+            if n_off_img:
+                extra += f' · {n_off_img} tạm off'
             self.lbl_coverage.configure(text=f'{len(groups)} nhóm ảnh{extra}')
             return
         cov = self._coverage()
         ok = len(cov['exact']) + len(cov['merged'])
-        qa = QA.check(groups, self._by_code, self._merged)
+        qa = QA.check(groups, self._by_code_scope, self._merged_scope)
         txt = (f"{len(groups)} nhóm • {ok} khớp Excel"
                + (f" • {len(cov['fuzzy'])} gần đúng" if cov['fuzzy'] else '')
                + (f" • {len(qa.unmatched)} lệch mã" if qa.unmatched else '')
                + (f" • {len(qa.missing)} list chưa có ảnh" if qa.missing else '')
+               + (f" • {n_off_img} tạm off" if n_off_img else '')
                + (f" • {len(cov['no_avatar'])} thiếu avatar"
                   if cov['no_avatar'] else ''))
         self.lbl_coverage.configure(text=txt)
 
     def _show_coverage(self):
-        groups = self.imglib.groups()
+        groups = self._photo_groups_for_list()
         if not groups:
             messagebox.showinfo('So sánh ảnh với FILE TỔNG', 'Chưa chọn thư mục ảnh.')
             return
         if not self._need_loaded_list('So sánh ảnh với FILE TỔNG'):
             return
         cov = self._coverage()
-        ov = build_overview(groups, self._by_code, self._merged)
+        ov = build_overview(groups, self._by_code_scope, self._merged_scope, self._qty_show())
         win = ctk.CTkToplevel(self)
         win.title('So sánh ẢNH với FILE TỔNG / MASTER')
         win.geometry('720x520')
@@ -5318,16 +5790,19 @@ class App(ctk.CTk):
         else:
             ov, n_ov = None, 0
             if self.opts.get('fx', {}).get('dashboard', True):
-                ov = build_overview(groups, self._by_code, self._merged)
+                ov = build_overview(groups, self._by_code_scope, self._merged_scope,
+                                    self._qty_show())
                 n_ov = len(ov['rows'])
             ng, ns, np_ = exporter.estimate(
                 groups, self.opts['n_per_slide'],
                 overview_rows=n_ov,
                 slides_per_file=self.opts.get('slides_per_file', 0),
                 by_code=self._by_code, merged=self._merged,
-                pad_blank=self.opts.get('pad_blank_slides', False))
+                pad_blank=self.opts.get('pad_blank_slides', False),
+                store_index=bool(self.opts.get('store_index', True)),
+                qty_show=self._qty_show())
             extra = ''
-            qa = QA.check(groups, self._by_code, self._merged)
+            qa = QA.check(groups, self._by_code_scope, self._merged_scope)
             if qa.missing:
                 extra += f'\n• {len(qa.missing)} điểm list chưa có ảnh'
             if qa.unmatched:
@@ -5349,6 +5824,8 @@ class App(ctk.CTk):
             full = f'• {ng} nhóm ảnh\n• ~{ns} slide\n• {files_txt}{extra}'
             if self.opts.get('pad_blank_slides'):
                 full += '\n• Slide trắng/ô trống theo số màn Excel'
+            if self.opts.get('store_index', True):
+                full += '\n• Slide + Excel list cửa hàng đúng thứ tự ảnh'
             split = self.opts.get('split_export_by', 'none')
             if split and split != 'none':
                 full += f'\n• Tách file theo {split}'
@@ -5366,14 +5843,14 @@ class App(ctk.CTk):
             pass
 
     def export(self):
-        groups_rel = self.imglib.groups()
+        groups_rel = self._photo_groups_for_list()
         if not groups_rel:
             messagebox.showwarning('Xuất PPTX', 'Chưa chọn thư mục ảnh.')
             return
         if self.opts['bg_mode'] == 'image' and not self.opts['bg_path']:
             messagebox.showwarning('Xuất PPTX', 'Chưa chọn ảnh nền.')
             return
-        qa = QA.check(groups_rel, self._by_code, self._merged)
+        qa = QA.check(groups_rel, self._by_code_scope, self._merged_scope)
         if self.opts.get('qa_gate', True) and qa.needs_gate():
             self._show_qa_gate(qa, lambda: self._export_after_qa(qa, confirm=False))
             return
@@ -5383,14 +5860,17 @@ class App(ctk.CTk):
         groups = self._ordered_groups()
         n_ov = 0
         if self.opts.get('fx', {}).get('dashboard', True):
-            ov = build_overview(groups, self._by_code, self._merged)
+            ov = build_overview(groups, self._by_code_scope, self._merged_scope,
+                                self._qty_show())
             n_ov = len(ov['rows'])
         ng, ns, np_ = exporter.estimate(
             groups, self.opts['n_per_slide'],
             overview_rows=n_ov,
             slides_per_file=self.opts.get('slides_per_file', 0),
             by_code=self._by_code, merged=self._merged,
-            pad_blank=self.opts.get('pad_blank_slides', False))
+            pad_blank=self.opts.get('pad_blank_slides', False),
+            store_index=bool(self.opts.get('store_index', True)),
+            qty_show=self._qty_show())
         cap = G.file_part_limit(self.opts.get('slides_per_file', 0))
         if np_ <= 1:
             split_txt = '1 file'
@@ -5422,7 +5902,7 @@ class App(ctk.CTk):
 
     def export_stamped(self):
         """Xuất ảnh đã đóng dấu ngày/vị trí — không tạo PPTX."""
-        groups_rel = self.imglib.groups()
+        groups_rel = self._photo_groups_for_list()
         if not groups_rel:
             messagebox.showwarning('Xuất ảnh', 'Chưa chọn thư mục ảnh.')
             return
@@ -5435,7 +5915,7 @@ class App(ctk.CTk):
                     'Chưa bật đóng dấu ngày/vị trí (tab Dấu / GPS).\n'
                     'Ảnh xuất ra sẽ giống bản gốc. Tiếp tục?'):
                 return
-        qa = QA.check(groups_rel, self._by_code, self._merged)
+        qa = QA.check(groups_rel, self._by_code_scope, self._merged_scope)
         if self.opts.get('qa_gate', True) and qa.needs_gate():
             self._show_qa_gate(qa, lambda: self._export_stamped_after_qa(qa, confirm=False))
             return
@@ -5467,7 +5947,7 @@ class App(ctk.CTk):
             layout={},
             groups=groups,
             excel_by_code=dict(self._by_code),
-            excel_rows=list(self.excel.rows),
+            excel_rows=list(self.excel.rows) + list(getattr(self.excel, 'off_rows', None) or []),
             avatar_map={},
             out_path=out_dir,
             fx=copy.deepcopy(self.opts.get('fx') or {}),
@@ -5632,7 +6112,7 @@ class App(ctk.CTk):
             layout=copy.deepcopy(self.layout),
             groups=groups,
             excel_by_code=dict(self._by_code),
-            excel_rows=list(self.excel.rows),
+            excel_rows=list(self.excel.rows) + list(getattr(self.excel, 'off_rows', None) or []),
             avatar_map=avatar_map,
             out_path=out,
             n_per_slide=self.opts['n_per_slide'],
@@ -5653,6 +6133,11 @@ class App(ctk.CTk):
             district_filter=self.opts.get('district_filter', ALL_DISTRICTS),
             split_export_by=self.opts.get('split_export_by', 'none'),
             export_pdf=bool(self.opts.get('export_pdf', False)),
+            qty_show=self._qty_show(),
+            store_index=bool(self.opts.get('store_index', True)),
+            excel_scope_by_code=dict(self._by_code_scope or self._by_code),
+            slide_w=self.slide_wh()[0],
+            slide_h=self.slide_wh()[1],
         )
 
         cancel = threading.Event()
@@ -5739,9 +6224,15 @@ class App(ctk.CTk):
                 if len(rep.files) > 12:
                     lines.append(f'   … còn {len(rep.files) - 12} ảnh')
         else:
+            idx_files = [f for f in rep.files
+                         if str(f).lower().endswith('_list_cuahang.xlsx')]
+            pptx_files = [f for f in rep.files if f not in idx_files]
             lines = [f'{rep.slides} slide — {rep.groups} nhóm — '
                      f'{rep.seconds:.1f} giây', '', 'File:']
-            lines += [f'   {f}' for f in rep.files]
+            lines += [f'   {f}' for f in pptx_files]
+            if idx_files:
+                lines += ['', 'List cửa hàng (khách, đúng thứ tự ảnh):']
+                lines += [f'   {f}' for f in idx_files]
             if checklist:
                 lines += ['', 'Checklist (nội bộ):', f'   {checklist}']
             if cl_err:
@@ -5845,6 +6336,15 @@ class App(ctk.CTk):
             menu.grab_release()
 
     def _show_settings(self):
+        old = getattr(self, '_settings_win', None)
+        if old is not None:
+            try:
+                if old.winfo_exists():
+                    old.lift()
+                    old.focus()
+                    return
+            except Exception:
+                pass
         win = ctk.CTkToplevel(self)
         win.title('Cài đặt')
         win.geometry('580x640')
@@ -5853,6 +6353,15 @@ class App(ctk.CTk):
             win.transient(self)
         except Exception:
             pass
+        self._settings_win = win
+
+        def _close_settings():
+            self._settings_win = None
+            try:
+                win.destroy()
+            except Exception:
+                pass
+        win.protocol('WM_DELETE_WINDOW', _close_settings)
         sc = ctk.CTkScrollableFrame(win, fg_color='transparent')
         sc.pack(fill='both', expand=True, padx=12, pady=12)
 
@@ -5876,7 +6385,7 @@ class App(ctk.CTk):
             self.cloud.key = ent_k.get().strip()
             self.cloud._client = None
             self._save_config()
-            win.destroy()
+            _close_settings()
             messagebox.showinfo('Cài đặt', 'Đã lưu. Đăng nhập lại để áp dụng URL/Key mới.')
         bar = ctk.CTkFrame(win, fg_color='transparent')
         bar.pack(fill='x', padx=16, pady=(0, 12))
@@ -5884,7 +6393,7 @@ class App(ctk.CTk):
                       command=_save).pack(side='right')
         ctk.CTkButton(bar, text='Đóng', width=90, fg_color=CARD,
                       hover_color=BORDER, text_color=TEXT,
-                      command=win.destroy).pack(side='right', padx=8)
+                      command=_close_settings).pack(side='right', padx=8)
 
     def _show_cloud_settings(self):
         self._show_settings()
@@ -6207,31 +6716,65 @@ class App(ctk.CTk):
     def _upload_excel_dialog(self):
         self.pick_master_excel(purpose='push')
 
-    def _do_upload_excel(self, path, target, win, then_load=False):
-        if win is not None:
+    def _do_upload_excel(self, path, target, win, then_load=False,
+                         pb=None, lbl=None, bar=None):
+        if bar is not None:
             try:
-                win.destroy()
+                for child in bar.winfo_children():
+                    child.configure(state='disabled')
             except Exception:
                 pass
+        if lbl is not None:
+            try:
+                lbl.configure(text='Đang đẩy FILE TỔNG lên Cloud…')
+            except Exception:
+                pass
+        if pb is not None:
+            try:
+                pb.set(0.08)
+            except Exception:
+                pass
+
+        def on_prog(frac, text):
+            def ui():
+                try:
+                    if pb is not None:
+                        pb.set(max(0.0, min(1.0, float(frac))))
+                    if lbl is not None:
+                        lbl.configure(text=text)
+                except Exception:
+                    pass
+            self.after(0, ui)
 
         def work():
             if target == 'all':
                 profiles = self.cloud.fetch_profiles()
-                res = self.cloud.upload_excel_broadcast(path, profiles)
+                res = self.cloud.upload_excel_broadcast(
+                    path, profiles, progress=on_prog)
             else:
-                res = self.cloud.upload_excel(path)
+                res = self.cloud.upload_excel(path, progress=on_prog)
 
             def done():
                 self.log('☁ ' + res.get('msg', ''))
-                if res.get('ok'):
-                    messagebox.showinfo('FILE TỔNG / MASTER',
-                                        res.get('msg', 'Đã đẩy FILE TỔNG lên Cloud.'))
-                    if then_load:
-                        load_path = res.get('path') or path
-                        self._load_excel_async(load_path)
-                else:
-                    messagebox.showerror('FILE TỔNG / MASTER',
-                                         res.get('msg', 'Không đẩy được FILE TỔNG.'))
+                ok = bool(res.get('ok'))
+                msg = res.get('msg', 'Đã đẩy FILE TỔNG lên Cloud.' if ok
+                              else 'Không đẩy được FILE TỔNG.')
+                try:
+                    if pb is not None:
+                        pb.set(1.0 if ok else 0)
+                    if lbl is not None:
+                        lbl.configure(text=msg)
+                    if bar is not None:
+                        for child in bar.winfo_children():
+                            try:
+                                child.configure(state='normal')
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                if ok and then_load:
+                    load_path = res.get('path') or path
+                    self._load_excel_async(load_path)
             self.after(0, done)
 
         threading.Thread(target=work, daemon=True).start()

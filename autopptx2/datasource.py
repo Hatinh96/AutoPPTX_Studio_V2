@@ -41,9 +41,11 @@ _COLUMN_ALIASES = {
     'Code_RP': ('coderp', 'codereport', 'reportcode', 'code', 'macode', 'mabaocao', 'marp',
                 'rpcode', 'madiadiem', 'madiem', 'storecode', 'storeid',
                 'siteid'),
-    'Name': ('name', 'ten', 'tendiadiem', 'pointname', 'truong', 'nameofblock'),
+    'Name': ('name', 'ten', 'tendiadiem', 'pointname', 'truong', 'nameofblock',
+             'tower'),
     'Location': ('location', 'khuvuc', 'vitri'),
-    'Address': ('address', 'diachi', 'addressmới', 'addressmoi'),
+    'Address': ('address', 'diachi', 'addressmới', 'addressmoi',
+                'addressdetail', 'addressdetaill'),
     'Ward': ('ward', 'phuong', 'wardmới', 'wardmoi'),
     'City': ('city', 'thanhpho', 'citymới', 'citymoi'),
     'District': ('district', 'quan', 'quanhuyen', 'distcũ', 'distcu'),
@@ -97,6 +99,10 @@ _FILL_KEYS = ('Code_RP', 'Name', 'Address', 'District', 'Channel',
               'Ward', 'City', 'TrafficDay', 'TrafficWeek', 'Type', 'Quantity')
 _SUBHEADER_HINTS = ('led', 'digitalposter', 'giantposter', 'lcdfront', 'dpf',
                     'digitalstandee')
+_HEADER_CODE_VALUES = (
+    'reportcode', 'coderp', 'codereport', 'code', 'name',
+    'mabaocao', 'macode', 'storecode',
+)
 
 
 def _is_blank(v):
@@ -149,15 +155,30 @@ _CITY_ALIAS = {
     'vung tau': 'ba ria vung tau',
     'da lat': 'lam dong',
     'nha trang': 'khanh hoa',
+    'binh tri thien': 'hue',
 }
+
+
+def _norm_place(val):
+    """Chuẩn hoá tên địa danh — KHÔNG quy về tỉnh như norm_city."""
+    s = str(clean(val) or '').strip().casefold().translate(_VI_ASCII)
+    s = _CITY_STRIP.sub('', s)
+    return re.sub(r'[\s_\-./]+', ' ', s).strip()
 
 
 def norm_city(city):
     """Tên tỉnh/thành để sắp xếp: bỏ dấu, bỏ tiền tố TP/Tỉnh."""
-    s = str(clean(city) or '').strip().casefold().translate(_VI_ASCII)
-    s = _CITY_STRIP.sub('', s)
-    s = re.sub(r'[\s_\-./]+', ' ', s).strip()
+    s = _norm_place(city)
     return _CITY_ALIAS.get(s, s)
+
+
+def is_province_name(val):
+    """True nếu đúng tên một tỉnh/thành (Đà Nẵng, Hồ Chí Minh).
+
+    'Vũng Tàu', 'Nha Trang', 'Đà Lạt' là TP thuộc tỉnh → False, vì ghi ở
+    cột District là hợp lệ, không được coi là dữ liệu lệch.
+    """
+    return _norm_place(val) in _CITY_INDEX
 
 
 def city_sort_key(city):
@@ -166,6 +187,58 @@ def city_sort_key(city):
     if not key:
         return (1, 999, '')
     return (0, _CITY_INDEX.get(key, 800), key)
+
+
+def place_is_city(val):
+    """True nếu giá trị là tên tỉnh/thành, không phải quận/phường."""
+    key = norm_city(val)
+    return bool(key) and key in _CITY_INDEX
+
+
+def place_is_code(val):
+    """True nếu ô địa lý bị dính mã Report Code (VD: VINHOMES…BLOCK…)."""
+    s = str(val or '').strip()
+    if len(s) < 10 or ' ' in s:
+        return False
+    compact = re.sub(r'[^A-Za-z0-9]', '', s)
+    return len(compact) >= 10 and compact.isalnum() and compact.upper() == compact
+
+
+def sanitize_place_fields(rec):
+    """Sửa District/City lệch: quận bị ghi tên tỉnh, City bị dính mã điểm."""
+    if not rec:
+        return rec
+    city = str(clean(rec.get('City')) or '').strip()
+    dist = str(clean(rec.get('District')) or '').strip()
+    if place_is_code(city):
+        rec['City'] = ''
+        city = ''
+    if not dist:
+        return rec
+    if is_province_name(dist):
+        # District ghi tên tỉnh → sai cấp. Lấy Ward làm quận nếu Ward dùng được.
+        ward = str(clean(rec.get('Ward')) or '').strip()
+        if not city:
+            rec['City'] = dist
+        if ward and not is_province_name(ward) and not place_is_code(ward):
+            rec['District'] = ward
+        else:
+            rec['District'] = ''
+    elif place_is_city(dist) and city and norm_city(dist) != norm_city(city):
+        # VD District 'Vũng Tàu' nhưng City lại là tỉnh khác → lệch.
+        rec['District'] = ''
+    return rec
+
+
+def normalize_qty_show(show=None):
+    """{LCD/DP/DS/GP/…: bool} — mặc định hiện hết loại màn trên ô Quantity."""
+    out = {key: True for key in _QTY_SHOW_ORDER}
+    if isinstance(show, dict):
+        for key, val in show.items():
+            ku = str(key or '').strip().upper()
+            if ku in out:
+                out[ku] = bool(val)
+    return out
 
 
 def sort_codes_by_city(codes, by_code, merged=None):
@@ -243,22 +316,60 @@ def geo_field_values(rows, field='City'):
 
 
 def filter_groups_by_geo(groups, by_code, merged=None, city=None, district=None,
-                         all_cities='Tất cả tỉnh', all_districts='Tất cả quận'):
-    """Lọc nhóm ảnh theo City / District trên Excel."""
+                         all_cities='Tất cả tỉnh', all_districts='Tất cả quận',
+                         channel=None, all_channels='Tất cả kênh'):
+    """Lọc nhóm ảnh theo City / District / Channel trên Excel."""
     groups = groups or {}
-    if (not city or city == all_cities) and (not district or district == all_districts):
+    ch_key = str(channel or '').strip()
+    use_ch = bool(ch_key and ch_key != all_channels)
+    use_city = bool(city and city != all_cities)
+    use_dist = bool(district and district != all_districts)
+    if not use_ch and not use_city and not use_dist:
         return OrderedDict(groups)
     if merged is None:
         merged = build_merged_groups(by_code or {})
     out = OrderedDict()
-    city_key = norm_city(city) if city and city != all_cities else ''
-    dist_key = str(district or '').strip().casefold() if district and district != all_districts else ''
+    city_key = norm_city(city) if use_city else ''
+    dist_key = str(district or '').strip().casefold() if use_dist else ''
     for code, paths in groups.items():
-        row, _, _ = match_row(code, by_code or {}, merged)
+        row, _, kind = match_row(code, by_code or {}, merged)
         row = row or {}
+        if use_ch:
+            if kind == 'none' or str(clean(row.get('Channel')) or '').strip() != ch_key:
+                continue
         if city_key and norm_city(row.get('City')) != city_key:
             continue
         if dist_key and str(clean(row.get('District')) or '').strip().casefold() != dist_key:
+            continue
+        out[code] = paths
+    return out
+
+
+def scope_by_channel(by_code, channel=None, all_channels='Tất cả kênh'):
+    """Thu hẹp bảng mã Excel về 1 kênh — dùng cho QA / Overview.
+
+    Việc KHỚP ảnh vẫn chạy trên bảng đầy đủ, nếu không ảnh sai kênh sẽ mất
+    tên/địa chỉ. Chỉ phần đối chiếu 'list chưa có ảnh' mới cần bó theo kênh.
+    """
+    ch = str(channel or '').strip()
+    if not by_code or not ch or ch == all_channels:
+        return OrderedDict(by_code or {})
+    return OrderedDict(
+        (k, v) for k, v in by_code.items()
+        if str(clean((v or {}).get('Channel')) or '').strip() == ch)
+
+
+def drop_off_groups(groups, off_codes):
+    """Bỏ nhóm ảnh thuộc cửa hàng tạm off trên hệ thống — không xuất slide."""
+    groups = groups or {}
+    off = {str(c).strip().upper() for c in (off_codes or ()) if str(c).strip()}
+    if not off:
+        return OrderedDict(groups)
+    out = OrderedDict()
+    for code, paths in groups.items():
+        key = str(code or '').strip().upper()
+        base, _sfx = strip_place_suffix(key)
+        if key in off or (base and str(base).strip().upper() in off):
             continue
         out[code] = paths
     return out
@@ -309,34 +420,112 @@ class ExcelSource:
         self.path = None
         self.mtime = None
         self.rows = []           # list[dict] khoá chuẩn Code_RP, Name, ...
+        self.off_rows = []       # cửa hàng tạm off trên hệ thống
+        self.off_codes = set()
         self.source_sheets = []
+        self.off_sheets = []
         self.error = None
 
     @staticmethod
-    def _data_sheets(wb):
-        """Ưu tiên sheet có chữ List (List CF, University List…). Không thì sheet đầu."""
-        listed = [ws for ws in wb.worksheets if 'list' in (ws.title or '').casefold()]
-        if listed:
-            return listed
-        return list(wb.worksheets[:1]) if wb.worksheets else []
+    def sheet_kind(title):
+        """list | off | deleted | other — sheet cửa hàng tạm off / xoá khỏi list."""
+        t = (title or '').casefold()
+        if any(k in t for k in ('xoá khỏi', 'xoa khoi', 'xóa khỏi')):
+            return 'deleted'
+        if any(k in t for k in (
+                'off trên hệ thống', 'off tren he thong',
+                'cửa hàng off', 'cua hang off',
+                'ap off', 'tạm off', 'tam off')):
+            return 'off'
+        if any(k in t for k in (
+                'mẫu list', 'mau list', 'hướng dẫn', 'huong dan',
+                'note màu', 'note mau', 'leader edit')):
+            return 'other'
+        if t.strip() in ('số 1', 'so 1'):
+            return 'other'
+        if 'list' in t:
+            return 'list'
+        return 'other'
+
+    @staticmethod
+    def _is_copy_sheet(title, listed_titles):
+        t = (title or '').strip()
+        if not re.search(r'[\(\[]\s*\d+\s*[\)\]]\s*$', t):
+            return False
+        base = re.sub(r'\s*[\(\[]\s*\d+\s*[\)\]]\s*$', '', t).strip().casefold()
+        return any((x or '').strip().casefold() == base for x in listed_titles)
+
+    @classmethod
+    def _data_sheets(cls, wb):
+        """Sheet List đang bán + sheet cửa hàng tạm off. Không lấy Summary/Xoá."""
+        listed, offs = [], []
+        for ws in wb.worksheets:
+            kind = cls.sheet_kind(ws.title)
+            if kind == 'list':
+                listed.append(ws)
+            elif kind == 'off':
+                offs.append(ws)
+        titles = [ws.title for ws in listed]
+        listed = [ws for ws in listed if not cls._is_copy_sheet(ws.title, titles)]
+        if not listed and wb.worksheets:
+            first = wb.worksheets[0]
+            if cls.sheet_kind(first.title) == 'other':
+                listed = [first]
+        return listed, offs
 
     def load(self, path):
         """Đọc file — gọi từ worker thread. Trả True nếu thành công."""
         from openpyxl import load_workbook
-        self.path, self.rows, self.source_sheets, self.error = path, [], [], None
+        self.path = path
+        self.rows, self.off_rows, self.source_sheets, self.off_sheets = [], [], [], []
+        self.off_codes, self.error = set(), None
         try:
             self.mtime = os.path.getmtime(path)
             wb = load_workbook(path, read_only=True, data_only=True)
-            for ws in self._data_sheets(wb):
+            listed, offs = self._data_sheets(wb)
+            for ws in listed:
                 chunk = self._worksheet_rows(ws)
                 for rec in chunk:
                     rec['_SourceSheet'] = ws.title
+                    rec['_SiteStatus'] = 'on'
+                    if not str(rec.get('Channel') or '').strip():
+                        rec['Channel'] = self._channel_from_sheet(ws.title)
                 self.rows.extend(chunk)
                 if chunk:
                     self.source_sheets.append(ws.title)
+            for ws in offs:
+                chunk = self._worksheet_rows(ws)
+                for rec in chunk:
+                    rec['_SourceSheet'] = ws.title
+                    rec['_SiteStatus'] = 'off'
+                    if not str(rec.get('Channel') or '').strip():
+                        rec['Channel'] = self._channel_from_sheet(ws.title)
+                    if not str(rec.get('Note') or '').strip():
+                        rec['Note'] = 'TẠM OFF'
+                    code = str(rec.get('Code_RP') or '').strip().upper()
+                    if code:
+                        self.off_codes.add(code)
+                self.off_rows.extend(chunk)
+                if chunk:
+                    self.off_sheets.append(ws.title)
             wb.close()
-            if not self.rows:
+            file_ch = self._channel_from_path(path)
+            if file_ch == 'Building Premium':
+                for rec in list(self.rows) + list(self.off_rows):
+                    ch = str(rec.get('Channel') or '').strip().casefold()
+                    if not ch or ch in ('building', 'digital building'):
+                        rec['Channel'] = 'Building Premium'
+            if self.off_codes:
+                self.rows = [
+                    r for r in self.rows
+                    if str(r.get('Code_RP') or '').strip().upper() not in self.off_codes
+                ]
+            if not self.rows and not self.off_rows:
                 self.error = "Không tìm thấy dòng tiêu đề chứa cột Code_RP."
+                return False
+            if not self.rows and self.off_rows:
+                self.error = (
+                    f"File chỉ có {len(self.off_rows)} cửa hàng tạm off — không còn điểm đang bán.")
                 return False
             return True
         except Exception as e:
@@ -364,11 +553,33 @@ class ExcelSource:
                 for idx, key in extra.items():
                     header_map.setdefault(idx, key)
                 header_idx = i + 1
+            header_map = self._fill_implied_columns(header_map, row)
             break
         if header_map is None:
             return []
         rows, prev = [], {}
-        for row in all_rows[header_idx + 1:]:
+        skip_next = False
+        data_rows = all_rows[header_idx + 1:]
+        for j, row in enumerate(data_rows):
+            if skip_next:
+                skip_next = False
+                continue
+            remap = self._map_columns(row, require_code=True)
+            code_idx = next((i for i, k in (remap or {}).items() if k == 'Code_RP'), None)
+            header_cell = ''
+            if remap and code_idx is not None and row and code_idx < len(row):
+                header_cell = row[code_idx]
+            if remap and self._is_header_code(header_cell):
+                header_map = dict(remap)
+                nxt = data_rows[j + 1] if j + 1 < len(data_rows) else None
+                if nxt is not None and self._looks_like_subheader(nxt):
+                    extra = self._map_columns(nxt, require_code=False)
+                    for idx, key in extra.items():
+                        header_map.setdefault(idx, key)
+                    skip_next = True
+                header_map = self._fill_implied_columns(header_map, row)
+                prev = {}
+                continue
             rec = self._row_record(row, header_map)
             has_code = bool(str(rec.get('Code_RP') or '').strip())
             has_loc = bool(str(clean(rec.get('Location') or '')).strip())
@@ -379,11 +590,77 @@ class ExcelSource:
                 if _is_blank(rec.get(k)) and not _is_blank(prev.get(k)):
                     rec[k] = prev[k]
             code = str(rec.get('Code_RP') or '').strip()
-            if code and code.lower() != 'nan':
+            if self._is_header_code(code) or code.lower() == 'nan':
+                continue
+            if self._is_total_label(code) or self._is_total_label(rec.get('Name')):
+                continue
+            if self._is_total_label(rec.get('Channel')):
+                rec['Channel'] = ''
+            for k in ('Name', 'City', 'District', 'Address', 'Channel'):
+                if k in rec:
+                    rec[k] = str(clean(rec.get(k)) or '').strip()
+            if code:
                 rec['Code_RP'] = code
                 rows.append(rec)
                 prev = rec
         return rows
+
+    @staticmethod
+    def _is_header_code(v):
+        return _norm_header(v) in _HEADER_CODE_VALUES
+
+    @staticmethod
+    def _is_total_label(v):
+        return str(v or '').replace(' ', '').casefold().startswith('total')
+
+    @staticmethod
+    def _fill_implied_columns(header_map, header_row=None):
+        """File W01 để trống tiêu đề Name / Chanel cạnh Report Code."""
+        header_map = dict(header_map or {})
+        used = set(header_map.values())
+        code_idx = next((i for i, k in header_map.items() if k == 'Code_RP'), None)
+        if code_idx is None:
+            return header_map
+
+        def _blank_at(idx):
+            if header_row is None or idx < 0 or idx >= len(header_row):
+                return True
+            return _is_blank(header_row[idx])
+
+        if 'Name' not in used and (code_idx + 1) not in header_map and _blank_at(code_idx + 1):
+            header_map[code_idx + 1] = 'Name'
+        if ('Channel' not in used and code_idx > 0
+                and (code_idx - 1) not in header_map and _blank_at(code_idx - 1)):
+            header_map[code_idx - 1] = 'Channel'
+        return header_map
+
+    @staticmethod
+    def _channel_from_path(path):
+        stem = os.path.splitext(os.path.basename(path or ''))[0].casefold()
+        if 'premium' in stem and 'building' in stem:
+            return 'Building Premium'
+        return ''
+
+    @staticmethod
+    def _channel_from_sheet(title):
+        t = (title or '').casefold()
+        if '30 shine' in t or '30shine' in t:
+            return 'Beauty Salon (30Shine)'
+        if 'beauty' in t or 'salon' in t:
+            return 'Beauty Salon'
+        if 'coffee' in t or 'milk' in t:
+            return 'Coffee & Milk Tea'
+        if 'fastfood' in t or 'fast food' in t:
+            return 'Fastfood'
+        if 'hotel' in t or 'resort' in t:
+            return 'Hotel & Resort'
+        if 'university' in t:
+            return 'University'
+        if 'premium' in t:
+            return 'Building Premium'
+        if 'building' in t:
+            return 'Building'
+        return ''
 
     @staticmethod
     def _map_columns(row, require_code=True):
@@ -423,7 +700,7 @@ class ExcelSource:
             if key in rec and not _is_blank(rec.get(key)):
                 continue
             rec[key] = val
-        return rec
+        return sanitize_place_fields(rec)
 
     @staticmethod
     def _map_header(row):
@@ -438,13 +715,17 @@ class ExcelSource:
                 seen.append(c)
         return sorted(seen)
 
-    def by_code(self, channel=None):
+    def by_code(self, channel=None, include_off=False):
         """{CODE (hoa): row đại diện} — lọc theo kênh nếu có.
 
         Nhiều dòng cùng mã (từng khu / loại màn) được cộng số lượng vào dòng đầu.
+        include_off=True: thêm cửa hàng tạm off để nhận ảnh cũ.
         """
         groups = OrderedDict()
-        for r in self.rows:
+        source = list(self.rows)
+        if include_off:
+            source.extend(self.off_rows)
+        for r in source:
             if channel:
                 if str(clean(r.get('Channel'))).strip().casefold() != channel.casefold():
                     continue
@@ -468,7 +749,7 @@ class ExcelSource:
         if not key:
             return []
         out = []
-        for r in self.rows:
+        for r in list(self.rows) + list(self.off_rows):
             if str(r.get('Code_RP') or '').strip().upper() != key:
                 continue
             if channel:
@@ -479,11 +760,14 @@ class ExcelSource:
 
 
 def looks_like_order_list(path, source_sheets=None):
-    """File kiểu List CF / University List — slide nên theo STT trên Excel."""
+    """File xếp slide kiểu List CF.xlsx / University List.xlsx — không phải FILE TỔNG Wxx."""
     stem = os.path.splitext(os.path.basename(path or ''))[0].strip().casefold()
-    if stem.startswith('list') or stem.endswith('list') or ' list' in f' {stem} ':
-        return True
-    return any('list' in str(title or '').casefold() for title in (source_sheets or []))
+    if stem.startswith('w') and re.match(r'w\d+', stem.replace(' ', '')):
+        return False
+    if 'golden 2026' in stem or 'standard_master' in stem or 'all_channels' in stem:
+        return False
+    return (stem.startswith('list') or stem.endswith('list')
+            or ' list' in f' {stem} ')
 
 
 def inspect_excel(path):
@@ -509,6 +793,8 @@ def inspect_excel(path):
         'sample_codes': sample,
         'prefer_list_order': looks_like_order_list(path, src.source_sheets),
         'source_sheets': list(src.source_sheets),
+        'n_off': len(src.off_rows),
+        'off_sheets': list(src.off_sheets),
         'error': '',
     }
 
@@ -879,32 +1165,42 @@ def match_row(code, by_code, merged=None):
         return merge_rows(merged[key]), key, 'merged'
     if merged and sfx and base in merged:
         return merge_rows(merged[base]), base, 'merged'
-    cand = difflib.get_close_matches(key, list(by_code), n=1, cutoff=0.84)
+    on_keys = [k for k, r in by_code.items()
+               if str((r or {}).get('_SiteStatus') or '').strip().casefold() != 'off']
+    pool = on_keys or list(by_code)
+    cand = difflib.get_close_matches(key, pool, n=1, cutoff=0.84)
     if not cand and sfx and base:
-        cand = difflib.get_close_matches(base, list(by_code), n=1, cutoff=0.84)
+        cand = difflib.get_close_matches(base, pool, n=1, cutoff=0.84)
     if cand:
-        return by_code[cand[0]], cand[0], 'fuzzy'
+        row = by_code[cand[0]]
+        if str((row or {}).get('_SiteStatus') or '').strip().casefold() == 'off':
+            return {}, None, 'none'
+        return row, cand[0], 'fuzzy'
     return {}, None, 'none'
 
 
 # ════════════════════════════════════════════════════════════
 #  Khối Thông tin — dựng chung cho preview & export
 # ════════════════════════════════════════════════════════════
-def screen_parts(row):
-    """[(số, nhãn)] các loại màn > 0."""
+def screen_parts(row, show=None):
+    """[(số, nhãn)] các loại màn > 0. `show` ẩn LCD/DP/GP nếu user tắt."""
     row = row or {}
+    allowed = normalize_qty_show(show)
     out = []
     gp_parts = []
-    for key, lab in _GP_FORM_COLS:
-        n = to_qty(row.get(key))
-        if n > 0:
-            gp_parts.append((n, lab))
+    if allowed.get('GP', True):
+        for key, lab in _GP_FORM_COLS:
+            n = to_qty(row.get(key))
+            if n > 0:
+                gp_parts.append((n, lab))
     is_building = 'building' in str(clean(row.get('Channel'))).strip().casefold()
     # Building's generic LCD/GP fields are legacy aggregates (LCD is often
     # lifts and GP is the AP total), so placement-level GP is authoritative.
     if is_building and gp_parts:
         return gp_parts
     for key, lab in _FORM_COLS:
+        if not allowed.get(key, True):
+            continue
         n = to_qty(row.get(key))
         if n > 0:
             out.append((n, lab))
@@ -913,12 +1209,13 @@ def screen_parts(row):
     return out
 
 
-def screen_qty(row):
+def screen_qty(row, show=None):
     """Số màn tại điểm: LCD + DP + GP + DS (+ DPS/DPF/LED nếu có).
 
     Không dùng cột Quantity — list khách sạn thường ghi số phòng vào đó.
+    `show` ẩn loại đã tắt (cùng quy tắc Quantity).
     """
-    parts = screen_parts(row)
+    parts = screen_parts(row, show)
     total = sum(n for n, _ in parts)
     if total <= 0:
         total = to_qty((row or {}).get('so_man_slot'))
@@ -975,13 +1272,14 @@ def location_fx_fields(row):
 _QTY_SHOW_ORDER = ('LCD', 'DP', 'DS', 'GP', 'DPS', 'DPF', 'LED')
 
 
-def _combined_screen_parts(row):
+def _combined_screen_parts(row, show=None):
     """Return non-GP screen forms in the same order as Sales Quantity."""
     row = row or {}
+    allowed = normalize_qty_show(show)
     rank = {label: index for index, label in enumerate(_QTY_SHOW_ORDER)}
     parts = []
     for key, label in _FORM_COLS:
-        if key == 'GP':
+        if key == 'GP' or not allowed.get(key, True):
             continue
         qty = to_qty(row.get(key))
         if qty > 0:
@@ -998,7 +1296,7 @@ def _combined_screen_summary(parts):
     return f'{total} ({detail})'
 
 
-def _quantity_text(row, n_files=0):
+def _quantity_text(row, n_files=0, show=None):
     """Quantity trên slide = tổng màn + tách loại, giống AutoPPTX cũ.
 
     V1 ghép `{tổng} ({n DP}, {n LCD}, …)` từ cột LCD/DP/GP/DS — không lấy
@@ -1006,7 +1304,7 @@ def _quantity_text(row, n_files=0):
     loại màn = 0 (Coffee/Beauty). Không lấy số phòng khi đã có số màn.
     """
     row = row or {}
-    parts = screen_parts(row)
+    parts = screen_parts(row, show)
     n = sum(c for c, _ in parts)
     if n <= 0:
         n = to_qty(row.get('so_man_slot'))
@@ -1068,13 +1366,13 @@ def info_row_weights(rows, total_w_in=3.0):
     return weights
 
 
-def build_info_rows(row, n_files=0):
+def build_info_rows(row, n_files=0, qty_show=None):
     """[(nhãn, giá trị, là_dòng_nhấn)] cho khối Thông tin mẫu báo cáo cũ."""
     row = row or {}
     return [
         ("Address", str(clean(row.get('Address'))), False),
         ("District", format_district_display(row.get('District')), False),
-        ("Quantity", _quantity_text(row, n_files), False),
+        ("Quantity", _quantity_text(row, n_files, qty_show), False),
         ("Traffic / day", fmt_num(row.get('TrafficDay')), True),
         ("Traffic / week", fmt_num(row.get('TrafficWeek')), True),
     ]
@@ -1118,7 +1416,11 @@ def _address_line(row):
         parts.append(addr)
     if ward:
         wl = ward.lower()
-        if wl[:1].isdigit():
+        if place_is_city(ward):
+            # TP thuộc tỉnh (Vũng Tàu, Nha Trang) — để nguyên, không gắn 'Phường'.
+            if _norm_place(ward) != _norm_place(city):
+                parts.append(ward)
+        elif wl[:1].isdigit():
             parts.append('Quận ' + ward)
         elif wl.startswith(('phường', 'phuong', 'quận', 'quan', 'p.', 'q.', 'tp')):
             parts.append(ward)
@@ -1145,9 +1447,9 @@ def _fmt_traffic(row):
     return fmt_num(v)
 
 
-def build_nelson_table(row, siblings=None):
+def build_nelson_table(row, siblings=None, qty_show=None):
     """Bảng NELSON chi tiết: Số lượng | Note | Hình thức (từ specs SALESKIT)."""
-    base = build_info_table(row, siblings)
+    base = build_info_table(row, siblings, qty_show)
     specs = []
     for s in base.get('specs') or []:
         note = str(s.get('note') or '').strip()
@@ -1163,12 +1465,13 @@ def build_nelson_table(row, siblings=None):
     return {'specs': specs}
 
 
-def build_info_table(row, siblings=None):
+def build_info_table(row, siblings=None, qty_show=None):
     """Khung bảng SALESKIT: ĐỊA ĐIỂM / ĐỊA CHỈ / TRAFFIC + từng khu-loại màn."""
     siblings = [r for r in (siblings or []) if r]
     if not siblings and row:
         siblings = [row]
     head = siblings[0] if siblings else (row or {})
+    allowed = normalize_qty_show(qty_show)
     specs = []
     for r in siblings:
         area = _khu_vuc(r)
@@ -1177,7 +1480,9 @@ def build_info_table(row, siblings=None):
         note = _note_text(r)
         detailed_gp = sum(to_qty(r.get(key)) for key, _ in _GP_FORM_COLS)
         gp_qty = to_qty(r.get('GP')) or detailed_gp
-        screen_forms = _combined_screen_parts(r)
+        if not allowed.get('GP', True):
+            gp_qty = 0
+        screen_forms = _combined_screen_parts(r, allowed)
         if screen_forms:
             # Match the Sales Quantity presentation: all digital formats use
             # one row and share the screen Size from the master.
@@ -1240,7 +1545,42 @@ def _ov_status(photos, screens, kind):
     return 'du', 'ĐỦ'
 
 
-def build_overview(groups, by_code, merged=None):
+def build_store_index(groups, by_code, merged=None, qty_show=None):
+    """List cửa hàng đúng thứ tự nhóm ảnh / slide — không xếp lại theo QA.
+
+    Mỗi dòng: STT, mã, tên, quận, tỉnh, kênh, số ảnh, số màn, đủ/thiếu.
+    """
+    groups = groups or {}
+    by_code = by_code or {}
+    if merged is None:
+        merged = build_merged_groups(by_code)
+    rows = []
+    for i, (code, paths) in enumerate(groups.items(), 1):
+        row, mcode, kind = match_row(code, by_code, merged)
+        row = row or {}
+        photos = len(paths or [])
+        screens = screen_qty(row, qty_show)
+        st, label = _ov_status(photos, screens, kind)
+        if str(row.get('_SiteStatus') or '').strip().casefold() == 'off':
+            label = 'Tạm off — ảnh cũ'
+        rows.append({
+            'stt': i,
+            'code': str(code or ''),
+            'excel_code': str(mcode or row.get('Code_RP') or code or ''),
+            'name': str(clean(row.get('Name')) or '').strip() or str(code or ''),
+            'district': str(clean(row.get('District')) or '').strip(),
+            'city': str(clean(row.get('City')) or '').strip(),
+            'channel': str(clean(row.get('Channel')) or '').strip(),
+            'photos': photos,
+            'screens': screens,
+            'status': st,
+            'label': label,
+            'kind': kind,
+        })
+    return rows
+
+
+def build_overview(groups, by_code, merged=None, qty_show=None):
     """Đối chiếu từng cửa hàng: số ảnh đã up vs số màn hình trên Excel.
 
     Trả dict rows + tổng: du / thieu / thua / chua_excel / excel_chua_anh.
@@ -1252,10 +1592,12 @@ def build_overview(groups, by_code, merged=None):
     for code, paths in groups.items():
         row, mcode, kind = match_row(code, by_code, merged)
         photos = len(paths or [])
-        screens = screen_qty(row)
+        screens = screen_qty(row, qty_show)
         name = str(clean((row or {}).get('Name'))).strip() or str(code)
         district = str(clean((row or {}).get('District'))).strip()
         st, label = _ov_status(photos, screens, kind)
+        if str((row or {}).get('_SiteStatus') or '').strip().casefold() == 'off':
+            label = 'Tạm off — ảnh cũ'
         if mcode:
             matched_excel.add(str(mcode).strip().upper())
         rows.append({
@@ -1277,6 +1619,8 @@ def build_overview(groups, by_code, merged=None):
         for k, row in by_code.items():
             ku = str(k).strip().upper()
             if ku in matched_excel or ku in photo_keys:
+                continue
+            if str((row or {}).get('_SiteStatus') or '').strip().casefold() == 'off':
                 continue
             excel_no_photo.append(ku)
     excel_no_photo.sort()

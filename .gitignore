@@ -27,6 +27,9 @@ outputs/
 _build_w33_master.py
 _merge_building_w31.py
 _w33_building_merge_summary.txt
+_*.json
+_*.py
+_*.txt
 
 # Environment / Secret variables
 .env
