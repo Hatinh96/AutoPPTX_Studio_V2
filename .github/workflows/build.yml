@@ -42,10 +42,13 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
+      # cryptography >= 49 bỏ wheel Mac Intel -> pip tự build, link OpenSSL Homebrew,
+      # rồi PyInstaller nhét nhầm libssl.3.dylib cũ của Python -> supabase không nạp
+      # được. --only-binary buộc lấy wheel (Intel: 48.x universal2, OpenSSL tĩnh).
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install --only-binary=cryptography -r requirements.txt
           python -m pip install pyinstaller
 
       # Python của setup-python link _tkinter với Tcl/Tk 8.6 trong Homebrew.

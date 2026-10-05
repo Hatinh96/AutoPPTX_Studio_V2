@@ -12,10 +12,17 @@ esac
 echo "Building AutoPPTX Studio V2 for macOS ($ARCH -> $ARCH_LABEL)..."
 
 python3 -m pip install --upgrade pip
-python3 -m pip install -r requirements.txt
+# Mac Intel: cryptography >= 49 không còn wheel -> build từ nguồn sẽ link OpenSSL
+# Homebrew và xung đột libssl.3.dylib khi đóng gói. Chỉ nhận wheel.
+python3 -m pip install --only-binary=cryptography -r requirements.txt
 python3 -m pip install pyinstaller
 
 python3 -m PyInstaller --noconfirm AutoPPTX_Studio_V2.spec
+
+"dist/AutoPPTX_Studio_V2.app/Contents/MacOS/AutoPPTX_Studio_V2" --selftest || {
+    echo "Self-test FAIL — xem dòng FAIL ở trên trước khi phát hành."
+    exit 1
+}
 
 ZIP_OUT="dist/AutoPPTX_Studio_V2-macOS-$ARCH_LABEL.zip"
 
