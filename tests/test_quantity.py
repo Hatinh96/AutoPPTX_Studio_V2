@@ -119,6 +119,13 @@ class QuantityScreensTests(unittest.TestCase):
         )
         self.assertEqual(screen_qty(row), 13)
 
+    def test_digital_building_keeps_dp_next_to_gp_placements(self):
+        row = {
+            'Name': 'Premium A', 'Channel': 'Building Premium',
+            'LCD': 7, 'DP': 6, 'GP': 40, 'GP_Inside': 2,
+        }
+        self.assertEqual(screen_qty(row), 8)
+
     def test_qty_show_hides_gp_from_screen_count(self):
         row = {'LCD': 2, 'DP': 6, 'GP': 10}
         self.assertEqual(screen_qty(row), 18)

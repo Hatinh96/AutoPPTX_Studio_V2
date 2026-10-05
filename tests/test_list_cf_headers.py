@@ -142,6 +142,8 @@ def _audit_book(path):
                '9 Nguyễn Trãi, Phường 2', 'Quận 1', 'Hồ Chí Minh', 900, 34000])
     bs.append([8, 'APHUGE', 'Block H', '10 Nguyễn Trãi', 1, 'Hồ Chí Minh',
                20, 300, 900, 2, 64000])
+    bs.append([9, 'APBIG', 'Block B', '11 Nguyễn Trãi', 1, 'Hồ Chí Minh',
+               20, 300, 900, 2, 1010])
     wb.save(path)
 
 
@@ -180,3 +182,4 @@ class TestLoadAudit(unittest.TestCase):
     def test_warns_about_impossible_screen_count(self):
         self.assertIn('APHUGE', self.text)
         self.assertIn('bất thường', self.text)
+        self.assertIn('1 dòng có số màn bất thường', self.text)

@@ -146,8 +146,9 @@ _IGNORED_NUM_PREFIX = _NOT_SCREEN_PREFIX + (
 # Ô Total của nhóm số màn (ô cha đã gộp) — dùng đối chiếu khi nạp file.
 _TOTAL_PARENTS = ('quantity', 'soluong', 'positionbooking')
 _TOTAL_HEADERS = ('qtygpofap', 'totalscreen', 'totalscreens', 'tongman', 'tongsoman')
-# List BD thật: một dòng nhiều nhất ~160 màn/GP. Vượt xa là số traffic rơi nhầm cột.
-_MAX_SCREENS_PER_ROW = 500
+# Master gộp cả trường vào một dòng (ĐH Quốc Gia CS2 ~1000 màn); số traffic /
+# impression rơi nhầm cột thì lên hàng chục nghìn.
+_MAX_SCREENS_PER_ROW = 1500
 
 _QTY_KEYS = (
     'DP', 'LCD', 'GP', 'DS', 'DPS', 'DPF', 'LED',
@@ -1533,8 +1534,15 @@ def screen_parts(row, show=None):
     is_building = 'building' in str(clean(row.get('Channel'))).strip().casefold()
     # Building's generic LCD/GP fields are legacy aggregates (LCD is often
     # lifts and GP is the AP total), so placement-level GP is authoritative.
+    # Digital Building DP/DS are real screens and stay.
     if is_building and gp_parts:
-        return gp_parts
+        for key, lab in _FORM_COLS:
+            if key in ('LCD', 'GP') or not allowed.get(key, True):
+                continue
+            n = to_qty(row.get(key))
+            if n > 0:
+                out.append((n, lab))
+        return out + gp_parts
     for key, lab in _FORM_COLS:
         if not allowed.get(key, True):
             continue
