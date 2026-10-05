@@ -49,7 +49,8 @@ _COLUMN_ALIASES = {
                 'addressdetail', 'addressdetaill'),
     'Ward': ('ward', 'phuong', 'wardmới', 'wardmoi'),
     'City': ('city', 'thanhpho', 'citymới', 'citymoi'),
-    'District': ('district', 'quan', 'quanhuyen', 'distcũ', 'distcu'),
+    'District': ('district', 'quan', 'quanhuyen', 'distcũ', 'distcu', 'distold', 'dist',
+                 'districtcu', 'districtold'),
     'Channel': ('channel', 'chanel', 'kenh', 'kenhquangcao', 'kenhqc',
                 'advertisingchannel', 'adchannel', 'saleschannel'),
     'Type': ('type', 'hinhthuc', 'format'),
@@ -57,7 +58,8 @@ _COLUMN_ALIASES = {
     'GP_Size': ('gpsize', 'sizegp', 'kichthuocgp', 'giantpostersize'),
     'Note': ('note', 'notes', 'ghichu'),
     'Except': ('except', 'exceptbrand', 'exceptbrandcantadvertised'),
-    'DP': ('dp', 'digitalposterinsideelevator'),
+    'DP': ('dp', 'digitalposter', 'digitalposterinsideelevator',
+           'digitalposterfrontofelevator'),
     'LCD': ('lcd', 'lcdfrontofelevator', 'lcdothers'),
     'GP': ('gp', 'giantposterinsideelevator', 'giantposteroutsidegroundfloor',
            'giantposteroutsideparkingfloor', 'giantposterstudyautox2forsale'),
@@ -67,6 +69,7 @@ _COLUMN_ALIASES = {
     'GP_Parking': ('gpparking', 'qtyofgpparkingfloor',
                    'giantposteroutsideparkingfloor'),
     'GP_Study': ('gpstudy', 'giantposterstudy', 'giantposterstudyautox2forsale'),
+    'GP_Floor': ('gpfloor', 'qtyofgpstay', 'qtyofgpotherfloor'),
     'DS': ('ds', 'digitalposterothersdigitalstandee', 'digitalstandee'),
     'DPS': ('dps', 'digitalposterstair'),
     'DPF': ('dpf', 'digitalposterinfontoffloor', 'dpfdigitalposterinfontoffloor'),
@@ -75,11 +78,82 @@ _COLUMN_ALIASES = {
     'TrafficWeek': ('trafficweek', 'traffictuan', 'trafficwk'),
     'Quantity': ('quantity', 'soluong', 'qty'),
 }
+_GP_WORDS = (
+    (('inside',), 'GP_Inside'),
+    (('ground',), 'GP_Ground'),
+    (('facilit', 'tienich'), 'GP_Facilities'),
+    (('parking', 'guixe'), 'GP_Parking'),
+    (('study',), 'GP_Study'),
+    (('stay', 'otherfloor', 'randomfloor'), 'GP_Floor'),
+)
+_NOT_QTY_WORDS = ('size', 'inch', 'kichthuoc', 'note', 'ghichu', 'type', 'loai')
+# "Q.ty of Floor (For Giant Poster Available)" là số tầng, không phải GP.
+_NOT_SCREEN_PREFIX = (
+    'qtyoffloor', 'qtyofapartment', 'qtyoflift', 'qtyofelevator', 'residenttraffic',
+    'visitor', 'impression', 'seats', 'quantityofroom', 'star', 'positionbooking',
+)
+
+
+def _keyword_column(n):
+    """Cột không khớp đúng tên alias — đoán theo từ khoá.
+
+    BD hay thêm ghi chú vào tiêu đề ("Qty of GP Parking floor (Tầng gửi xe)",
+    "Address (mới)"), nên không thể liệt kê hết biến thể.
+    """
+    if n.startswith(('trafficday', 'trafficngay')):
+        return 'TrafficDay'
+    if n.startswith(('trafficweek', 'trafficwk', 'traffictuan')):
+        return 'TrafficWeek'
+    if n.startswith(('district', 'distold', 'distcu', 'quanhuyen')):
+        return 'District'
+    if n.startswith(('address', 'diachi')):
+        return 'Address'
+    if n.startswith(('ward', 'phuong')):
+        return 'Ward'
+    if n.startswith('city'):
+        return 'City'
+    if n.startswith(_NOT_SCREEN_PREFIX) or any(w in n for w in _NOT_QTY_WORDS):
+        return None
+    if 'giantposter' in n or n.startswith('qtyofgp'):
+        for words, canon in _GP_WORDS:
+            if any(w in n for w in words):
+                return canon
+        return 'GP' if 'giantposter' in n else None
+    if 'digitalposter' in n:
+        if 'stair' in n:
+            return 'DPS'
+        if 'floor' in n and ('infont' in n or 'infront' in n):
+            return 'DPF'
+        if 'standee' in n:
+            return 'DS'
+        return 'DP'
+    if 'standee' in n:
+        return 'DS'
+    if n.startswith('lcd'):
+        return 'LCD'
+    if n.startswith('led'):
+        return 'LED'
+    return None
+
+
+# Cột số tool cố ý bỏ qua — cột số khác chưa nhận được sẽ bị cảnh báo khi nạp file.
+_IGNORED_NUM_EXACT = ('no', 'stt', 'nam', 'year', 'zip')
+_IGNORED_NUM_PREFIX = _NOT_SCREEN_PREFIX + (
+    'qtygpofap', 'total', 'tong', 'lat', 'lng', 'lon', 'kinhdo', 'vido', 'phone', 'sdt',
+    'stt', 'uptime', 'region', 'lift', 'room', 'apartment', 'floor', 'canho', 'sotang',
+    'thangmay', 'phong',
+)
+# Ô Total của nhóm số màn (ô cha đã gộp) — dùng đối chiếu khi nạp file.
+_TOTAL_PARENTS = ('quantity', 'soluong', 'positionbooking')
+_TOTAL_HEADERS = ('qtygpofap', 'totalscreen', 'totalscreens', 'tongman', 'tongsoman')
+# List BD thật: một dòng nhiều nhất ~160 màn/GP. Vượt xa là số traffic rơi nhầm cột.
+_MAX_SCREENS_PER_ROW = 500
 
 _QTY_KEYS = (
     'DP', 'LCD', 'GP', 'DS', 'DPS', 'DPF', 'LED',
-    'GP_Inside', 'GP_Ground', 'GP_Facilities', 'GP_Parking', 'GP_Study',
+    'GP_Inside', 'GP_Ground', 'GP_Facilities', 'GP_Parking', 'GP_Study', 'GP_Floor',
 )
+_NUMERIC_KEYS = _QTY_KEYS + ('TrafficDay', 'TrafficWeek', 'Quantity')
 _FORM_COLS = (
     ('DPS', 'DPS'),
     ('DP', 'DP'),
@@ -95,11 +169,21 @@ _GP_FORM_COLS = (
     ('GP_Facilities', 'GP tiện ích'),
     ('GP_Parking', 'GP gửi xe'),
     ('GP_Study', 'GP study'),
+    ('GP_Floor', 'GP tầng'),
 )
 _FILL_KEYS = ('Code_RP', 'Name', 'Address', 'District', 'Channel',
               'Ward', 'City', 'TrafficDay', 'TrafficWeek', 'Type', 'Quantity')
 _SUBHEADER_HINTS = ('led', 'digitalposter', 'giantposter', 'lcdfront', 'dpf',
                     'digitalstandee')
+# Tiêu đề 2 tầng (List CF): ô con chỉ có nghĩa khi đọc kèm ô cha đã gộp.
+_GROUPED_SUBHEADERS = (
+    ('quantity', 'total', 'Quantity'),
+    ('soluong', 'total', 'Quantity'),
+    ('traffic', 'day', 'TrafficDay'),
+    ('traffic', 'ngay', 'TrafficDay'),
+    ('traffic', 'week', 'TrafficWeek'),
+    ('traffic', 'tuan', 'TrafficWeek'),
+)
 _HEADER_CODE_VALUES = (
     'reportcode', 'coderp', 'codereport', 'code', 'name',
     'mabaocao', 'macode', 'storecode',
@@ -426,6 +510,7 @@ class ExcelSource:
         self.source_sheets = []
         self.off_sheets = []
         self.error = None
+        self.warnings = []       # kiểm tra lúc nạp: lệch cột Total, cột lạ, dòng lệch cột
 
     @staticmethod
     def sheet_kind(title):
@@ -480,6 +565,7 @@ class ExcelSource:
         self.path = path
         self.rows, self.off_rows, self.source_sheets, self.off_sheets = [], [], [], []
         self.off_codes, self.error = set(), None
+        self.warnings = []
         try:
             self.mtime = os.path.getmtime(path)
             wb = load_workbook(path, read_only=True, data_only=True)
@@ -491,6 +577,7 @@ class ExcelSource:
                     rec['_SiteStatus'] = 'on'
                     if not str(rec.get('Channel') or '').strip():
                         rec['Channel'] = self._channel_from_sheet(ws.title)
+                self._audit_sheet(ws.title, chunk)
                 self.rows.extend(chunk)
                 if chunk:
                     self.source_sheets.append(ws.title)
@@ -506,6 +593,7 @@ class ExcelSource:
                     code = str(rec.get('Code_RP') or '').strip().upper()
                     if code:
                         self.off_codes.add(code)
+                self._audit_sheet(ws.title, chunk)
                 self.off_rows.extend(chunk)
                 if chunk:
                     self.off_sheets.append(ws.title)
@@ -543,16 +631,18 @@ class ExcelSource:
     def _worksheet_rows(self, ws):
         """Chuẩn hoá các dòng dữ liệu từ một worksheet."""
         all_rows = list(ws.iter_rows(values_only=True))
+        audit = {'unmapped': {}, 'shifted': []}
+        self._last_audit = audit
         header_idx, header_map = None, None
+        head_row = sub_row = None
         for i, row in enumerate(all_rows[:15]):
             cand = self._map_columns(row, require_code=True)
             if not cand:
                 continue
-            header_idx, header_map = i, cand
+            header_idx, header_map, head_row = i, cand, row
             if i + 1 < len(all_rows) and self._looks_like_subheader(all_rows[i + 1]):
-                extra = self._map_columns(all_rows[i + 1], require_code=False)
-                for idx, key in extra.items():
-                    header_map.setdefault(idx, key)
+                sub_row = all_rows[i + 1]
+                header_map = self._merge_subheader(header_map, row, sub_row)
                 header_idx = i + 1
             header_map = self._fill_implied_columns(header_map, row)
             break
@@ -561,6 +651,9 @@ class ExcelSource:
         rows, prev = [], {}
         skip_next = False
         data_rows = all_rows[header_idx + 1:]
+        num_cols = self._numeric_columns(data_rows)
+        total_idx = self._total_column(head_row, sub_row)
+        watch = self._watch_columns(header_map, head_row, sub_row, total_idx)
         for j, row in enumerate(data_rows):
             if skip_next:
                 skip_next = False
@@ -572,13 +665,15 @@ class ExcelSource:
                 header_cell = row[code_idx]
             if remap and self._is_header_code(header_cell):
                 header_map = dict(remap)
+                head_row, sub_row = row, None
                 nxt = data_rows[j + 1] if j + 1 < len(data_rows) else None
                 if nxt is not None and self._looks_like_subheader(nxt):
-                    extra = self._map_columns(nxt, require_code=False)
-                    for idx, key in extra.items():
-                        header_map.setdefault(idx, key)
+                    sub_row = nxt
+                    header_map = self._merge_subheader(header_map, row, nxt)
                     skip_next = True
                 header_map = self._fill_implied_columns(header_map, row)
+                total_idx = self._total_column(head_row, sub_row)
+                watch = self._watch_columns(header_map, head_row, sub_row, total_idx)
                 prev = {}
                 continue
             rec = self._row_record(row, header_map)
@@ -587,7 +682,21 @@ class ExcelSource:
             has_qty = any(to_qty(rec.get(k)) > 0 for k in _QTY_KEYS)
             if not (has_code or has_loc or has_qty):
                 continue
+            # Nhãn khu vực ghi vào cột mã ("HOTEL AND RESORT IN HA NOI").
+            if (has_code and not has_qty and ' ' in str(rec.get('Code_RP')).strip()
+                    and _is_blank(rec.get('Name')) and _is_blank(rec.get('Address'))):
+                continue
+            # Dòng tổng phụ ("Total Hung Yen", hoặc chỉ toàn số không nhãn) không có
+            # mã riêng: ghép vào điểm phía trên sẽ cộng đôi số màn.
+            if not has_code and (self._numbers_only(row) or any(
+                    self._is_total_label(v) for v in row if isinstance(v, str))):
+                continue
+            # Ô gộp chỉ kéo quận/phường trong cùng tỉnh — sang tỉnh khác là ô trống thật.
+            other_city = (not _is_blank(rec.get('City')) and not _is_blank(prev.get('City'))
+                          and norm_city(rec.get('City')) != norm_city(prev.get('City')))
             for k in _FILL_KEYS:
+                if other_city and k in ('District', 'Ward'):
+                    continue
                 if _is_blank(rec.get(k)) and not _is_blank(prev.get(k)):
                     rec[k] = prev[k]
             code = str(rec.get('Code_RP') or '').strip()
@@ -602,9 +711,169 @@ class ExcelSource:
                     rec[k] = str(clean(rec.get(k)) or '').strip()
             if code:
                 rec['Code_RP'] = code
+                excel_row = header_idx + j + 2
+                if self._row_shifted(row, header_map, num_cols):
+                    # Số ở dòng lệch cột là cột khác (traffic, số căn hộ…) — bỏ, không đoán.
+                    for k in _NUMERIC_KEYS:
+                        rec[k] = 0 if k in _QTY_KEYS else ''
+                    audit['shifted'].append(excel_row)
+                else:
+                    if total_idx is not None and total_idx < len(row):
+                        rec['_SheetTotal'] = row[total_idx]
+                    for idx, label in watch.items():
+                        v = row[idx] if idx < len(row) else None
+                        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+                            audit['unmapped'][label] = audit['unmapped'].get(label, 0) + 1
+                rec['_ExcelRow'] = excel_row
                 rows.append(rec)
                 prev = rec
         return rows
+
+    @staticmethod
+    def _numbers_only(row):
+        if any(isinstance(v, str) and v.strip() for v in row or ()):
+            return False
+        return sum(1 for v in row or () if isinstance(v, (int, float)) and v) >= 2
+
+    @staticmethod
+    def _long_text(v):
+        if not isinstance(v, str) or len(v.strip()) < 3:
+            return False
+        try:
+            float(v.strip().replace(',', ''))
+            return False
+        except ValueError:
+            return True
+
+    @classmethod
+    def _numeric_columns(cls, rows):
+        """Cột phần lớn là số — chữ trong các cột này là dấu hiệu dòng lệch cột."""
+        nums, texts = {}, {}
+        for row in rows:
+            for idx, v in enumerate(row or ()):
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    nums[idx] = nums.get(idx, 0) + 1
+                elif cls._long_text(v):
+                    texts[idx] = texts.get(idx, 0) + 1
+        return {i for i, n in nums.items() if n >= 5 and n > texts.get(i, 0)}
+
+    @classmethod
+    def _row_shifted(cls, row, header_map, num_cols):
+        hits = 0
+        for idx in num_cols:
+            key = header_map.get(idx)
+            if key is not None and key not in _NUMERIC_KEYS:
+                continue
+            if idx < len(row or ()) and cls._long_text(row[idx]):
+                hits += 1
+                if hits >= 2:
+                    return True
+        return False
+
+    @staticmethod
+    def _total_column(header_row, sub_row):
+        """Cột Total số màn của chính file (Quantity of → Total, Q.ty GP of AP…)."""
+        parent = ''
+        for idx in range(len(sub_row or ())):
+            if header_row and idx < len(header_row) and not _is_blank(header_row[idx]):
+                parent = _norm_header(header_row[idx])
+            if _norm_header(sub_row[idx]) in ('total', 'tong') and parent.startswith(_TOTAL_PARENTS):
+                return idx
+        for idx, cell in enumerate(header_row or ()):
+            if _norm_header(cell) in _TOTAL_HEADERS:
+                return idx
+        return None
+
+    @staticmethod
+    def _watch_columns(header_map, header_row, sub_row, total_idx):
+        """{index: nhãn} các cột có tiêu đề nhưng tool chưa nhận và không thuộc
+        danh sách bỏ qua — có số ở đây thường là loại màn mới BD vừa thêm."""
+        def ignored(n):
+            return n in _IGNORED_NUM_EXACT or n.startswith(_IGNORED_NUM_PREFIX)
+
+        out = {}
+        width = max(len(header_row or ()), len(sub_row or ()))
+        for idx in range(width):
+            if idx in header_map or idx == total_idx:
+                continue
+            head = header_row[idx] if header_row and idx < len(header_row) else None
+            sub = sub_row[idx] if sub_row and idx < len(sub_row) else None
+            names = [n for n in (_norm_header(head), _norm_header(sub)) if n]
+            if not names or any(ignored(n) for n in names):
+                continue
+            label = sub if not _is_blank(sub) else head
+            out[idx] = ' '.join(str(label).split())[:60]
+        return out
+
+    def _audit_sheet(self, title, chunk):
+        """Cảnh báo khi số màn đọc ra lệch cột Total của file, có cột số lạ
+        hoặc dòng lệch cột — đổi mẫu Excel không được âm thầm ra số sai."""
+        info = getattr(self, '_last_audit', None) or {}
+        name = (title or '').strip()
+        checked, bad, huge = 0, [], []
+        shifted = list(info.get('shifted') or [])
+        for rec in chunk:
+            want = rec.pop('_SheetTotal', None)
+            row_no = rec.pop('_ExcelRow', None)
+            if not isinstance(want, (int, float)) or isinstance(want, bool):
+                got = screen_qty(rec)
+                if got > _MAX_SCREENS_PER_ROW:
+                    huge.append((rec.get('Code_RP'), got))
+                continue
+            checked += 1
+            got, want = screen_qty(rec), to_qty(want)
+            if got == want:
+                continue
+            if got > max(3 * want, want + 50):
+                # Lệch cột toàn số (traffic rơi vào cột GP) — không có chữ để bắt ở bước đọc.
+                for k in _NUMERIC_KEYS:
+                    rec[k] = 0 if k in _QTY_KEYS else ''
+                shifted.append(row_no)
+            else:
+                bad.append((rec.get('Code_RP'), got, want, row_no))
+        if bad:
+            code, got, want, row_no = bad[0]
+            self.warnings.append(
+                f'{name}: {len(bad)}/{checked} dòng có số màn khác cột Total của file '
+                f'(vd {code} dòng {row_no}: tool cộng {got}, file ghi {want}).')
+        if huge:
+            code, got = max(huge, key=lambda x: x[1])
+            self.warnings.append(
+                f'{name}: {len(huge)} dòng có số màn bất thường (>{_MAX_SCREENS_PER_ROW}/dòng, '
+                f'vd {code}: {got}) — thường do lệch cột khi gộp file, cần kiểm tra lại.')
+        cols = info.get('unmapped') or {}
+        if cols:
+            self.warnings.append(
+                f'{name}: có cột số tool chưa nhận — '
+                + ', '.join(f'«{k}»' for k in cols) + '.')
+        shifted = sorted(n for n in shifted if n)
+        if shifted:
+            self.warnings.append(
+                f'{name}: {len(shifted)} dòng lệch cột so với tiêu đề '
+                f'(dòng {shifted[0]}–{shifted[-1]}) — đã bỏ số màn/traffic các dòng này, '
+                'cần thêm dòng tiêu đề đúng trong file.')
+
+    @staticmethod
+    def _merge_subheader(header_map, header_row, sub_row):
+        """Thêm cột từ dòng tiêu đề phụ. Ô con chung chung (Total/Day/Week)
+        lấy nghĩa theo ô cha gần nhất bên trái — ô gộp chỉ ghi ở cột đầu."""
+        header_map = dict(header_map or {})
+        for idx, key in ExcelSource._map_columns(sub_row, require_code=False).items():
+            header_map.setdefault(idx, key)
+        used = set(header_map.values())
+        parent = ''
+        for idx in range(len(sub_row or [])):
+            if header_row and idx < len(header_row) and not _is_blank(header_row[idx]):
+                parent = _norm_header(header_row[idx])
+            child = _norm_header(sub_row[idx])
+            if not child or idx in header_map:
+                continue
+            for p_key, c_key, canon in _GROUPED_SUBHEADERS:
+                if child == c_key and parent.startswith(p_key) and canon not in used:
+                    header_map[idx] = canon
+                    used.add(canon)
+                    break
+        return header_map
 
     @staticmethod
     def _is_header_code(v):
@@ -677,6 +946,10 @@ class ExcelSource:
                 if n == canon.lower() or n in aliases:
                     found[idx] = canon
                     break
+            else:
+                canon = _keyword_column(n)
+                if canon:
+                    found[idx] = canon
         if require_code:
             return found if 'Code_RP' in found.values() else None
         return found
@@ -796,6 +1069,7 @@ def inspect_excel(path):
         'source_sheets': list(src.source_sheets),
         'n_off': len(src.off_rows),
         'off_sheets': list(src.off_sheets),
+        'warnings': list(src.warnings),
         'error': '',
     }
 

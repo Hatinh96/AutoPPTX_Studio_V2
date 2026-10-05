@@ -4109,6 +4109,18 @@ class App(ctk.CTk):
                 text='Thiếu cột (vẫn dùng được): ' + ', '.join(missing),
                 text_color='#ca8a04', wraplength=440, justify='left', anchor='w'
             ).pack(fill='x', padx=16, pady=(4, 0))
+        warns = info.get('warnings') or []
+        if warns:
+            try:
+                win.geometry('560x640')
+            except Exception:
+                pass
+            more = f'\n… và {len(warns) - 4} cảnh báo khác (xem nhật ký).' if len(warns) > 4 else ''
+            ctk.CTkLabel(
+                win,
+                text='Kiểm tra số màn:\n' + '\n'.join('• ' + w for w in warns[:4]) + more,
+                text_color='#ca8a04', wraplength=520, justify='left', anchor='w'
+            ).pack(fill='x', padx=16, pady=(4, 0))
         if sample:
             ctk.CTkLabel(
                 win, text='Mã mẫu: ' + ', '.join(sample),
@@ -4217,6 +4229,8 @@ class App(ctk.CTk):
             pass
         self._update_data_brief()
         self.log(f'Đã đọc {len(self.excel.rows)} dòng Excel.')
+        for w in getattr(self.excel, 'warnings', None) or []:
+            self.log(f'⚠ Excel · {w}')
         if n_off:
             self.log(f'Có {n_off} cửa hàng tạm off — vẫn nhận ảnh cũ nếu còn file.')
         if looks_like_order_list(path, getattr(self.excel, 'source_sheets', None)):
@@ -4445,6 +4459,8 @@ class App(ctk.CTk):
         self._update_coverage_label()
         self._update_estimate()
         self._schedule_save()
+        for w in getattr(src, 'warnings', None) or []:
+            self.log(f'⚠ List · {w}')
         if announce:
             self.log(f'Đã up list xếp slide: {os.path.basename(path)} · {len(src.rows)} điểm.')
             messagebox.showinfo(
