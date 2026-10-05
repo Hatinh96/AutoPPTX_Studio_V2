@@ -9,10 +9,12 @@ try:
     from make_app_icon import write_icons
     write_icons(os.path.abspath('.'))
 except Exception as _e:
-    print('make_app_icon:', _e)
+    print('[spec] make_app_icon:', _e)
 
 _win_icon = 'app_icon.ico' if os.path.exists('app_icon.ico') else None
 _mac_icon = 'app_icon.icns' if os.path.exists('app_icon.icns') else _win_icon
+
+from PyInstaller.utils.hooks import copy_metadata
 
 block_cipher = None
 
@@ -66,7 +68,34 @@ hiddenimports = [
 if sys.platform == 'win32':
     hiddenimports.extend(['keyring.backends.Windows', 'windnd'])
 elif sys.platform == 'darwin':
-    hiddenimports.extend(['keyring.backends.macOS', 'keyring.backends.OS_X'])
+    # keyring >= 25 đã bỏ 'keyring.backends.OS_X'. Giữ tên cũ trong hiddenimports
+    # làm PyInstaller báo lỗi và KHÔNG nhét backend mật khẩu vào bản Mac ->
+    # tick "Nhớ mật khẩu" nạp hụt module, màn đăng nhập báo sai "Thiếu package supabase".
+    hiddenimports.extend(['keyring.backends.macOS'])
+
+# supabase & nhánh phụ thuộc đọc version qua importlib.metadata -> cần kèm
+# thư mục *.dist-info, nếu không bản đóng gói báo "Thiếu package supabase".
+# CHỈ copy_metadata. KHÔNG dùng collect_all cho nhánh này: đã thử và nó làm
+# hỏng bootstrap của bản onefile (app không khởi động được).
+# Chỉ in ASCII — console Windows dùng cp1252, in tiếng Việt ở đây sẽ ném
+# UnicodeEncodeError ngay trong except và làm hỏng cả bản build.
+_META_PKGS = (
+    'supabase', 'supabase_auth', 'supabase_functions', 'gotrue', 'postgrest',
+    'realtime', 'storage3', 'supafunc', 'httpx', 'httpcore',
+    'websockets', 'pydantic', 'pydantic_core', 'keyring',
+)
+for _pkg in _META_PKGS:
+    try:
+        datas += copy_metadata(_pkg)
+    except Exception as _e:
+        print('[spec] copy_metadata skip %s: %s' % (_pkg, _e))
+
+hiddenimports.extend([
+    'supabase', 'supabase.client',
+    'postgrest', 'storage3', 'realtime',
+    'httpx', 'httpcore', 'h11', 'anyio', 'sniffio',
+    'pydantic', 'pydantic_core',
+])
 
 excludes = [
     'numpy', 'numpy.tests',

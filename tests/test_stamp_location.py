@@ -4,7 +4,8 @@ from PIL import Image
 
 from autopptx2.datasource import excel_stamp_location, location_fx_fields
 from autopptx2.effects import (
-    DEFAULT_FX, location_stamp_lines, render_timestamp, resolve_location,
+    DEFAULT_FX, location_stamp_lines, needed, process_photo, render_timestamp,
+    resolve_location,
 )
 
 
@@ -30,6 +31,25 @@ class TestStampLocationToggle(unittest.TestCase):
         fx.update({'use_timestamp': True, 'stamp_location': True, 'show_gps': False})
         render_timestamp(self._blank(), '/fake.jpg', fx, allow_net=False)
         mock_loc.assert_called_once()
+
+    @patch('autopptx2.effects.gps_cached', return_value=(10.7757, 106.7505))
+    @patch('autopptx2.effects._dt_from')
+    def test_gps_prints_with_date_off(self, mock_dt, _gps):
+        fx = dict(DEFAULT_FX)
+        fx.update({'use_timestamp': False, 'stamp_location': False, 'show_gps': True})
+        blank = self._blank()
+        im = render_timestamp(blank, '/fake.jpg', fx, allow_net=False)
+        mock_dt.assert_not_called()
+        self.assertNotEqual(im.tobytes(), blank.tobytes())
+
+    @patch('autopptx2.effects.resolve_location', return_value='Quận 1')
+    def test_location_prints_with_date_off(self, _loc):
+        fx = dict(DEFAULT_FX)
+        fx.update({'use_timestamp': False, 'stamp_location': True, 'show_gps': False})
+        blank = self._blank()
+        im = process_photo('/fake.jpg', blank, fx, box=(400, 300), preview=True)
+        self.assertNotEqual(im.tobytes(), blank.tobytes())
+        self.assertTrue(needed(fx))
 
 
 class TestExcelStampAddress(unittest.TestCase):

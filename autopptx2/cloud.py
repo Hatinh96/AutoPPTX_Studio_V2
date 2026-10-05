@@ -16,15 +16,45 @@ import threading
 from .constants import (CONFIG_DIR, CONFIG_PATH, V1_CREDS_PATH, KEYRING_SERVICE,
                         SUPABASE_URL, SUPABASE_ANON_KEY, IMG_EXTS)
 
+# Bản đóng gói có thể nạp hụt supabase vì thiếu submodule / metadata dist-info.
+# Giữ lại nguyên văn lỗi, nếu không màn đăng nhập chỉ báo "thiếu package" sai hướng.
+SUPABASE_IMPORT_ERROR = ''
 try:
     from supabase import create_client
-except ImportError:
+except Exception as _e:
     create_client = None
+    SUPABASE_IMPORT_ERROR = '{}: {}'.format(type(_e).__name__, _e)
 
+KEYRING_IMPORT_ERROR = ''
 try:
     import keyring
-except ImportError:
+except Exception as _e:
     keyring = None
+    KEYRING_IMPORT_ERROR = '{}: {}'.format(type(_e).__name__, _e)
+
+
+def runtime_info():
+    """'bản cài · macOS 12.7 · x86_64 · Python 3.11.9' — để ảnh chụp lỗi tự đủ thông tin."""
+    import platform
+    where = 'bản cài' if getattr(sys, 'frozen', False) else 'chạy từ source'
+    if sys.platform == 'darwin':
+        osv = 'macOS ' + (platform.mac_ver()[0] or '?')
+    elif sys.platform == 'win32':
+        osv = 'Windows ' + (platform.release() or '?')
+    else:
+        osv = platform.system() or sys.platform
+    return '{} · {} · {} · Python {}'.format(
+        where, osv, platform.machine() or '?', platform.python_version())
+
+
+def supabase_missing_message():
+    err = SUPABASE_IMPORT_ERROR or 'không rõ lý do'
+    info = runtime_info()
+    # Chạy từ source mà chưa cài gói: hướng dẫn cài là đúng việc cần làm.
+    if (not getattr(sys, 'frozen', False) and err.startswith('ModuleNotFoundError')
+            and "'supabase'" in err):
+        return 'Thiếu package supabase. Chạy: pip install supabase\n({})'.format(info)
+    return 'Không nạp được supabase: {}\n({}) — chụp màn hình này gửi lại.'.format(err, info)
 
 _KEYRING_TIMEOUT = 2.5 if (sys.platform == 'darwin' or getattr(sys, 'frozen', False)) else 8.0
 
@@ -284,7 +314,7 @@ class CloudClient:
         sb = self.client()
         if sb is None:
             if self.url and self.key and create_client is None:
-                return False, 'Thiếu package supabase. Chạy: pip install supabase'
+                return False, supabase_missing_message()
             return True, 'local'          # chưa cấu hình → vào máy này
         try:
             res = sb.auth.sign_in_with_password({'email': email, 'password': password})

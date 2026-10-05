@@ -147,7 +147,15 @@ def build_login(host, app):
     for w in (ent_email, ent_pw):
         w.bind('<Return>', _go)
 
-    host.after(120, ent_email.focus_set)
+    def _focus_email():
+        # Vào app nhanh hơn 120 ms thì ô này đã bị xoá — đặt focus sẽ ném TclError.
+        try:
+            if ent_email.winfo_exists():
+                ent_email.focus_set()
+        except Exception:
+            pass
+
+    host.after(120, _focus_email)
 
     def _apply_saved(saved):
         if not saved:

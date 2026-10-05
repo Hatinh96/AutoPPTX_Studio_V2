@@ -23,6 +23,14 @@ from . import fonts as FN
 
 OSM_ZOOM = 16
 OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+# Một số mạng VN chặn *.openstreetmap.org — dự phòng bằng mirror cùng dữ liệu OSM.
+OSM_TILE_URLS = (
+    OSM_TILE_URL,
+    "https://a.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",
+    "https://b.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",
+    "https://c.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png",
+)
+_TILE_SKIP_AFTER = 3
 MAP_CACHE_DIR = os.path.join(CONFIG_DIR, "map_cache")
 V1_MAP_CACHE = os.path.join(os.path.expanduser("~"), ".autopptx_studio", "map_cache")
 GEO_CACHE_PATH = os.path.join(CONFIG_DIR, "geocode_cache.json")
@@ -76,8 +84,8 @@ DEFAULT_FX = {
 
 _gps_cache = {}
 _gps_lock = threading.Lock()
-_tile_fail_ts = 0.0
-_geo_fail_ts = 0.0
+_tile_fail = {}
+_geo_fail = {}
 _geo_last_net = 0.0
 _geo_mem = {}
 _geo_disk = None
@@ -88,6 +96,7 @@ _MINIMAP_MAX = 40
 _preview_cache = OrderedDict()
 _preview_lock = threading.Lock()
 _PREVIEW_MAX = 48
+_preview_epoch = {}
 _preview_inflight = set()
 _preview_waiters = {}
 _preview_ready = []
@@ -103,8 +112,14 @@ def needed(fx):
     """Có cần bake PNG (không chèn file gốc) không."""
     if not fx:
         return False
-    return bool(fx.get('use_timestamp') or fx.get('minimap') or fx.get('auto_enhance')
+    return bool(stamps_text(fx) or fx.get('minimap') or fx.get('auto_enhance')
                 or fx.get('watermark') or fx.get('shadow') or fx.get('logo_enable'))
+
+
+def stamps_text(fx):
+    """Có dòng chữ nào in lên ảnh: ngày giờ, toạ độ GPS hoặc địa điểm."""
+    fx = fx or {}
+    return bool(fx.get('use_timestamp') or fx.get('show_gps') or fx.get('stamp_location'))
 
 
 # ════════════════════════════════════════════════════════════
@@ -169,8 +184,8 @@ def gps_cached(path):
     return g
 
 
-def gps_text(path, fx=None):
-    g = resolve_gps(path, fx, allow_net=True)
+def gps_text(path, fx=None, allow_net=True):
+    g = resolve_gps(path, fx, allow_net=allow_net)
     if not g:
         return ''
     lat, lon = g
@@ -224,35 +239,72 @@ def _fmt_nominatim(addr):
     return '\n'.join(parts)
 
 
-def _nominatim_reverse(lat, lon):
-    global _geo_fail_ts, _geo_last_net
-    if time.time() - _geo_fail_ts < 60:
+def _fmt_photon(props):
+    """Cùng thứ tự cấp như Nominatim: đường → khu → phường/quận → tỉnh."""
+    if not isinstance(props, dict):
         return ""
+    street = props.get('street')
+    if not street and props.get('osm_key') == 'highway':
+        street = props.get('name')
+    parts = []
+    for v in (street, props.get('locality'), props.get('district'),
+              props.get('city'), props.get('county'), props.get('state')):
+        v = str(v or '').strip()
+        if v and v not in parts and v.lower() not in ('vietnam', 'việt nam'):
+            parts.append(v)
+        if len(parts) >= 4:
+            break
+    return '\n'.join(parts)
+
+
+def _geo_json(source, url):
+    """GET JSON, giãn 1 giây/lần (chính sách OSM). Lỗi mạng → bỏ nguồn đó 60 giây."""
+    global _geo_last_net
+    if time.time() - _geo_fail.get(source, 0.0) < 60:
+        return None
     wait = 1.05 - (time.time() - _geo_last_net)
     if wait > 0:
         time.sleep(min(wait, 1.2))
     try:
-        import urllib.parse
         import urllib.request
-        q = urllib.parse.urlencode({
-            'lat': f'{lat:.6f}', 'lon': f'{lon:.6f}',
-            'format': 'jsonv2', 'zoom': '18', 'addressdetails': '1',
-            'accept-language': 'vi',
-        })
-        req = urllib.request.Request(
-            'https://nominatim.openstreetmap.org/reverse?' + q,
-            headers={'User-Agent': OSM_UA})
+        req = urllib.request.Request(url, headers={'User-Agent': OSM_UA})
         _geo_last_net = time.time()
         with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode('utf-8', errors='replace') or '{}')
-        name = _fmt_nominatim(data.get('address') or {})
-        if not name:
-            bits = str(data.get('name') or data.get('display_name') or '').split(',')
-            name = '\n'.join(p.strip() for p in bits[:4] if p.strip())
-        return name[:200]
+            return json.loads(resp.read().decode('utf-8', errors='replace') or 'null')
     except Exception:
-        _geo_fail_ts = time.time()
+        _geo_fail[source] = time.time()
+        return None
+
+
+def _nominatim_reverse(lat, lon):
+    import urllib.parse
+    q = urllib.parse.urlencode({
+        'lat': f'{lat:.6f}', 'lon': f'{lon:.6f}',
+        'format': 'jsonv2', 'zoom': '18', 'addressdetails': '1',
+        'accept-language': 'vi',
+    })
+    data = _geo_json('nominatim', 'https://nominatim.openstreetmap.org/reverse?' + q)
+    if not isinstance(data, dict):
         return ""
+    name = _fmt_nominatim(data.get('address') or {})
+    if not name:
+        bits = str(data.get('name') or data.get('display_name') or '').split(',')
+        name = '\n'.join(p.strip() for p in bits[:4] if p.strip())
+    return name[:200]
+
+
+def _photon_reverse(lat, lon):
+    import urllib.parse
+    q = urllib.parse.urlencode({'lat': f'{lat:.6f}', 'lon': f'{lon:.6f}', 'limit': '1'})
+    data = _geo_json('photon', 'https://photon.komoot.io/reverse?' + q)
+    feats = data.get('features') if isinstance(data, dict) else None
+    if not feats:
+        return ""
+    return _fmt_photon(feats[0].get('properties'))[:200]
+
+
+def _reverse_geocode(lat, lon):
+    return _nominatim_reverse(lat, lon) or _photon_reverse(lat, lon)
 
 
 def parse_address_list(text):
@@ -290,32 +342,36 @@ def _fwd_key(addr):
 
 
 def _nominatim_search(addr):
-    global _geo_fail_ts, _geo_last_net
-    if time.time() - _geo_fail_ts < 60:
+    import urllib.parse
+    q = urllib.parse.urlencode({
+        'q': addr, 'format': 'jsonv2', 'limit': '1',
+        'countrycodes': 'vn', 'accept-language': 'vi',
+    })
+    data = _geo_json('nominatim', 'https://nominatim.openstreetmap.org/search?' + q)
+    if not isinstance(data, list) or not data:
         return None
-    wait = 1.05 - (time.time() - _geo_last_net)
-    if wait > 0:
-        time.sleep(min(wait, 1.2))
     try:
-        import urllib.parse
-        import urllib.request
-        q = urllib.parse.urlencode({
-            'q': addr, 'format': 'jsonv2', 'limit': '1',
-            'countrycodes': 'vn', 'accept-language': 'vi',
-        })
-        req = urllib.request.Request(
-            'https://nominatim.openstreetmap.org/search?' + q,
-            headers={'User-Agent': OSM_UA})
-        _geo_last_net = time.time()
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            data = json.loads(resp.read().decode('utf-8', errors='replace') or '[]')
-        if not isinstance(data, list) or not data:
-            return None
-        lat, lon = float(data[0]['lat']), float(data[0]['lon'])
-        return (lat, lon)
+        return (float(data[0]['lat']), float(data[0]['lon']))
     except Exception:
-        _geo_fail_ts = time.time()
         return None
+
+
+def _photon_search(addr):
+    import urllib.parse
+    q = urllib.parse.urlencode({'q': addr, 'limit': '1', 'bbox': '102.1,8.1,109.6,23.4'})
+    data = _geo_json('photon', 'https://photon.komoot.io/api/?' + q)
+    feats = data.get('features') if isinstance(data, dict) else None
+    if not feats:
+        return None
+    try:
+        lon, lat = feats[0]['geometry']['coordinates'][:2]
+        return (float(lat), float(lon))
+    except Exception:
+        return None
+
+
+def _search_geocode(addr):
+    return _nominatim_search(addr) or _photon_search(addr)
 
 
 def geocode_address(addr, allow_net=True):
@@ -335,7 +391,7 @@ def geocode_address(addr, allow_net=True):
             return (float(hit[0]), float(hit[1]))
     if not allow_net:
         return None
-    found = _nominatim_search(addr)
+    found = _search_geocode(addr)
     if found:
         with _geo_lock:
             _geo_mem[key] = found
@@ -381,7 +437,7 @@ def place_name_from_gps(path, allow_net=True):
             return hit
     if not allow_net:
         return ""
-    name = _nominatim_reverse(g[0], g[1])
+    name = _reverse_geocode(g[0], g[1])
     if name:
         with _geo_lock:
             _geo_mem[key] = name
@@ -500,6 +556,24 @@ def has_exif_datetime(path):
     return _exif_datetime(path) is not None
 
 
+def peek_exif_datetime(path):
+    """(đã_biết, có_ngày) chỉ từ cache — KHÔNG mở file, an toàn trên luồng UI.
+
+    Mở file lần đầu có thể rất chậm: Defender quét từng ảnh vừa chép vào máy
+    (đo được ~16 ms/ảnh, 320 ảnh = hơn 5 giây đơ). Luồng UI chỉ gọi hàm này,
+    phần đọc thật để luồng nền làm qua has_exif_datetime().
+    """
+    try:
+        mt = os.path.getmtime(path)
+    except Exception:
+        mt = 0
+    key = (str(path), mt)
+    with _exif_lock:
+        if key in _exif_dt_cache:
+            return True, _exif_dt_cache[key] is not None
+    return False, False
+
+
 def _parse_hm(text, default_h=9, default_m=0):
     """'HH:MM' → (hour, minute)."""
     s = str(text or '').strip()
@@ -581,7 +655,6 @@ def _tile_disk(z, x, y):
 
 
 def _fetch_osm_tile(z, x, y, allow_net=True):
-    global _tile_fail_ts
     x = x % (2 ** z)
     if y < 0 or y >= 2 ** z:
         return None
@@ -593,28 +666,33 @@ def _fetch_osm_tile(z, x, y, allow_net=True):
             pass
     if not allow_net:
         return None
-    if time.time() - _tile_fail_ts < 60:
-        return None
-    try:
-        import urllib.request
-        req = urllib.request.Request(
-            OSM_TILE_URL.format(z=z, x=x, y=y),
-            headers={"User-Agent": OSM_UA})
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            data = resp.read()
+    import urllib.request
+    for url in OSM_TILE_URLS:
+        n_fail, last = _tile_fail.get(url, (0, 0.0))
+        if n_fail >= _TILE_SKIP_AFTER and time.time() - last < 60:
+            continue
+        try:
+            req = urllib.request.Request(
+                url.format(z=z, x=x, y=y), headers={"User-Agent": OSM_UA})
+            with urllib.request.urlopen(req, timeout=6) as resp:
+                data = resp.read()
+            tile = Image.open(io.BytesIO(data)).convert("RGB")
+        except Exception:
+            _tile_fail[url] = (n_fail + 1, time.time())
+            continue
+        _tile_fail.pop(url, None)
         try:
             os.makedirs(MAP_CACHE_DIR, exist_ok=True)
             with open(os.path.join(MAP_CACHE_DIR, f"{z}_{x}_{y}.png"), "wb") as f:
                 f.write(data)
         except Exception:
             pass
-        return Image.open(io.BytesIO(data)).convert("RGB")
-    except Exception:
-        _tile_fail_ts = time.time()
-        return None
+        return tile
+    return None
 
 
 def _render_real_map(lat, lon, W, H, zoom=OSM_ZOOM, allow_net=True):
+    """(ảnh ghép tile hoặc None, đủ hết tile chưa)."""
     TS, n = 256, 2 ** zoom
     lat_r = math.radians(max(-85.05, min(85.05, lat)))
     xt = (lon + 180.0) / 360.0 * n
@@ -623,14 +701,16 @@ def _render_real_map(lat, lon, W, H, zoom=OSM_ZOOM, allow_net=True):
     x0, y0 = int(cx_px - W / 2), int(cy_px - H / 2)
     canvas = Image.new("RGB", (W, H), (222, 228, 233))
     got = False
+    complete = True
     for tx in range(x0 // TS, (x0 + W) // TS + 1):
         for ty in range(y0 // TS, (y0 + H) // TS + 1):
             tile = _fetch_osm_tile(zoom, tx, ty, allow_net=allow_net)
             if tile is None:
+                complete = False
                 continue
             got = True
             canvas.paste(tile, (tx * TS - x0, ty * TS - y0))
-    return canvas if got else None
+    return (canvas if got else None), complete
 
 
 def _fallback_map(lat, lon, W, H):
@@ -684,7 +764,7 @@ def compose_minimap(lat, lon, W, H, allow_net=True):
             _minimap_cache.move_to_end(key)
             return m
     RW, RH = 512, 384
-    base = _render_real_map(lat, lon, RW, RH, allow_net=allow_net)
+    base, complete = _render_real_map(lat, lon, RW, RH, allow_net=allow_net)
     if base is None:
         return _fallback_map(lat, lon, W, H)
     d = ImageDraw.Draw(base)
@@ -696,6 +776,8 @@ def compose_minimap(lat, lon, W, H, allow_net=True):
                (cx + int(r * 0.7), cy - r // 2)], fill=(220, 38, 38))
     scaled = base.convert("RGBA").resize((W, H), Image.Resampling.LANCZOS)
     m = _finish_map(scaled, lat, lon, W, H)
+    if not complete:
+        return m
     with _minimap_lock:
         _minimap_cache[key] = m
         while len(_minimap_cache) > _MINIMAP_MAX:
@@ -763,6 +845,11 @@ def _dt_from(path, fx):
 def render_timestamp(img, path, fx, allow_net=True):
     orig = img.copy().convert("RGBA")
     w, h = orig.size
+    gps_line = gps_text(path, fx, allow_net=allow_net) if fx.get('show_gps') else ''
+    loc = resolve_location(path, fx, allow_net=allow_net) if fx.get('stamp_location') else ''
+    if gps_line and loc and loc == exif_coord_text(path):
+        loc = ''
+    txt_date = ''
     if fx.get('use_timestamp', True):
         dt = _dt_from(path, fx)
         date_map = {"DD/MM/YYYY": "%d/%m/%Y", "MM/DD/YYYY": "%m/%d/%Y",
@@ -785,8 +872,7 @@ def render_timestamp(img, path, fx, allow_net=True):
         else:
             txt_date = dt.strftime(f"{date_fmt} {time_fmt}")
 
-        gps_line = gps_text(path, fx) if fx.get('show_gps') else ''
-        loc = resolve_location(path, fx, allow_net=allow_net) if fx.get('stamp_location') else ''
+    if txt_date or gps_line or loc:
         base_font_h = max(1, int(h * (float(fx.get('font_scale', 3.5)) / 100)))
         min_font_h = max(6, int(h * 0.015))
         margin = max(2, int(min(w, h) * float(fx.get('stamp_margin_pct', 3.5)) / 100.0))
@@ -1058,7 +1144,7 @@ def process_photo(path, src=None, fx=None, box=None, fit='fill', radius=0,
         im = shadow
         w, h = im.size
 
-    if fx.get('use_timestamp') or fx.get('logo_enable'):
+    if stamps_text(fx) or fx.get('logo_enable'):
         try:
             im = render_timestamp(im, path, fx, allow_net=not preview)
             w, h = im.size
@@ -1171,6 +1257,7 @@ def request_preview(path, src, fx, fit, radius, box_ar, widget=None, callback=No
             return hit.copy()
         if callback is not None and widget is not None:
             _preview_waiters.setdefault(key, []).append((widget, callback, path))
+        epoch = int(_preview_epoch.get(str(path), 0))
         if key not in _preview_inflight:
             _preview_inflight.add(key)
             start = True
@@ -1187,19 +1274,26 @@ def request_preview(path, src, fx, fit, radius, box_ar, widget=None, callback=No
             th = max(4, int(tw / max(0.2, box_ar)))
             im = process_photo(path, src_copy, fx_copy, box=(tw, th),
                                fit=fit, radius=radius, preview=True)
-            if im is not None:
-                with _preview_lock:
-                    _preview_cache[key] = im
-                    while len(_preview_cache) > _PREVIEW_MAX:
-                        _preview_cache.popitem(last=False)
         except Exception:
             im = None
         with _preview_lock:
+            # Tile/GPS về sau khi preview đã chạy — bỏ bản cũ, đừng ghi đè bản mới.
+            if int(_preview_epoch.get(str(path), 0)) != epoch:
+                return
             _preview_inflight.discard(key)
+            if im is not None:
+                _preview_cache[key] = im
+                while len(_preview_cache) > _PREVIEW_MAX:
+                    _preview_cache.popitem(last=False)
             waiters = _preview_waiters.pop(key, [])
             if im is not None:
                 for w, cb, p in waiters:
                     _preview_ready.append((w, cb, p, im))
+                notify = True
+            else:
+                notify = False
+        if notify:
+            _ensure_preview_pump()
 
     _preview_pool.submit(work)
     _ensure_preview_pump()
@@ -1225,19 +1319,38 @@ def cached_preview(path, src, fx, fit, radius, box_ar):
     return im.copy()
 
 
+def _bump_preview_epoch(paths):
+    for p in paths:
+        key = str(p)
+        _preview_epoch[key] = int(_preview_epoch.get(key, 0)) + 1
+
+
 def invalidate_preview_paths(paths):
     """Bỏ cache đóng dấu của vài file — không xoá hết preview đang xem."""
     want = {str(p) for p in (paths or []) if p}
     if not want:
         return
     with _preview_lock:
-        for key in [k for k in _preview_cache if str(k[0]) in want]:
+        _bump_preview_epoch(want)
+        for key in [k for k in list(_preview_cache) if str(k[0]) in want]:
             _preview_cache.pop(key, None)
+        for key in [k for k in list(_preview_inflight) if str(k[0]) in want]:
+            _preview_inflight.discard(key)
+        for key in [k for k in list(_preview_waiters) if str(k[0]) in want]:
+            _preview_waiters.pop(key, None)
+        if _preview_ready:
+            _preview_ready[:] = [it for it in _preview_ready if str(it[2]) not in want]
 
 
 def clear_preview_cache():
     with _preview_lock:
+        paths = {str(k[0]) for k in _preview_cache}
+        paths.update(str(k[0]) for k in _preview_inflight)
+        _bump_preview_epoch(paths)
         _preview_cache.clear()
+        _preview_inflight.clear()
+        _preview_waiters.clear()
+        _preview_ready.clear()
 
 
 def prefetch_maps(paths, fx=None):
@@ -1268,7 +1381,7 @@ def stamp_original(path, fx=None, allow_net=True):
         im = auto_enhance(im)
 
     w, h = im.size
-    if fx.get('use_timestamp') or fx.get('logo_enable'):
+    if stamps_text(fx) or fx.get('logo_enable'):
         try:
             im = render_timestamp(im, path, fx, allow_net=allow_net)
             w, h = im.size

@@ -254,6 +254,27 @@ def preview_sample(path, index=0, text="ÁÀẢÃẠ", size=(392, 54)):
     return im
 
 
+# Khung từng ký tự theo (file font, cỡ, index, ký tự). Preview vẽ chữ từng ký tự
+# và đo lại cả cụm mỗi lần xuống dòng -> cùng một getbbox bị gọi hàng trăm lần
+# mỗi lần chuyển điểm. Kết quả chỉ phụ thuộc file + cỡ + ký tự nên nhớ an toàn.
+_BBOX = {}
+_BBOX_MAX = 60000
+
+
+def char_bbox(font, ch):
+    path = getattr(font, "path", None)
+    if not isinstance(path, (str, bytes)):
+        return font.getbbox(ch)
+    key = (path, getattr(font, "size", 0), getattr(font, "index", 0), ch)
+    bb = _BBOX.get(key)
+    if bb is None:
+        bb = font.getbbox(ch)
+        if len(_BBOX) >= _BBOX_MAX:
+            _BBOX.clear()
+        _BBOX[key] = bb
+    return bb
+
+
 def font_covers(font, text):
     """True nếu font vẽ được mọi ký tự (không để lỗ dấu tiếng Việt)."""
     if font is None:
@@ -262,7 +283,7 @@ def font_covers(font, text):
         if ch.isspace():
             continue
         try:
-            bb = font.getbbox(ch)
+            bb = char_bbox(font, ch)
             if (bb[2] - bb[0]) < 1:
                 return False
         except Exception:

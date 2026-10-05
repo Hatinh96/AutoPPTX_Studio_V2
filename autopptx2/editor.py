@@ -15,6 +15,7 @@ import json
 import math
 import time
 import tkinter as tk
+from collections import OrderedDict
 
 from PIL import Image, ImageTk, ImageDraw
 
@@ -32,6 +33,12 @@ from .constants import (SLIDE_W_IN, SLIDE_H_IN, ELEMENT_COLORS, GUIDE_COLOR,
 BASE_PPI = 96                      # px/inch ở zoom 100%
 MIN_SIZE_IN = 0.3
 HANDLE_PX = 8
+# Ô ảnh đã vẽ (PhotoImage). Ảnh nền / logo giống nhau trên mọi slide, và quay
+# lại điểm vừa xem, thì khỏi thu nhỏ lại (LANCZOS ~10 ms/ô). ~1 MB/ô ở 100%.
+# 96 ô ≈ 20–30 điểm gần nhất; 48 thì lật ngược 20 điểm là đã bị đẩy ra hết.
+_CELL_CACHE_MAX = 96
+# Ảnh chữ đã vẽ (tiêu đề / kênh / bảng thông tin). Nhỏ, ~3 ảnh mỗi slide.
+_TEXT_CACHE_MAX = 90
 
 _CURSORS = {"nw": "size_nw_se", "se": "size_nw_se",
             "ne": "size_ne_sw", "sw": "size_ne_sw",
@@ -110,6 +117,11 @@ class EditorCanvas(tk.Canvas):
         self._render_job = None
         self._retry_job = None
         self._retry_n = 0
+        self._retry_for = None
+        self._cell_cache = OrderedDict()
+        self._text_cache = OrderedDict()
+        self._pending = set()            # ảnh cần vẽ mà thumbnail chưa giải mã xong
+        self._drawn = set()              # ảnh đã vẽ trong lần render này
 
         self.bind('<Button-1>', self._on_press)
         self.bind('<B1-Motion>', self._on_motion)
@@ -152,8 +164,15 @@ class EditorCanvas(tk.Canvas):
         self._render_job = None
         self.delete("all")
         self._photos = {}
+        self._pending = set()
+        self._drawn = set()
         self._last_guides = None
         self._ct = self.ctrl.content()
+        if self._ct is not self._retry_for:
+            # Sang điểm mới: cấp lại lượt thử. Không thì một điểm dùng hết lượt
+            # là mọi điểm sau mất luôn cơ chế chống trang trắng.
+            self._retry_for = self._ct
+            self._retry_n = 0
         self._draw_bg()
         if self.grid_on:
             self._draw_grid()
@@ -187,11 +206,26 @@ class EditorCanvas(tk.Canvas):
                               outline='#3a3a40', tags=("bgimg",))
         bg = ct.get('bg')
         if bg:
-            src = self.ctrl.thumbs.request(bg, self, self._thumb_ready)
-            if src is not None:
-                ph = ImageTk.PhotoImage(src.resize((self.CW, self.CH)))
+            key = ('bg', bg, self.CW, self.CH)
+            ph = self._cell_cache.get(key)
+            if ph is not None:
+                self._cell_cache.move_to_end(key)
+            else:
+                src = self.ctrl.thumbs.request(bg, self, self._thumb_ready)
+                if src is None:
+                    self._pending.add(bg)
+                else:
+                    ph = ImageTk.PhotoImage(src.resize((self.CW, self.CH)))
+                    self._cell_remember(key, ph)
+            if ph is not None:
+                self._drawn.add(bg)
                 self._photos['bg'] = [ph]
                 self.create_image(0, 0, anchor='nw', image=ph, tags=("bgimg",))
+
+    def _cell_remember(self, key, ph):
+        self._cell_cache[key] = ph
+        while len(self._cell_cache) > _CELL_CACHE_MAX:
+            self._cell_cache.popitem(last=False)
 
     def _draw_grid(self):
         step = 0.5 * self.S
@@ -277,26 +311,44 @@ class EditorCanvas(tk.Canvas):
     def _cell_photo(self, path, w, h, radius_pct, fit, opacity=100, apply_fx=False,
                     auto_portrait_fit=False):
         """PhotoImage cho 1 ô — resize từ thumbnail RAM, không decode file."""
+        fx = {}
+        try:
+            fx = self.ctrl.fx_snapshot()
+        except Exception:
+            fx = {}
+        dragging = (self._drag and self._drag.get('name') == 'image'
+                    and self._drag.get('mode') == 'resize')
+        use_fx = apply_fx and FX.needed(fx) and not dragging
+        if use_fx:
+            self._kick_minimap(path, fx)
+        # Đang kéo đổi cỡ thì mỗi khung hình một kích thước — đừng nhớ, chỉ làm
+        # đầy bộ nhớ đệm và đẩy mất ô cần giữ.
+        resizing = bool(self._drag and self._drag.get('mode') == 'resize')
+        key = None
+        if not resizing:
+            key = (path, int(w), int(h), fit, int(radius_pct or 0),
+                   int(opacity if opacity is not None else 100),
+                   bool(auto_portrait_fit), FX._fx_sig(fx) if use_fx else '')
+            hit = self._cell_cache.get(key)
+            if hit is not None:
+                self._cell_cache.move_to_end(key)
+                self._drawn.add(path)
+                return hit
         src = self.ctrl.thumbs.request(path, self, self._thumb_ready)
         if src is None:
+            self._pending.add(path)
             return None
+        cacheable = key is not None
         try:
             if auto_portrait_fit:
                 fit = G.photo_fit_mode(fit, src.width, src.height)
-            fx = {}
-            try:
-                fx = self.ctrl.fx_snapshot()
-            except Exception:
-                fx = {}
-            use_fx = apply_fx and FX.needed(fx)
-            dragging = (self._drag and self._drag.get('name') == 'image'
-                        and self._drag.get('mode') == 'resize')
-            if dragging:
-                use_fx = False
             if use_fx:
                 box_ar = w / max(1, h)
                 im = FX.peek_preview(path, fx, fit, radius_pct, box_ar)
                 if im is None:
+                    # Ảnh tạm chưa đóng dấu: KHÔNG nhớ, nếu không bản đã đóng dấu
+                    # về sau sẽ không bao giờ được hiện.
+                    cacheable = False
                     FX.request_preview(path, src, fx, fit, radius_pct, box_ar,
                                        self, self._thumb_ready)
                     im = G.resize_into_box(src, w, h, fit)
@@ -325,9 +377,21 @@ class EditorCanvas(tk.Canvas):
                     im = im.convert('RGBA')
                 a = im.split()[-1] if im.mode == 'RGBA' else Image.new('L', im.size, 255)
                 im.putalpha(a.point(lambda p: int(p * op / 100)))
-            return ImageTk.PhotoImage(im)
+            ph = ImageTk.PhotoImage(im)
+            if cacheable:
+                self._cell_remember(key, ph)
+            self._drawn.add(path)
+            return ph
         except Exception:
             return None
+
+    def drop_cells(self, paths):
+        """Bỏ ảnh ô đã vẽ — bản đồ/GPS tải xong phải vẽ lại, không giữ khung cũ."""
+        want = {str(p) for p in (paths or []) if p}
+        if not want:
+            return
+        for key in [k for k in list(self._cell_cache) if str(k[0]) in want]:
+            self._cell_cache.pop(key, None)
 
     def _kick_minimap(self, path, fx):
         if not (fx.get('minimap') or
@@ -340,6 +404,11 @@ class EditorCanvas(tk.Canvas):
 
     def clear_fx_cache(self):
         FX.clear_preview_cache()
+        self._cell_cache.clear()
+        self._text_cache.clear()
+
+    def clear_text_cache(self):
+        self._text_cache.clear()
 
     def _draw_avatar(self, x0, y0, w, h, tag, col):
         ct = self._ct
@@ -386,6 +455,13 @@ class EditorCanvas(tk.Canvas):
         S = self.S
         pad = 3
         w_in = float(L['info'].get('w') or wpx / max(S, 1))
+        key = ('info', tuple(tuple(r) for r in rows), int(wpx), int(hpx), S,
+               fname, fpath, fidx, base_pt, body_col, accent_col, op, w_in)
+        ph = self._text_get(key)
+        if ph is not None:
+            self._photos['info'].append(ph)
+            self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)
+            return
         wrap_chars = _info_value_wrap_chars(w_in)
         weights = info_row_weights(rows, w_in)
         tot_w = sum(weights) or 1.0
@@ -414,6 +490,7 @@ class EditorCanvas(tk.Canvas):
                           font=vf, fill=(vr, vg, vb, a), anchor='rm')
             y_cur += rh
         ph = ImageTk.PhotoImage(tmp)
+        self._text_put(key, ph)
         self._photos['info'].append(ph)
         self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)
 
@@ -643,26 +720,40 @@ class EditorCanvas(tk.Canvas):
         al = c.get('align', 'left')
         self.create_rectangle(x0, y0, x0 + wpx, y0 + hpx, outline=col,
                               width=1, dash=(3, 2), tags=tag)
-        tr_px = int(round(tracking * S / 72))
-        im = ST.render_textbox(
-            txt, wpx, hpx, font_name=fname, size_px=fpx, color=f_color,
-            opacity=op, align=al, bold=fbold, italic=fital,
-            tracking_px=tr_px, valign='middle' if name == 'title' else 'top',
-            font_path=fpath, font_index=fidx)
-        ph = ImageTk.PhotoImage(im)
+        key = ('tb', name, txt, int(wpx), int(hpx), S, fpx, f_color, fname,
+               fpath, fidx, fbold, fital, op, tracking, al)
+        ph = self._text_get(key)
+        if ph is None:
+            tr_px = int(round(tracking * S / 72))
+            im = ST.render_textbox(
+                txt, wpx, hpx, font_name=fname, size_px=fpx, color=f_color,
+                opacity=op, align=al, bold=fbold, italic=fital,
+                tracking_px=tr_px, valign='middle' if name == 'title' else 'top',
+                font_path=fpath, font_index=fidx)
+            ph = ImageTk.PhotoImage(im)
+            self._text_put(key, ph)
         self._photos[name].append(ph)
         self.create_image(x0, y0, anchor='nw', image=ph, tags=tag)
 
+    def _text_get(self, key):
+        ph = self._text_cache.get(key)
+        if ph is not None:
+            self._text_cache.move_to_end(key)
+        return ph
+
+    def _text_put(self, key, ph):
+        # Kéo đổi cỡ: mỗi khung hình một kích thước, đừng làm đầy bộ nhớ đệm.
+        if self._drag and self._drag.get('mode') == 'resize':
+            return
+        self._text_cache[key] = ph
+        while len(self._text_cache) > _TEXT_CACHE_MAX:
+            self._text_cache.popitem(last=False)
+
     def _missing_thumbs(self):
-        ct = self._ct or {}
-        try:
-            thumbs = self.ctrl.thumbs
-        except Exception:
-            return False
-        for p in list(ct.get('images') or []) + [ct.get('avatar'), ct.get('bg')]:
-            if p and thumbs.get(p) is None:
-                return True
-        return False
+        # Chỉ tính ảnh THỰC SỰ cần vẽ lần này. Trước đây duyệt mọi ảnh của nhóm,
+        # mà khung chỉ vẽ vài ảnh đầu -> ảnh thứ 5+ không bao giờ được nạp ->
+        # app vẽ lại cả slide ~30 lần sau mỗi lần chuyển điểm.
+        return bool(self._pending)
 
     def _arm_thumb_retry(self):
         """Ảnh decode xong sau prefetch — vẽ lại, đừng để ô xám mãi."""
@@ -679,9 +770,7 @@ class EditorCanvas(tk.Canvas):
 
     def _on_thumb_retry(self):
         self._retry_job = None
-        ct = self._ct or {}
-        wanted = [p for p in list(ct.get('images') or [])
-                  + [ct.get('avatar'), ct.get('bg')] if p]
+        wanted = list(self._pending)
         if not wanted:
             self._retry_n = 0
             return
@@ -695,10 +784,8 @@ class EditorCanvas(tk.Canvas):
             self._arm_thumb_retry()
 
     def _thumb_ready(self, path, img):
-        """Thumbnail decode xong ở luồng nền → vẽ lại slide đang mở."""
-        ct = self._ct or {}
-        images = ct.get('images') or []
-        if path == ct.get('bg') or path == ct.get('avatar') or path in images:
+        """Thumbnail / bản đóng dấu xong ở luồng nền → vẽ lại nếu slide đang cần."""
+        if path in self._pending or path in self._drawn:
             self.schedule_render(10)
 
     # ══════════════════════════ SELECTION ══════════════════════════

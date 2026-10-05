@@ -96,7 +96,7 @@ def _line_width(s, font, tracking_px):
         return 0
     w = 0
     for i, ch in enumerate(s):
-        bbox = font.getbbox(ch)
+        bbox = FN.char_bbox(font, ch)
         w += max(1, bbox[2] - bbox[0])
         if i < len(s) - 1:
             w += tracking_px
@@ -123,7 +123,7 @@ def _draw_tracked(draw, x, y, s, font, fill, tracking_px):
     cx = x
     for i, ch in enumerate(s):
         draw.text((cx, y), ch, font=font, fill=fill)
-        bbox = font.getbbox(ch)
+        bbox = FN.char_bbox(font, ch)
         cx += max(1, bbox[2] - bbox[0])
         if i < len(s) - 1:
             cx += tracking_px

@@ -6,6 +6,7 @@ import os
 import re
 import difflib
 import textwrap
+import threading
 from collections import OrderedDict
 
 from .constants import IMG_EXTS, CODE_SUFFIX_RE
@@ -973,49 +974,61 @@ class AvatarIndex:
         self._exact = {}
         self._loose = {}
         self._aliases = {}
+        self._keys = ()
+        # Nhớ kết quả find(): điểm không có avatar khớp đúng tên phải dò gần đúng
+        # qua ~6.000 tên (~25 ms/lần), mà mỗi lần chuyển điểm gọi 2 lần.
+        self._memo = {}
 
     def set_aliases(self, mapping):
         """Bảng alias tùy chọn: {mã_tìm: mã_file}. Không ghi đè khớp chính xác."""
-        self._aliases = {}
+        aliases = {}
         for src, dst in (mapping or {}).items():
             a, b = str(src or '').strip().upper(), str(dst or '').strip().upper()
             if a and b:
-                self._aliases[a] = b
+                aliases[a] = b
+        self._aliases = aliases
+        self._memo = {}
 
     def set_folder(self, folder):
+        # Dựng bảng mới vào biến cục bộ rồi gán một lần: luồng nền đang find()
+        # sẽ không đọc phải bảng dựng dở.
+        exact, loose = {}, {}
+
+        def put(stem, path):
+            exact.setdefault(stem, path)
+            lk = _avatar_alnum(stem)
+            if lk:
+                loose.setdefault(lk, path)
+
+        if folder and os.path.isdir(folder):
+            try:
+                for root, _dirs, files in os.walk(folder):
+                    for fn in files:
+                        if not fn.lower().endswith(IMG_EXTS):
+                            continue
+                        p = os.path.join(root, fn)
+                        stem = os.path.splitext(fn)[0].strip().upper()
+                        if not stem:
+                            continue
+                        put(stem, p)
+                        stripped = _AVATAR_FILE_SUF.sub('', stem).strip()
+                        if stripped and stripped != stem:
+                            put(stripped, p)
+            except Exception:
+                pass
         self.folder = folder
-        self._exact, self._loose = {}, {}
-        if not folder or not os.path.isdir(folder):
-            return
-        try:
-            for root, _dirs, files in os.walk(folder):
-                for fn in files:
-                    if not fn.lower().endswith(IMG_EXTS):
-                        continue
-                    p = os.path.join(root, fn)
-                    stem = os.path.splitext(fn)[0].strip().upper()
-                    if not stem:
-                        continue
-                    self._put(stem, p)
-                    stripped = _AVATAR_FILE_SUF.sub('', stem).strip()
-                    if stripped and stripped != stem:
-                        self._put(stripped, p)
-        except Exception:
-            pass
+        self._exact, self._loose, self._keys = exact, loose, tuple(exact)
+        self._memo = {}
 
-    def _put(self, stem, path):
-        self._exact.setdefault(stem, path)
-        loose = _avatar_alnum(stem)
-        if loose:
-            self._loose.setdefault(loose, path)
-
-    def _lookup(self, key):
+    def _lookup(self, key, exact=None, loose=None):
         if not key:
             return None
-        p = self._exact.get(key)
+        exact = self._exact if exact is None else exact
+        loose = self._loose if loose is None else loose
+        p = exact.get(key)
         if p:
             return p
-        return self._loose.get(_avatar_alnum(key))
+        return loose.get(_avatar_alnum(key))
 
     def find(self, code):
         if not code:
@@ -1023,29 +1036,37 @@ class AvatarIndex:
         key = str(code).strip().upper()
         if not key:
             return None
+        # Chụp một lần: set_folder() ở luồng khác chỉ thay object, không sửa tại chỗ.
+        exact, loose, keys = self._exact, self._loose, self._keys
+        aliases, memo = self._aliases, self._memo
+        if key in memo:
+            return memo[key]
         seen = set()
-        queue = [key]
-        alias = self._aliases.get(key)
+        todo = [key]
+        alias = aliases.get(key)
         if alias:
-            queue.append(alias)
+            todo.append(alias)
         base = _AVATAR_BASE_RE.sub('', key).strip()
         if base and base != key:
-            queue.append(base)
-            alias2 = self._aliases.get(base)
+            todo.append(base)
+            alias2 = aliases.get(base)
             if alias2:
-                queue.append(alias2)
-        for k in queue:
+                todo.append(alias2)
+        found = None
+        for k in todo:
             if k in seen:
                 continue
             seen.add(k)
-            p = self._lookup(k)
-            if p:
-                return p
-        cand = difflib.get_close_matches(
-            key, list(self._exact), n=1, cutoff=_AVATAR_FUZZY_CUTOFF)
-        if cand:
-            return self._exact[cand[0]]
-        return None
+            found = self._lookup(k, exact, loose)
+            if found:
+                break
+        if not found:
+            cand = difflib.get_close_matches(
+                key, keys, n=1, cutoff=_AVATAR_FUZZY_CUTOFF)
+            if cand:
+                found = exact[cand[0]]
+        memo[key] = found
+        return found
 
     def resolve(self, *codes):
         """Thử lần lượt các mã (ảnh, Code_RP Excel). Mã trống bỏ qua."""
@@ -1145,6 +1166,57 @@ def build_photo_rename_plan(groups, mapping):
     return plan, conflicts
 
 
+# Nhớ kết quả khớp mã theo từng bảng mã Excel. Mỗi lần bấm lọc, app gọi
+# match_row cho CÙNG một mã ~8 lần (sắp xếp, QA, overview, đếm slide); mã sai
+# chính tả phải dò gần đúng qua ~2.000 dòng (~4 ms/lần), nên không nhớ lại thì
+# mỗi click đơ hơn 1 giây. Khoá theo id của by_code/merged và GIỮ tham chiếu tới
+# chính 2 dict đó, để id không bị tái dùng cho dict khác; len() chặn trường hợp
+# dict bị thêm dòng sau khi đã nhớ.
+_MATCH_LOCK = threading.Lock()
+_MATCH_STATES = OrderedDict()
+_MATCH_STATES_MAX = 8
+
+
+def _match_state(by_code, merged):
+    merged = merged or None
+    key = (id(by_code), id(merged) if merged is not None else 0)
+    n = len(by_code)
+    with _MATCH_LOCK:
+        st = _MATCH_STATES.get(key)
+        if (st is not None and st['by_code'] is by_code
+                and st['merged'] is merged and st['n'] == n):
+            _MATCH_STATES.move_to_end(key)
+            return st
+        pool = [k for k, r in by_code.items()
+                if str((r or {}).get('_SiteStatus') or '').strip().casefold() != 'off']
+        st = {'by_code': by_code, 'merged': merged, 'n': n,
+              'pool': pool or list(by_code), 'hits': {}}
+        _MATCH_STATES[key] = st
+        while len(_MATCH_STATES) > _MATCH_STATES_MAX:
+            _MATCH_STATES.popitem(last=False)
+        return st
+
+
+def _match_slow(key, by_code, merged, pool):
+    base, sfx = strip_place_suffix(key)
+    base = str(base or '').strip().upper()
+    if sfx and base in by_code:
+        return by_code[base], base, 'exact'
+    if merged and key in merged:
+        return merge_rows(merged[key]), key, 'merged'
+    if merged and sfx and base in merged:
+        return merge_rows(merged[base]), base, 'merged'
+    cand = difflib.get_close_matches(key, pool, n=1, cutoff=0.84)
+    if not cand and sfx and base:
+        cand = difflib.get_close_matches(base, pool, n=1, cutoff=0.84)
+    if cand:
+        row = by_code[cand[0]]
+        if str((row or {}).get('_SiteStatus') or '').strip().casefold() == 'off':
+            return {}, None, 'none'
+        return row, cand[0], 'fuzzy'
+    return {}, None, 'none'
+
+
 def match_row(code, by_code, merged=None):
     """Khớp mã ảnh với dòng Excel.
 
@@ -1157,26 +1229,17 @@ def match_row(code, by_code, merged=None):
         return {}, None, 'none'
     if key in by_code:
         return by_code[key], key, 'exact'
-    base, sfx = strip_place_suffix(key)
-    base = str(base or '').strip().upper()
-    if sfx and base in by_code:
-        return by_code[base], base, 'exact'
-    if merged and key in merged:
-        return merge_rows(merged[key]), key, 'merged'
-    if merged and sfx and base in merged:
-        return merge_rows(merged[base]), base, 'merged'
-    on_keys = [k for k, r in by_code.items()
-               if str((r or {}).get('_SiteStatus') or '').strip().casefold() != 'off']
-    pool = on_keys or list(by_code)
-    cand = difflib.get_close_matches(key, pool, n=1, cutoff=0.84)
-    if not cand and sfx and base:
-        cand = difflib.get_close_matches(base, pool, n=1, cutoff=0.84)
-    if cand:
-        row = by_code[cand[0]]
-        if str((row or {}).get('_SiteStatus') or '').strip().casefold() == 'off':
-            return {}, None, 'none'
-        return row, cand[0], 'fuzzy'
-    return {}, None, 'none'
+    st = _match_state(by_code, merged)
+    hit = st['hits'].get(key)
+    if hit is None:
+        hit = _match_slow(key, by_code, st['merged'], st['pool'])
+        st['hits'][key] = hit
+    row, mcode, kind = hit
+    if kind == 'merged':
+        row = dict(row)       # dòng gộp là bản sao riêng — giữ đúng hành vi cũ
+    elif kind == 'none':
+        row = {}
+    return row, mcode, kind
 
 
 # ════════════════════════════════════════════════════════════

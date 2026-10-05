@@ -10,6 +10,7 @@ import sys
 import json
 import math
 import copy
+import queue
 import threading
 import tkinter as tk
 from collections import OrderedDict
@@ -403,7 +404,11 @@ class App(ctk.CTk):
         self.order_list = ExcelSource()
         self.imglib = ImageLibrary()
         self.avatars = AvatarIndex()
-        self.thumbs = ThumbCache()
+        # Khung slide cần ảnh nét (1024 px). Dải ảnh chỉ vẽ ô 118×66: dùng
+        # chung cache 1024 px thì 320 nhóm ngốn ~755 MB RAM và giải mã ~4,7 s;
+        # cache riêng 256 px (JPEG giải mã thẳng ở 1/8) còn ~47 MB, ~0,7 s.
+        self.thumbs = ThumbCache(max_items=120)
+        self.tl_thumbs = ThumbCache(max_items=2000, max_px=256)
         self.group_idx = 0
         self._by_code = {}
         self._by_code_scope = {}
@@ -414,6 +419,12 @@ class App(ctk.CTk):
         self._insp_updating = False
         self._tl_pending = {}
         self._tl_photos = {}
+        self._tl_labels = {}
+        self._tl_exif_token = None
+        self._tl_photo_cache = OrderedDict()
+        self._search_job = None
+        self._estimate_job = None
+        self._cov_token = None
         self._tl_items = []
         self._tl_sel_idx = None
         self._codes_cache = None
@@ -423,6 +434,7 @@ class App(ctk.CTk):
         self._bg_thumb_btns = {}
         self._mm_busy = False
         self._mm_done = set()
+        self._mm_wait = []
         self._collapse = {}
         self._side_mode = 'nguon'
         self._side_open = True
@@ -534,10 +546,11 @@ class App(ctk.CTk):
 
     def _on_close(self):
         self._save_config()
-        try:
-            self.thumbs.shutdown()
-        except Exception:
-            pass
+        for cache in (self.thumbs, self.tl_thumbs):
+            try:
+                cache.shutdown()
+            except Exception:
+                pass
         self.destroy()
 
     def _clear_shell(self):
@@ -610,6 +623,8 @@ class App(ctk.CTk):
 
         def _fonts_ready():
             try:
+                # Chữ vẽ trước khi quét xong có thể dùng font dự phòng — bỏ bản đã nhớ.
+                self.editor.clear_text_cache()
                 self._sync_inspector()
                 self._invalidate()
             except Exception:
@@ -795,6 +810,7 @@ class App(ctk.CTk):
         self.editor = EditorCanvas(center, self)
         self.editor.pack(fill='both', expand=True)
         self.thumbs.bind_ui(self)
+        self.tl_thumbs.bind_ui(self)
         FX.bind_ui(self)
 
         # ── Timeline nhóm ảnh ──
@@ -2870,6 +2886,7 @@ class App(ctk.CTk):
         if key in ('minimap', 'location_mode', 'simulate_no_gps', 'simulate_all',
                    'location_list', 'location_address'):
             self._mm_done.clear()
+            self._mm_wait.clear()
         try:
             self.editor.clear_fx_cache()
         except Exception:
@@ -3207,11 +3224,26 @@ class App(ctk.CTk):
         if not want_map and not want_geo:
             return
         todo = [p for p in (paths or []) if p and p not in self._mm_done]
-        if not todo or self._mm_busy:
+        if not todo:
+            return
+        self._mm_done.update(todo)
+        self._mm_wait.extend(todo)
+        if self._mm_busy:
+            return
+        self._pump_minimap()
+
+    def _pump_minimap(self):
+        todo = list(dict.fromkeys(self._mm_wait))
+        self._mm_wait = []
+        if not todo:
+            self._mm_busy = False
             return
         self._mm_busy = True
-        self._mm_done.update(todo)
+        fx = self.opts.get('fx') or {}
         snap = dict(fx)
+        want_map = bool(fx.get('minimap'))
+        want_geo = (str(fx.get('location_mode') or '') in ('gps', 'auto')
+                    or bool(fx.get('simulate_no_gps') or fx.get('simulate_all')))
 
         def work():
             try:
@@ -3223,8 +3255,15 @@ class App(ctk.CTk):
                 pass
 
             def done():
-                self._mm_busy = False
                 FX.invalidate_preview_paths(todo)
+                try:
+                    self.editor.drop_cells(todo)
+                except Exception:
+                    pass
+                if self._mm_wait:
+                    self._pump_minimap()
+                else:
+                    self._mm_busy = False
                 cur = set()
                 try:
                     codes = self._ordered_codes()
@@ -4243,9 +4282,25 @@ class App(ctk.CTk):
             self._prefetch_nearby_groups()
         except Exception:
             pass
-        self._update_estimate()
-        self._update_data_brief()
+        self._schedule_estimate()
         self._schedule_save()
+
+    def _schedule_estimate(self, delay=60):
+        """Dải ảnh + slide đổi ngay; dòng ước tính (QA quét ~2.000 dòng, đếm
+        slide, overview) cập nhật ngay sau. Bấm lọc liên tiếp chỉ tính 1 lần."""
+        job = getattr(self, '_estimate_job', None)
+        if job:
+            try:
+                self.after_cancel(job)
+            except Exception:
+                pass
+
+        def run():
+            self._estimate_job = None
+            self._update_estimate()
+            self._update_data_brief()
+
+        self._estimate_job = self.after(delay, run)
 
     def _on_channel(self, v):
         keep = self._visible_code()
@@ -4765,11 +4820,68 @@ class App(ctk.CTk):
 
     def _on_search(self, _=None):
         self._search = self.ent_search.get()
+        # Mỗi phím gõ mà dựng lại cả dải ảnh thì gõ "HLVINCOM" = 8 lần dựng.
+        # Đợi ngừng gõ 150 ms rồi mới dựng một lần.
+        job = getattr(self, '_search_job', None)
+        if job:
+            try:
+                self.after_cancel(job)
+            except Exception:
+                pass
+        self._search_job = self.after(150, self._run_search)
+
+    def _run_search(self):
+        self._search_job = None
         self._rebuild_timeline()
+
+    def _tl_scan_exif(self, todo):
+        """Đọc EXIF ở luồng nền rồi gắn dấu ⚠ — luồng UI không mở file ảnh."""
+        token = object()
+        self._tl_exif_token = token
+        q = queue.SimpleQueue()
+
+        def work():
+            for idx, path in todo:
+                if self._tl_exif_token is not token:
+                    return
+                try:
+                    has = FX.has_exif_datetime(path)
+                except Exception:
+                    has = True
+                q.put((idx, has))
+            q.put(None)
+
+        threading.Thread(target=work, name='tl-exif', daemon=True).start()
+
+        def poll():
+            if self._tl_exif_token is not token:
+                return
+            done = False
+            while True:
+                try:
+                    item = q.get_nowait()
+                except queue.Empty:
+                    break
+                if item is None:
+                    done = True
+                    break
+                idx, has = item
+                entry = None if has else self._tl_labels.get(idx)
+                if entry:
+                    try:
+                        self.tl.itemconfigure(entry[0], text=entry[1] + ' ⚠')
+                    except Exception:
+                        pass
+            if not done:
+                self.after(80, poll)
+
+        self.after(80, poll)
 
     def _rebuild_timeline(self):
         tl = self.tl
         tl.delete('all')
+        self._tl_exif_token = None          # dừng lượt quét EXIF của lần dựng trước
+        self._tl_labels = {}
         self._tl_pending.clear()
         self._tl_photos.clear()
         self._tl_items = []
@@ -4782,6 +4894,8 @@ class App(ctk.CTk):
         all_codes = self._ordered_codes()
         idx_of = {c: i for i, c in enumerate(all_codes)}
         codes = self._filtered_codes()
+        show_badge = self.opts.get('show_no_exif_badge', True)
+        exif_todo = []
         x = 8
         for code in codes:
             idx = idx_of.get(code, 0)
@@ -4794,36 +4908,55 @@ class App(ctk.CTk):
                                 tags=(f'g_{idx}', f'sel_{idx}'))
             tl.create_rectangle(x, 8, x + _TL_W, 8 + _TL_H, fill=ch['slot'],
                                 outline='', tags=(f'g_{idx}',))
-            paths = self.imglib.group_paths(code)
+            paths = groups.get(code) or []
             if paths:
-                src = self.thumbs.request(paths[0], self, self._tl_thumb_ready)
-                if src is not None:
-                    self._tl_set_photo(code, idx, x, src)
+                p0 = paths[0]
+                if p0 in self._tl_photo_cache:
+                    self._tl_set_photo(code, idx, x, None, p0)
                 else:
-                    self._tl_pending.setdefault(paths[0], []).append((code, idx, x))
+                    src = self.tl_thumbs.request(p0, self, self._tl_thumb_ready)
+                    if src is not None:
+                        self._tl_set_photo(code, idx, x, src, p0)
+                    else:
+                        self._tl_pending.setdefault(p0, []).append((code, idx, x))
             label = code if len(code) <= 16 else code[:15] + '…'
-            nphotos = len(groups.get(code, []))
+            base_txt = f'{label} ({len(paths)})'
             exif_note = ''
-            if (self.opts.get('show_no_exif_badge', True) and paths
-                    and not FX.has_exif_datetime(paths[0])):
-                exif_note = ' ⚠'
-            tl.create_text(x + _TL_W / 2, 8 + _TL_H + 9,
-                           text=f'{label} ({nphotos}){exif_note}',
-                           fill=ch['text'], font=('Segoe UI', 8),
-                           tags=(f'g_{idx}',))
+            if show_badge and paths:
+                known, has = FX.peek_exif_datetime(paths[0])
+                if not known:
+                    exif_todo.append((idx, paths[0]))
+                elif not has:
+                    exif_note = ' ⚠'
+            tid = tl.create_text(x + _TL_W / 2, 8 + _TL_H + 9,
+                                 text=base_txt + exif_note,
+                                 fill=ch['text'], font=('Segoe UI', 8),
+                                 tags=(f'g_{idx}',))
+            self._tl_labels[idx] = (tid, base_txt)
             x += _TL_W + 12
         tl.configure(scrollregion=(0, 0, x, _TL_H + 30))
         self._tl_sel_idx = self.group_idx if all_codes else None
         self._update_group_label(all_codes)
+        if exif_todo:
+            self._tl_scan_exif(exif_todo)
 
-    def _tl_set_photo(self, code, idx, x, src):
-        fit = G.photo_fit_mode('fill', src.width, src.height)
-        im = G.resize_into_box(src, _TL_W, _TL_H, fit)
-        from PIL import ImageTk
-        ph = ImageTk.PhotoImage(im)
+    def _tl_set_photo(self, code, idx, x, src, path=None):
+        # Ô thu nhỏ không đổi theo bộ lọc / ô tìm — nhớ lại để lần dựng lại dải
+        # ảnh sau khỏi thu nhỏ lại 300+ ảnh.
+        ph = self._tl_photo_cache.get(path) if path else None
+        if ph is not None:
+            self._tl_photo_cache.move_to_end(path)
+        else:
+            fit = G.photo_fit_mode('fill', src.width, src.height)
+            im = G.resize_into_box(src, _TL_W, _TL_H, fit)
+            ph = ImageTk.PhotoImage(im)
+            if path:
+                self._tl_photo_cache[path] = ph
+                while len(self._tl_photo_cache) > 2500:
+                    self._tl_photo_cache.popitem(last=False)
         self._tl_photos[idx] = ph
-        ox = x + (_TL_W - im.size[0]) / 2
-        oy = 8 + (_TL_H - im.size[1]) / 2
+        ox = x + (_TL_W - ph.width()) / 2
+        oy = 8 + (_TL_H - ph.height()) / 2
         self.tl.create_image(ox, oy, anchor='nw', image=ph, tags=(f'g_{idx}',))
 
     def _tl_thumb_ready(self, path, img):
@@ -4833,7 +4966,7 @@ class App(ctk.CTk):
         if infos and not isinstance(infos[0], (list, tuple)):
             infos = [infos]
         for info in infos:
-            self._tl_set_photo(info[0], info[1], info[2], img)
+            self._tl_set_photo(info[0], info[1], info[2], img, path)
 
     def _tl_click(self, ev):
         x = self.tl.canvasx(ev.x)
@@ -5157,7 +5290,7 @@ class App(ctk.CTk):
         hits = difflib.get_close_matches(key, list(up_map.keys()), n=1, cutoff=0.45)
         return up_map[hits[0]] if hits else None
 
-    def _coverage(self):
+    def _coverage(self, avatars=True):
         groups = self._photo_groups_for_list()
         res = {'exact': [], 'merged': [], 'fuzzy': [], 'none': [],
                'no_avatar': []}
@@ -5165,9 +5298,56 @@ class App(ctk.CTk):
         for code in groups:
             _, mcode, kind = match_row(code, by_code, self._merged)
             res[kind].append((code, mcode))
-            if self.opts['avatar_folder'] and not self._resolve_avatar(code):
+            if avatars and self.opts['avatar_folder'] and not self._resolve_avatar(code):
                 res['no_avatar'].append(code)
         return res
+
+    def _count_missing_avatars_async(self, codes, base_txt):
+        """Đếm "thiếu avatar" ở luồng nền rồi điền vào nhãn.
+
+        Đếm cho cả ~300 nhóm phải dò gần đúng qua ~6.000 tên avatar (~1 s) —
+        làm trên luồng UI thì app đơ ngay sau khi nạp FILE TỔNG. Chạy ở đây
+        còn điền sẵn bộ nhớ dò avatar, nên chuyển tới điểm nào cũng nhanh.
+        """
+        token = object()
+        self._cov_token = token
+        q = queue.SimpleQueue()
+
+        def work():
+            n = 0
+            for c in codes:
+                if self._cov_token is not token:
+                    return
+                try:
+                    if not self._resolve_avatar(c):
+                        n += 1
+                except Exception:
+                    pass
+            q.put(n)
+
+        def start():
+            if self._cov_token is token:
+                threading.Thread(target=work, name='avatar-coverage', daemon=True).start()
+
+        # Chờ UI vẽ xong phần việc ngay sau khi nạp: luồng nền dò avatar bằng
+        # Python thuần, chạy cùng lúc sẽ giành GIL và làm chính lần nạp chậm đi.
+        self.after(300, start)
+
+        def poll():
+            if self._cov_token is not token:
+                return
+            try:
+                n = q.get_nowait()
+            except queue.Empty:
+                self.after(120, poll)
+                return
+            if n:
+                try:
+                    self.lbl_coverage.configure(text=f'{base_txt} • {n} thiếu avatar')
+                except Exception:
+                    pass
+
+        self.after(420, poll)
 
     def _update_coverage_label(self):
         try:
@@ -5175,6 +5355,7 @@ class App(ctk.CTk):
                 self.lbl_compare_list.configure(text=self._current_list_caption())
         except Exception:
             pass
+        self._cov_token = None              # huỷ lượt đếm avatar của lần trước
         raw = self.imglib.groups()
         if not raw:
             self.lbl_coverage.configure(text='')
@@ -5187,17 +5368,17 @@ class App(ctk.CTk):
                 extra += f' · {n_off_img} tạm off'
             self.lbl_coverage.configure(text=f'{len(groups)} nhóm ảnh{extra}')
             return
-        cov = self._coverage()
+        cov = self._coverage(avatars=False)
         ok = len(cov['exact']) + len(cov['merged'])
         qa = QA.check(groups, self._by_code_scope, self._merged_scope)
         txt = (f"{len(groups)} nhóm • {ok} khớp Excel"
                + (f" • {len(cov['fuzzy'])} gần đúng" if cov['fuzzy'] else '')
                + (f" • {len(qa.unmatched)} lệch mã" if qa.unmatched else '')
                + (f" • {len(qa.missing)} list chưa có ảnh" if qa.missing else '')
-               + (f" • {n_off_img} tạm off" if n_off_img else '')
-               + (f" • {len(cov['no_avatar'])} thiếu avatar"
-                  if cov['no_avatar'] else ''))
+               + (f" • {n_off_img} tạm off" if n_off_img else ''))
         self.lbl_coverage.configure(text=txt)
+        if self.opts.get('avatar_folder'):
+            self._count_missing_avatars_async(list(groups), txt)
 
     def _show_coverage(self):
         groups = self._photo_groups_for_list()
@@ -5907,7 +6088,7 @@ class App(ctk.CTk):
             messagebox.showwarning('Xuất ảnh', 'Chưa chọn thư mục ảnh.')
             return
         fx = self.opts.get('fx') or {}
-        if (not fx.get('use_timestamp')
+        if (not FX.stamps_text(fx)
                 and not (fx.get('watermark') or '').strip()
                 and not fx.get('minimap')):
             if not messagebox.askyesno(

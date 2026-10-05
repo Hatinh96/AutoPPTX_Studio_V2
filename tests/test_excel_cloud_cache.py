@@ -38,6 +38,25 @@ class TestExcelCloudCache(unittest.TestCase):
         self.assertIn('Đăng xuất', msg)
         self.assertNotIn('42501', msg)
 
+    def test_supabase_missing_message_source_install_hint(self):
+        import autopptx2.cloud as C
+        with patch.object(C, 'SUPABASE_IMPORT_ERROR',
+                          "ModuleNotFoundError: No module named 'supabase'"), \
+                patch.object(C.sys, 'frozen', False, create=True):
+            msg = C.supabase_missing_message()
+        self.assertIn('pip install supabase', msg)
+        self.assertIn('chạy từ source', msg)
+
+    def test_supabase_missing_message_frozen_shows_real_error(self):
+        import autopptx2.cloud as C
+        err = "PackageNotFoundError: No package metadata was found for postgrest"
+        with patch.object(C, 'SUPABASE_IMPORT_ERROR', err), \
+                patch.object(C.sys, 'frozen', True, create=True):
+            msg = C.supabase_missing_message()
+        self.assertIn('postgrest', msg)
+        self.assertIn('bản cài', msg)
+        self.assertNotIn('pip install', msg)
+
     def test_broadcast_empty_profiles_is_failure(self):
         cloud = CloudClient()
         r = cloud.upload_excel_broadcast('x.xlsx', [])

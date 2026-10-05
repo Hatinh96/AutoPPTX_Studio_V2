@@ -89,6 +89,20 @@ jobs:
           echo "$ARCHS" | tr ' ' '\n' | grep -qx "$(uname -m)" \
             || { echo "LỖI: app không có slice $(uname -m)"; exit 1; }
 
+      # Chạy thật bản vừa đóng gói: bắt lỗi nạp hụt supabase / tkinter ngay ở CI.
+      - name: Self-test frozen app (macOS)
+        if: matrix.build_type == 'macos'
+        run: |
+          "dist/AutoPPTX_Studio_V2.app/Contents/MacOS/AutoPPTX_Studio_V2" --selftest
+
+      - name: Self-test frozen app (Windows)
+        if: matrix.build_type == 'windows'
+        shell: bash
+        run: |
+          EXE="dist/AutoPPTX_Studio_V2.exe"
+          [ -f "$EXE" ] || EXE="dist/AutoPPTX_Studio_V2/AutoPPTX_Studio_V2.exe"
+          "$EXE" --selftest
+
       - name: Prepare Windows artifact
         if: matrix.build_type == 'windows'
         shell: bash
