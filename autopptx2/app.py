@@ -5487,7 +5487,8 @@ class App(ctk.CTk):
             messagebox.showinfo(
                 'FILE SO SÁNH CODE',
                 'Chưa có FILE TỔNG / MASTER đang mở.\n\n'
-                'Vào Bước 1 để đồng bộ Cloud hoặc Bước 2 để chọn FILE TỔNG.')
+                'Ở mục 1 «Nguồn & Lọc» bấm «Tải FILE TỔNG + Avatar từ Cloud», '
+                'hoặc chọn FILE TỔNG trên máy trong ⚙ Cài đặt.')
             return
         folders = list(getattr(self.imglib, 'folders', None) or [])
         path = filedialog.askopenfilename(
@@ -5592,7 +5593,8 @@ class App(ctk.CTk):
             lines += [
                 '',
                 'Lưu ý: Chưa chọn thư mục ảnh — báo cáo này chỉ so sánh Code_RP.',
-                'Muốn kiểm tra ảnh thiếu, chọn thư mục ảnh ở Bước 3 rồi chạy lại Bước 4.',
+                'Muốn kiểm tra ảnh thiếu: thêm thư mục ảnh ở mục 2 «Thư mục ảnh»,',
+                'rồi bấm lại «Chọn FILE SO SÁNH CODE…».',
                 '',
                 'TỔNG HỢP THEO KÊNH',
                 '-' * 86,
