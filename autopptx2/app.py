@@ -5510,6 +5510,9 @@ class App(ctk.CTk):
 
         master_by_code = self.excel.by_code(None)
         merged = build_merged_groups(master_by_code)
+        off_by_code = {}
+        for r in getattr(self.excel, 'off_rows', None) or []:
+            off_by_code.setdefault(str(r.get('Code_RP') or '').strip().upper(), r)
         recursive = bool(getattr(self.imglib, 'recursive', True))
         master_name = self._current_list_name()
 
@@ -5527,7 +5530,7 @@ class App(ctk.CTk):
                 groups = library.groups()
             report = compare_list_with_master(
                 src.rows, master_by_code, groups, merged,
-                check_images=bool(folders))
+                check_images=bool(folders), off_by_code=off_by_code)
             self.after(0, lambda: self._after_list_master_compare(
                 busy, path, master_name, report, ''))
 
@@ -5569,6 +5572,7 @@ class App(ctk.CTk):
             f'Tổng mã cần kiểm tra : {report.get("n_list", 0)}',
             f'Khớp file tổng       : {report.get("n_master_matches", 0)}',
             f'Không có trong tổng  : {report.get("n_not_in_master", 0)}',
+            f'Đang TẠM OFF         : {report.get("n_off", 0)}',
         ]
         if images_checked:
             lines += [
@@ -5580,8 +5584,8 @@ class App(ctk.CTk):
                 '',
                 'TỔNG HỢP THEO KÊNH',
                 '-' * 92,
-                f'{"Kênh":<30} {"Điểm":>6} {"Đủ":>6} {"Thiếu":>7} '
-                f'{"Ngoài tổng":>11} {"Ảnh thiếu":>10}',
+                f'{"Kênh":<28} {"Điểm":>6} {"Đủ":>6} {"Thiếu":>6} '
+                f'{"Ngoài tổng":>11} {"Tạm off":>8} {"Ảnh thiếu":>10}',
                 '-' * 92,
             ]
         else:
@@ -5591,30 +5595,34 @@ class App(ctk.CTk):
                 'Muốn kiểm tra ảnh thiếu, chọn thư mục ảnh ở Bước 3 rồi chạy lại Bước 4.',
                 '',
                 'TỔNG HỢP THEO KÊNH',
-                '-' * 76,
-                f'{"Kênh":<38} {"Mã list":>9} {"Khớp Master":>12} {"Ngoài Master":>13}',
-                '-' * 76,
+                '-' * 86,
+                f'{"Kênh":<38} {"Mã list":>9} {"Khớp Master":>12} '
+                f'{"Ngoài Master":>13} {"Tạm off":>9}',
+                '-' * 86,
             ]
         for item in report.get('channels') or []:
+            off = item.get('off', 0)
             if images_checked:
-                channel = str(item.get('channel') or '')[:30]
+                channel = str(item.get('channel') or '')[:28]
                 lines.append(
-                    f'{channel:<30} {item.get("sites", 0):>6} '
-                    f'{item.get("ok_sites", 0):>6} {item.get("missing_sites", 0):>7} '
-                    f'{item.get("not_in_master", 0):>11} {item.get("missing", 0):>10}')
+                    f'{channel:<28} {item.get("sites", 0):>6} '
+                    f'{item.get("ok_sites", 0):>6} {item.get("missing_sites", 0):>6} '
+                    f'{item.get("not_in_master", 0):>11} {off:>8} '
+                    f'{item.get("missing", 0):>10}')
             else:
                 channel = str(item.get('channel') or '')[:38]
                 sites = item.get('sites', 0)
                 outside = item.get('not_in_master', 0)
                 lines.append(
-                    f'{channel:<38} {sites:>9} {sites - outside:>12} {outside:>13}')
+                    f'{channel:<38} {sites:>9} {sites - outside - off:>12} '
+                    f'{outside:>13} {off:>9}')
 
         if images_checked:
             detail = [r for r in (report.get('rows') or [])
                       if r.get('status') != 'ok']
         else:
             detail = [r for r in (report.get('rows') or [])
-                      if r.get('status') == 'not_in_master']
+                      if r.get('status') in ('not_in_master', 'off')]
         if detail:
             lines += ['', 'CHI TIẾT CẦN XỬ LÝ']
             current_channel = None
@@ -5630,6 +5638,8 @@ class App(ctk.CTk):
                     ]
                 if item.get('status') == 'not_in_master':
                     conclusion = 'KHÔNG CÓ TRONG FILE TỔNG'
+                elif item.get('status') == 'off':
+                    conclusion = 'TẠM OFF TRÊN HỆ THỐNG'
                 else:
                     conclusion = 'THIẾU ẢNH'
                 place = item.get('name') or item.get('district') or ''

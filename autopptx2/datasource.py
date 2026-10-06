@@ -2008,17 +2008,24 @@ def expected_photo_count(row):
 
 
 def compare_list_with_master(list_rows, master_by_code, image_groups, merged=None,
-                             check_images=True):
+                             check_images=True, off_by_code=None):
     """Đối chiếu một file list với file tổng và ảnh, nhóm kết quả theo kênh.
 
     ``list_rows`` chỉ xác định các mã cần kiểm tra. ``master_by_code`` là file
     tổng đang mở/đã đồng bộ và cung cấp Channel, Name, số màn. ``image_groups``
     là kết quả quét thư mục ảnh hiện tại. Khi ``check_images`` là ``False``,
-    chỉ đối chiếu Code_RP và không kết luận thiếu ảnh.
+    chỉ đối chiếu Code_RP và không kết luận thiếu ảnh. ``off_by_code`` là các
+    cửa hàng tạm off của file tổng: mã trùng khớp được báo ``off`` và không
+    tính ảnh cần.
     """
     master_by_code = {
         str(code or '').strip().upper(): row
         for code, row in (master_by_code or {}).items()
+        if str(code or '').strip()
+    }
+    off_by_code = {
+        str(code or '').strip().upper(): row
+        for code, row in (off_by_code or {}).items()
         if str(code or '').strip()
     }
     merged = merged or {}
@@ -2045,18 +2052,27 @@ def compare_list_with_master(list_rows, master_by_code, image_groups, merged=Non
     for code, list_row in unique.items():
         master_row, matched, kind = match_row(code, master_by_code, merged)
         has_master = bool(master_row) and kind != 'none'
-        source = master_row if has_master else list_row
+        is_off = code in off_by_code and kind != 'exact'
+        if is_off:
+            has_master = False
+        source = (off_by_code[code] if is_off
+                  else master_row if has_master else list_row)
         canonical = str(matched or code).strip().upper()
         if check_images:
             photos = max(direct_photos.get(code, 0), master_photos.get(canonical, 0))
-            required = expected_photo_count(source)
+            required = 0 if is_off else expected_photo_count(source)
             missing = max(required - photos, 0)
         else:
             photos = required = missing = 0
         channel = str(clean((source or {}).get('Channel'))).strip() or 'Không xác định'
         name = str(clean((source or {}).get('Name'))).strip()
         district = str(clean((source or {}).get('District'))).strip()
-        status = 'not_in_master' if not has_master else ('missing' if missing else 'ok')
+        if is_off:
+            status = 'off'
+        elif not has_master:
+            status = 'not_in_master'
+        else:
+            status = 'missing' if missing else 'ok'
         item = {
             'code': code,
             'matched_code': canonical if has_master else '',
@@ -2072,13 +2088,16 @@ def compare_list_with_master(list_rows, master_by_code, image_groups, merged=Non
         rows.append(item)
         summary = channel_map.setdefault(channel, {
             'channel': channel, 'sites': 0, 'ok_sites': 0,
-            'missing_sites': 0, 'not_in_master': 0,
+            'missing_sites': 0, 'not_in_master': 0, 'off': 0,
             'required': 0, 'photos': 0, 'missing': 0,
         })
         summary['sites'] += 1
         summary['required'] += required
-        summary['photos'] += photos
         summary['missing'] += missing
+        if status == 'off':
+            summary['off'] += 1
+            continue
+        summary['photos'] += photos
         if status == 'ok':
             summary['ok_sites'] += 1
         else:
@@ -2087,7 +2106,7 @@ def compare_list_with_master(list_rows, master_by_code, image_groups, merged=Non
             if status == 'not_in_master':
                 summary['not_in_master'] += 1
 
-    order = {'missing': 0, 'not_in_master': 1, 'ok': 2}
+    order = {'missing': 0, 'not_in_master': 1, 'off': 2, 'ok': 3}
     rows.sort(key=lambda r: (
         r['channel'].casefold(), order.get(r['status'], 9), r['code']))
     channels = sorted(channel_map.values(), key=lambda r: r['channel'].casefold())
@@ -2096,11 +2115,12 @@ def compare_list_with_master(list_rows, master_by_code, image_groups, merged=Non
         'rows': rows,
         'channels': channels,
         'n_list': len(rows),
-        'n_master_matches': sum(1 for r in rows if r['status'] != 'not_in_master'),
+        'n_master_matches': sum(1 for r in rows if r['status'] in ('ok', 'missing')),
         'n_not_in_master': sum(1 for r in rows if r['status'] == 'not_in_master'),
+        'n_off': sum(1 for r in rows if r['status'] == 'off'),
         'n_ok_sites': sum(1 for r in rows if r['status'] == 'ok'),
         'n_missing_sites': sum(1 for r in rows if r['missing'] > 0),
         'n_required': sum(r['required'] for r in rows),
-        'n_photos': sum(r['photos'] for r in rows),
+        'n_photos': sum(r['photos'] for r in rows if r['status'] != 'off'),
         'n_missing_images': sum(r['missing'] for r in rows),
     }

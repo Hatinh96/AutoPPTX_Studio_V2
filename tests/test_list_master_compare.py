@@ -121,6 +121,40 @@ class ListMasterCompareTests(unittest.TestCase):
         self.assertEqual(by_code['BLD01']['status'], 'ok')
         self.assertEqual(by_code['UNKNOWN']['status'], 'not_in_master')
 
+    def test_off_store_in_list_is_reported_off_not_missing(self):
+        master = {
+            'COF01': {'Code_RP': 'COF01', 'Name': 'Coffee A',
+                      'Channel': 'Coffee & Milk Tea', 'Quantity': 2},
+        }
+        off = {
+            'COFOFF': {'Code_RP': 'COFOFF', 'Name': 'Coffee Off',
+                       'Channel': 'Coffee & Milk Tea', 'Quantity': 3},
+        }
+        list_rows = [
+            {'Code_RP': 'COF01'},
+            {'Code_RP': 'cofoff'},
+            {'Code_RP': 'UNKNOWN', 'Channel': 'CF'},
+        ]
+        images = {'COF01': ['a.jpg', 'b.jpg'], 'COFOFF': ['old.jpg']}
+
+        report = compare_list_with_master(
+            list_rows, master, images, build_merged_groups(master),
+            off_by_code=off)
+
+        by_code = {row['code']: row for row in report['rows']}
+        self.assertEqual(by_code['COFOFF']['status'], 'off')
+        self.assertEqual(by_code['COFOFF']['name'], 'Coffee Off')
+        self.assertEqual(by_code['COFOFF']['missing'], 0)
+        self.assertEqual(report['n_off'], 1)
+        self.assertEqual(report['n_master_matches'], 1)
+        self.assertEqual(report['n_not_in_master'], 1)
+        self.assertEqual(report['n_missing_sites'], 1)
+        self.assertEqual(report['n_required'], 3)
+        self.assertEqual(report['n_photos'], 2)
+        by_channel = {row['channel']: row for row in report['channels']}
+        self.assertEqual(by_channel['Coffee & Milk Tea']['off'], 1)
+        self.assertEqual(by_channel['Coffee & Milk Tea']['ok_sites'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()
