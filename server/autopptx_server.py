@@ -24,6 +24,7 @@ Biến môi trường:
 Đường dẫn API (nginx chuyển /pptx/… → /…):
     GET  /                       trang quản trị web
     GET  /api/health
+    GET  /api/downloads                  bản cài app máy tính (công khai) → /download/<tên file>
     POST /api/login              {email, password} → {token, user}
     POST /api/logout
     GET  /api/me
@@ -289,7 +290,7 @@ def db():
 
 def init_db():
     os.makedirs(DATA, exist_ok=True)
-    for k in KINDS + ('excel',):
+    for k in KINDS + ('excel', 'downloads'):
         os.makedirs(os.path.join(STORE, k), exist_ok=True)
     os.makedirs(JOBS, exist_ok=True)
     con = db()
@@ -460,6 +461,47 @@ def build_report(excel_path, excel_sha):
 _job_wake = threading.Event()
 _job_proc = {}            # id → Popen đang chạy
 JOB_ID_RE = re.compile(r'^[a-z0-9]{16}$')
+
+# ── bản cài ứng dụng máy tính (tải công khai ở trang đăng nhập) ──
+DL_DIR = os.path.join(STORE, 'downloads')
+DL_NAME_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9_.-]{0,120}\.(?:exe|msi|zip|dmg|pkg)$')
+DL_KINDS = (  # (mã, nhãn, chú thích, nhận theo tên file) — thứ tự hiển thị
+    ('windows', 'Windows', 'Windows 10/11 · 64-bit', lambda n: n.endswith(('.exe', '.msi')) or 'windows' in n),
+    ('mac', 'macOS', 'Universal · Apple Silicon & Intel', lambda n: 'universal' in n),
+    ('mac-arm', 'macOS Apple Silicon', 'Chip M1/M2/M3/M4', lambda n: 'applesilicon' in n or 'arm64' in n),
+    ('mac-intel', 'macOS Intel', 'Mac chip Intel', lambda n: 'intel' in n),
+)
+
+
+def list_downloads():
+    """Đọc thư mục store/downloads (+ downloads.json tuỳ chọn: version, notes)."""
+    meta = {}
+    try:
+        with open(os.path.join(DL_DIR, 'downloads.json'), encoding='utf-8') as f:
+            meta = json.load(f) or {}
+    except Exception:
+        pass
+    files = []
+    try:
+        names = sorted(os.listdir(DL_DIR))
+    except OSError:
+        names = []
+    for name in names:
+        full = os.path.join(DL_DIR, name)
+        if not DL_NAME_RE.match(name) or not os.path.isfile(full):
+            continue
+        low = name.lower()
+        for i, (key, label, hint, test) in enumerate(DL_KINDS):
+            if test(low):
+                st = os.stat(full)
+                files.append({'os': key, 'label': label, 'hint': hint, 'name': name, 'size': st.st_size,
+                              'updated': int(st.st_mtime), 'url': 'download/' + urllib.parse.quote(name), '_o': i})
+                break
+    files.sort(key=lambda f: (f['_o'], f['name']))
+    for f in files:
+        f.pop('_o')
+    return {'ok': True, 'version': str(meta.get('version') or ''), 'notes': str(meta.get('notes') or ''),
+            'files': files}
 
 
 def job_dir(jid):
@@ -844,6 +886,13 @@ class Handler(BaseHTTPRequestHandler):
             mm = re.match(r'^/static/([a-z0-9_.-]+\.(?:png|svg|ico))$', path)
             if mm and m in ('GET', 'HEAD'):
                 return self.serve_static(mm.group(1))
+            mm = re.match(r'^/download/([^/]+)$', path)
+            if mm and m in ('GET', 'HEAD'):
+                name = mm.group(1)
+                if not DL_NAME_RE.match(name):
+                    raise ApiError(404, 'Không có file.')
+                ctype = 'application/zip' if name.lower().endswith('.zip') else 'application/octet-stream'
+                return self.send_file('downloads', name, ctype, name)
             if path in ('/admin/', '/admin/index.html') and m in ('GET', 'HEAD'):
                 return self.serve_ui('admin.html')
             if path in ('/quick/', '/quick/index.html') and m in ('GET', 'HEAD'):
@@ -853,6 +902,8 @@ class Handler(BaseHTTPRequestHandler):
             p = path[4:]
             if p == '/health':
                 return self.send_json({'ok': True, 'time': now_iso()})
+            if p == '/downloads' and m == 'GET':
+                return self.send_json(list_downloads())
             if p == '/login' and m == 'POST':
                 return self.api_login(con)
             if p == '/logout' and m == 'POST':

@@ -308,6 +308,25 @@ class StoreServerTest(unittest.TestCase):
                 self.assertTrue(admin.set_admin(sid, 'Staff', True)['ok'])
                 self.assertTrue(admin.set_admin(sid, 'Staff', False)['ok'])
 
+    def test_downloads_public(self):
+        d = self.S.DL_DIR
+        os.makedirs(d, exist_ok=True)
+        for n, data in (('AutoPPTX-Windows.exe', b'MZ' * 10), ('AutoPPTX-macOS-Universal.zip', b'PK' * 5),
+                        ('ghi chu.txt', b'x')):
+            with open(os.path.join(d, n), 'wb') as f:
+                f.write(data)
+        with open(os.path.join(d, 'downloads.json'), 'w', encoding='utf-8') as f:
+            json.dump({'version': '9.9.9'}, f)
+        st, r = self.req('GET', '/api/downloads')          # không cần đăng nhập
+        self.assertEqual(st, 200)
+        self.assertEqual(r['version'], '9.9.9')
+        self.assertEqual([f['os'] for f in r['files']], ['windows', 'mac'])
+        st, b = self.req('GET', '/' + r['files'][0]['url'], raw=True)
+        self.assertEqual((st, b), (200, b'MZ' * 10))
+        for bad in ('/download/downloads.json', '/download/..%2Fautopptx.db', '/download/ghi%20chu.txt'):
+            st, _ = self.req('GET', bad, raw=True)
+            self.assertEqual(st, 404, bad)
+
     def test_web_export_job_end_to_end(self):
         """Bản web: tạo job → tải ảnh → máy chủ dựng PPTX → tải về, đúng số slide."""
         import time as _t

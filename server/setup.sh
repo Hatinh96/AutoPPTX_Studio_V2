@@ -23,7 +23,7 @@ install -d -m 755 "$APP" "$APP/autopptx2"
 # DB/khóa chỉ autopptx đọc; nginx (www-data) chỉ đọc được store/ và jobs/ để gửi file.
 install -d -o autopptx -g www-data -m 0710 "$DATA"
 install -d -o autopptx -g www-data -m 2750 "$DATA/store" "$DATA/jobs"
-for d in avatars backgrounds excel; do
+for d in avatars backgrounds excel downloads; do
   install -d -o autopptx -g www-data -m 2750 "$DATA/store/$d"
 done
 
