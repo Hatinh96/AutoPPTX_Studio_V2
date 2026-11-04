@@ -46,7 +46,7 @@ hiddenimports = [
     'PIL.Image',
     'PIL.ImageTk',
     'openpyxl',
-    'supabase',
+    'certifi',
     'keyring',
     'keyring.backends',
     'autopptx2',
@@ -70,32 +70,27 @@ if sys.platform == 'win32':
 elif sys.platform == 'darwin':
     # keyring >= 25 đã bỏ 'keyring.backends.OS_X'. Giữ tên cũ trong hiddenimports
     # làm PyInstaller báo lỗi và KHÔNG nhét backend mật khẩu vào bản Mac ->
-    # tick "Nhớ mật khẩu" nạp hụt module, màn đăng nhập báo sai "Thiếu package supabase".
+    # tick "Giữ đăng nhập" nạp hụt module, phiên không được nhớ.
     hiddenimports.extend(['keyring.backends.macOS'])
 
-# supabase & nhánh phụ thuộc đọc version qua importlib.metadata -> cần kèm
-# thư mục *.dist-info, nếu không bản đóng gói báo "Thiếu package supabase".
-# CHỈ copy_metadata. KHÔNG dùng collect_all cho nhánh này: đã thử và nó làm
-# hỏng bootstrap của bản onefile (app không khởi động được).
+# keyring đọc backend qua importlib.metadata (entry points) -> cần kèm *.dist-info.
+# Kết nối máy chủ kho dùng urllib chuẩn + bộ chứng chỉ certifi (đóng gói cacert.pem).
+# CHỈ copy_metadata. KHÔNG dùng collect_all: đã thử và nó làm hỏng bootstrap
+# của bản onefile (app không khởi động được).
 # Chỉ in ASCII — console Windows dùng cp1252, in tiếng Việt ở đây sẽ ném
 # UnicodeEncodeError ngay trong except và làm hỏng cả bản build.
-_META_PKGS = (
-    'supabase', 'supabase_auth', 'supabase_functions', 'gotrue', 'postgrest',
-    'realtime', 'storage3', 'supafunc', 'httpx', 'httpcore',
-    'websockets', 'pydantic', 'pydantic_core', 'keyring',
-)
+_META_PKGS = ('keyring',)
+try:
+    import certifi as _certifi
+    datas.append((_certifi.where(), 'certifi'))
+except Exception as _e:
+    print('[spec] certifi missing: %s' % _e)
 for _pkg in _META_PKGS:
     try:
         datas += copy_metadata(_pkg)
     except Exception as _e:
         print('[spec] copy_metadata skip %s: %s' % (_pkg, _e))
 
-hiddenimports.extend([
-    'supabase', 'supabase.client',
-    'postgrest', 'storage3', 'realtime',
-    'httpx', 'httpcore', 'h11', 'anyio', 'sniffio',
-    'pydantic', 'pydantic_core',
-])
 
 excludes = [
     'numpy', 'numpy.tests',

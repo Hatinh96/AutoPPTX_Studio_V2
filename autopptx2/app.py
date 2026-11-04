@@ -22,7 +22,7 @@ from .constants import (CONFIG_DIR, CONFIG_PATH, PRESET_DIR, DEFAULT_LAYOUT,
                         ELEMENT_NAMES, ELEMENT_LABELS, AR_CHOICES, ALL_CHANNELS,
                         ALL_CITIES, ALL_DISTRICTS, STAMP_PRESETS,
                         ACCENT, ACCENT_HOVER, BG, CARD, TEXT, MUTED, INPUT,
-                        BORDER, WORKSPACE, SUPABASE_URL, SUPABASE_ANON_KEY,
+                        BORDER, WORKSPACE, SERVER_URL,
                         V1_CREDS_PATH, COLOR_PALETTE, find_asset,
                         WINDOW_ICONS, STAMP_LOGOS, BUILTIN_PRESETS,
                         builtin_pack, DEPT_UI, dept_key, dept_label,
@@ -396,9 +396,8 @@ class App(ctk.CTk):
             self.opts['visible'].update(pack['visible'])
             self.opts['channel_enabled'] = True
         self.title('AutoPPTX Studio V2  ·  ' + dept_label(self.opts.get('dept')))
-        self.cloud = CloudClient(
-            cfg.get('supabase_url') or SUPABASE_URL,
-            cfg.get('supabase_key') or SUPABASE_ANON_KEY)
+        # Chỉ dùng URL lưu trong config khi người dùng tự đổi máy chủ (Cài đặt).
+        self.cloud = CloudClient(cfg.get('server_url') or SERVER_URL)
         self._bg_manifest = []
         self.excel = ExcelSource()
         self.order_list = ExcelSource()
@@ -526,9 +525,14 @@ class App(ctk.CTk):
             'opts': self.opts,
             'geometry': self.geometry(),
             'appearance': ctk.get_appearance_mode(),
-            'supabase_url': self.cloud.url,
-            'supabase_key': self.cloud.key,
+            'server_url': self.cloud.url if self.cloud.url != SERVER_URL.rstrip('/') else '',
         }
+        # Giữ các khoá do cloud.save_session() ghi (email, phiên) — trước đây bị ghi đè
+        # mất nên «Giữ đăng nhập» không có tác dụng ở lần mở sau.
+        old = self._load_config()
+        for k in ('email', 'remember', 'session_token'):
+            if k in old:
+                data[k] = old[k]
         try:
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=1)
@@ -560,12 +564,34 @@ class App(ctk.CTk):
             except Exception:
                 pass
 
-    def show_login(self):
+    def show_login(self, auto=True):
         self._ui_built = False
         self._clear_shell()
         self.configure(fg_color=BG)
         self.shell.configure(fg_color=BG)
-        build_login(self.shell, self)
+        build_login(self.shell, self, auto=auto)
+
+    def _resume_session(self, saved, widgets):
+        """Máy đã «Giữ đăng nhập»: vào lại bằng phiên đã nhớ, không hỏi mật khẩu."""
+        self._login_set_busy(widgets, True)
+        try:
+            widgets['btn'].configure(text='Đang vào lại…')
+        except Exception:
+            pass
+
+        def work():
+            ok, msg = self.cloud.resume(saved.get('email', ''), saved.get('token', ''))
+
+            def done():
+                if ok:
+                    self.show_main()
+                    return
+                if msg and 'hết' in msg:
+                    Cloud.clear_session()
+                self._login_set_busy(widgets, False,
+                                     (msg or 'Phiên đăng nhập đã hết.') + ' Nhập mật khẩu để vào.')
+            self.after(0, done)
+        threading.Thread(target=work, daemon=True).start()
 
     def _login_set_busy(self, widgets, busy, err=''):
         try:
@@ -597,11 +623,17 @@ class App(ctk.CTk):
         if not ok:
             self._login_set_busy(widgets, False, msg)
             return
-        if remember:
-            Cloud.save_creds(email, pw)
-        else:
-            Cloud.clear_creds()
+        try:
+            if remember:
+                Cloud.save_session(email, self.cloud.token)
+            else:
+                Cloud.clear_session()
+                Cloud.forget_legacy_password(email)
+        except Exception as e:
+            print('Lưu phiên lỗi:', e)
         self.show_main()
+        if self.cloud.must_change:
+            self.after(900, lambda: self._show_change_password(first=True))
 
     def logout(self):
         try:
@@ -609,7 +641,66 @@ class App(ctk.CTk):
         except Exception:
             pass
         self.cloud.logout()
-        self.show_login()
+        try:
+            Cloud.clear_session()
+        except Exception:
+            pass
+        self.show_login(auto=False)
+
+    def _show_change_password(self, first=False):
+        win = ctk.CTkToplevel(self)
+        win.title('Đổi mật khẩu')
+        win.geometry('420x330')
+        win.attributes('-topmost', True)
+        try:
+            win.transient(self)
+        except Exception:
+            pass
+        ctk.CTkLabel(win, text='🔑  Đổi mật khẩu',
+                     font=ctk.CTkFont(size=17, weight='bold')).pack(anchor='w', padx=18, pady=(14, 2))
+        if first:
+            ctk.CTkLabel(win, text='Bạn đang dùng mật khẩu tạm do quản trị cấp — nên đổi ngay.',
+                         text_color='#ca8a04', font=ctk.CTkFont(size=11), wraplength=380,
+                         justify='left').pack(anchor='w', padx=18, pady=(0, 6))
+        ents = []
+        for ph in ('Mật khẩu hiện tại', 'Mật khẩu mới (ít nhất 8 ký tự)', 'Nhập lại mật khẩu mới'):
+            e = ctk.CTkEntry(win, placeholder_text=ph, show='•', height=36)
+            e.pack(fill='x', padx=18, pady=4)
+            ents.append(e)
+        status = ctk.CTkLabel(win, text='', text_color=MUTED, font=ctk.CTkFont(size=11),
+                              wraplength=380, justify='left')
+        status.pack(anchor='w', padx=18, pady=(4, 0))
+
+        def go():
+            old, new, again = (e.get() for e in ents)
+            if new != again:
+                status.configure(text='Hai lần nhập mật khẩu mới không khớp.', text_color='#ef4444')
+                return
+            status.configure(text='Đang đổi…', text_color=MUTED)
+
+            def work():
+                res = self.cloud.change_password(old, new)
+
+                def done():
+                    if res.get('ok'):
+                        messagebox.showinfo('Tài khoản', res.get('msg', ''), parent=win)
+                        win.destroy()
+                    else:
+                        status.configure(text=res.get('msg', ''), text_color='#ef4444')
+                self.after(0, done)
+            threading.Thread(target=work, daemon=True).start()
+        bar = ctk.CTkFrame(win, fg_color='transparent')
+        bar.pack(fill='x', padx=18, pady=12, side='bottom')
+        ctk.CTkButton(bar, text='Đổi mật khẩu', fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      command=go).pack(side='right')
+        ctk.CTkButton(bar, text='Để sau' if first else 'Đóng', width=90, fg_color=CARD,
+                      hover_color=BORDER, text_color=TEXT,
+                      command=win.destroy).pack(side='right', padx=8)
+        ents[0].focus_set()
+
+    def _open_admin_web(self):
+        import webbrowser
+        webbrowser.open(self.cloud.admin_url())
 
     def show_main(self):
         self._clear_shell()
@@ -6532,8 +6623,13 @@ class App(ctk.CTk):
             menu.add_command(label='   ' + role, state='disabled')
             menu.add_separator()
         if self.cloud.is_admin():
-            menu.add_command(label='👥  Quản lý tài khoản',
+            menu.add_command(label='🌐  Trang quản trị kho (web)',
+                             command=self._open_admin_web)
+            menu.add_command(label='👥  Quản lý quyền tài khoản',
                              command=self._show_account_manager)
+        if self.cloud.logged_in():
+            menu.add_command(label='🔑  Đổi mật khẩu',
+                             command=self._show_change_password)
         menu.add_command(label='⚙  Cài đặt',
                          command=self._show_settings)
         menu.add_separator()
@@ -6577,28 +6673,28 @@ class App(ctk.CTk):
         self._build_settings_source(sc)
 
         ctk.CTkLabel(
-            sc, text='Cloud Supabase (nâng cao)',
+            sc, text='Máy chủ kho tài nguyên (nâng cao)',
             font=ctk.CTkFont(size=14, weight='bold')
         ).pack(anchor='w', pady=(12, 4))
-        ctk.CTkLabel(sc, text='URL', text_color=MUTED).pack(anchor='w')
+        ctk.CTkLabel(sc, text='Địa chỉ máy chủ · để trống = mặc định ' + SERVER_URL,
+                     text_color=MUTED, font=ctk.CTkFont(size=11),
+                     wraplength=520, justify='left').pack(anchor='w')
         ent_u = ctk.CTkEntry(sc, height=32)
         ent_u.pack(fill='x', pady=(0, 8))
-        ent_u.insert(0, self.cloud.url)
-        ctk.CTkLabel(sc, text='Anon key', text_color=MUTED).pack(anchor='w')
-        ent_k = ctk.CTkEntry(sc, height=32)
-        ent_k.pack(fill='x', pady=(0, 8))
-        ent_k.insert(0, self.cloud.key)
+        if self.cloud.url != SERVER_URL.rstrip('/'):
+            ent_u.insert(0, self.cloud.url)
 
         def _save():
-            self.cloud.url = ent_u.get().strip()
-            self.cloud.key = ent_k.get().strip()
-            self.cloud._client = None
+            new = (ent_u.get().strip() or SERVER_URL).rstrip('/')
+            changed = new != self.cloud.url
+            self.cloud.url = new
             self._save_config()
             _close_settings()
-            messagebox.showinfo('Cài đặt', 'Đã lưu. Đăng nhập lại để áp dụng URL/Key mới.')
+            if changed:
+                messagebox.showinfo('Cài đặt', 'Đã lưu. Đăng xuất rồi đăng nhập lại để dùng máy chủ mới.')
         bar = ctk.CTkFrame(win, fg_color='transparent')
         bar.pack(fill='x', padx=16, pady=(0, 12))
-        ctk.CTkButton(bar, text='Lưu URL/Key', fg_color=ACCENT,
+        ctk.CTkButton(bar, text='Lưu', fg_color=ACCENT,
                       command=_save).pack(side='right')
         ctk.CTkButton(bar, text='Đóng', width=90, fg_color=CARD,
                       hover_color=BORDER, text_color=TEXT,
@@ -6957,9 +7053,7 @@ class App(ctk.CTk):
 
         def work():
             if target == 'all':
-                profiles = self.cloud.fetch_profiles()
-                res = self.cloud.upload_excel_broadcast(
-                    path, profiles, progress=on_prog)
+                res = self.cloud.upload_excel_broadcast(path, progress=on_prog)
             else:
                 res = self.cloud.upload_excel(path, progress=on_prog)
 

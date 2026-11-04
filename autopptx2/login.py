@@ -1,4 +1,4 @@
-"""Màn hình đăng nhập Golden Asia — Supabase Auth."""
+"""Màn hình đăng nhập Golden Asia — tài khoản trên máy chủ kho của công ty."""
 import threading
 import tkinter as tk
 import customtkinter as ctk
@@ -8,8 +8,11 @@ from .constants import GA_BLUE_DEEP, GA_BLUE_GLOW, find_asset, LOGIN_LOGOS
 from . import cloud as C
 
 
-def build_login(host, app):
-    """Vẽ form đăng nhập vào `host`. Gọi `app._try_login(email, pw, remember)`."""
+def build_login(host, app, auto=True):
+    """Vẽ form đăng nhập vào `host`. Gọi `app._try_login(email, pw, remember)`.
+
+    auto=True: máy đã «Giữ đăng nhập» thì vào lại bằng phiên đã nhớ (`app._resume_session`).
+    """
     for w in host.winfo_children():
         w.destroy()
     host.configure(fg_color=BG)
@@ -71,7 +74,7 @@ def build_login(host, app):
 
     ctk.CTkLabel(form, text='Đăng nhập', font=ctk.CTkFont(size=25, weight='bold'),
                  text_color=TEXT, anchor='w').pack(fill='x')
-    ctk.CTkLabel(form, text='Dùng tài khoản công ty (Supabase) để lấy Excel, avatar và ảnh nền trên đám mây.',
+    ctk.CTkLabel(form, text='Dùng tài khoản công ty để tải FILE TỔNG, avatar và ảnh nền từ máy chủ Golden Asia.',
                  font=ctk.CTkFont(size=13), text_color=MUTED, anchor='w',
                  wraplength=380, justify='left').pack(fill='x', pady=(4, 20))
 
@@ -120,8 +123,8 @@ def build_login(host, app):
             pass
     ent_pw.bind('<KeyPress>', _caps)
 
-    remember = ctk.BooleanVar(value=False)
-    ctk.CTkCheckBox(form, text='Nhớ mật khẩu trên máy này', variable=remember,
+    remember = ctk.BooleanVar(value=True)
+    ctk.CTkCheckBox(form, text='Giữ đăng nhập trên máy này', variable=remember,
                     text_color=TEXT, font=ctk.CTkFont(size=13),
                     fg_color=ACCENT, hover_color=ACCENT_HOVER,
                     checkbox_width=19, checkbox_height=19,
@@ -163,16 +166,18 @@ def build_login(host, app):
         try:
             if not host.winfo_exists():
                 return
+            ent_email.delete(0, 'end')
             ent_email.insert(0, saved.get('email', ''))
-            ent_pw.insert(0, saved.get('pw', ''))
             remember.set(True)
             ent_pw.focus_set()
         except Exception:
-            pass
+            return
+        if auto and saved.get('token'):
+            app._resume_session(saved, widgets)
 
     def _load_saved_async():
         try:
-            saved = C.load_saved_creds()
+            saved = C.load_saved_session()
         except Exception:
             saved = None
         try:

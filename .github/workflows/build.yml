@@ -43,7 +43,7 @@ jobs:
           cache: 'pip'
 
       # cryptography >= 49 bỏ wheel Mac Intel -> pip tự build, link OpenSSL Homebrew,
-      # rồi PyInstaller nhét nhầm libssl.3.dylib cũ của Python -> supabase không nạp
+      # rồi PyInstaller nhét nhầm libssl.3.dylib cũ của Python -> keyring/SSL không nạp
       # được. --only-binary buộc lấy wheel (Intel: 48.x universal2, OpenSSL tĩnh).
       - name: Install dependencies
         run: |
@@ -92,7 +92,7 @@ jobs:
           echo "$ARCHS" | tr ' ' '\n' | grep -qx "$(uname -m)" \
             || { echo "LỖI: app không có slice $(uname -m)"; exit 1; }
 
-      # Chạy thật bản vừa đóng gói: bắt lỗi nạp hụt supabase / tkinter ngay ở CI.
+      # Chạy thật bản vừa đóng gói: bắt lỗi nạp hụt keyring / certifi / tkinter ngay ở CI.
       - name: Self-test frozen app (macOS)
         if: matrix.build_type == 'macos'
         run: |

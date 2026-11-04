@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>AutoPPTX Quản trị</title>
+<style>
+:root{
+  --bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6572;--border:#e2e5ea;--input:#f1f3f6;
+  --accent:#2563eb;--accent-h:#1d4ed8;--ok:#15803d;--warn:#b45309;--err:#dc2626;--chip:#eef2ff;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1115;--card:#171a21;--text:#e8eaee;--muted:#9aa3b2;--border:#2a2f3a;--input:#1f232c;
+  --accent:#3b82f6;--accent-h:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--err:#f87171;--chip:#1e2640;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+header{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5}
+header h1{font-size:16px;margin:0;font-weight:650}
+header .sp{flex:1}
+nav{display:flex;gap:4px;flex-wrap:wrap;padding:10px 20px 0}
+nav button{background:none;border:0;padding:8px 12px;border-radius:8px 8px 0 0;color:var(--muted);font:inherit;cursor:pointer;border-bottom:2px solid transparent}
+nav button.on{color:var(--text);border-bottom-color:var(--accent);font-weight:600}
+main{padding:16px 20px 40px;max-width:1180px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.stat b{display:block;font-size:22px;font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:12px}
+.muted{color:var(--muted)}.small{font-size:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input,select{background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;min-width:0}
+button.b{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;font:inherit;font-weight:600;cursor:pointer}
+button.b:hover{background:var(--accent-h)}
+button.g{background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+button.d{color:var(--err)}
+button:disabled{opacity:.5;cursor:default}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+th{color:var(--muted);font-weight:600;font-size:12px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.tbl{overflow:auto;max-height:560px;border:1px solid var(--border);border-radius:8px}
+.tbl thead th{position:sticky;top:0;background:var(--card)}
+.chip{display:inline-block;padding:1px 8px;border-radius:99px;background:var(--chip);font-size:12px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
+progress{width:100%;height:8px}
+.thumb{width:44px;height:44px;object-fit:cover;border-radius:6px;background:var(--input);display:block}
+.bgs{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px}
+.bgs figure{margin:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--input)}
+.bgs img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.bgs figcaption{padding:6px 8px;font-size:12px;display:flex;gap:6px;align-items:center}
+.bgs figcaption span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#login{max-width:380px;margin:12vh auto}
+#login input{width:100%;margin-bottom:10px}
+.hidden{display:none!important}
+dialog{border:1px solid var(--border);border-radius:12px;background:var(--card);color:var(--text);max-width:440px;width:calc(100% - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+code.pw{font-size:18px;padding:6px 10px;background:var(--input);border-radius:6px;user-select:all}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+#toast.show{opacity:1}
+@media (max-width:640px){header,nav,main{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<div id="login" class="card hidden">
+  <h2>AutoPPTX · Quản trị kho tài nguyên</h2>
+  <p class="muted small">Đăng nhập bằng tài khoản quản trị.</p>
+  <form id="fLogin">
+    <input id="lEmail" type="email" placeholder="Email" autocomplete="username" required>
+    <input id="lPw" type="password" placeholder="Mật khẩu" autocomplete="current-password" required>
+    <button class="b" style="width:100%">Đăng nhập</button>
+    <p id="lErr" class="err small"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+<header>
+  <h1>AutoPPTX · Kho tài nguyên</h1><span class="sp"></span>
+  <span id="who" class="muted small"></span>
+  <button class="g" id="btnPw">Đổi mật khẩu</button>
+  <button class="g" id="btnOut">Đăng xuất</button>
+</header>
+<nav id="tabs">
+  <button data-t="home" class="on">Tổng quan</button>
+  <button data-t="excel">FILE TỔNG</button>
+  <button data-t="avatars">Avatar</button>
+  <button data-t="bgs">Ảnh nền</button>
+  <button data-t="report">Đối chiếu mã RP</button>
+  <button data-t="users">Tài khoản</button>
+</nav>
+<main>
+<section data-p="home">
+  <div class="grid" id="stats"></div>
+  <div class="card"><h2>Hoạt động gần đây</h2><div class="tbl"><table><thead><tr><th>Thời gian</th><th>Ai</th><th>Việc</th><th>Chi tiết</th></tr></thead><tbody id="auditBody"></tbody></table></div></div>
+</section>
+
+<section data-p="excel" class="hidden">
+  <div class="card">
+    <h2>Đẩy FILE TỔNG</h2>
+    <p class="muted small">File chuẩn có cột Code_RP. «Tất cả tài khoản» thay bản chung và bỏ các bản riêng; người dùng bấm Đồng bộ trong app là nhận file mới.</p>
+    <div class="row">
+      <input type="file" id="xFile" accept=".xlsx">
+      <select id="xTarget"><option value="all">Tất cả tài khoản</option></select>
+      <button class="b" id="xGo">Đẩy lên</button>
+    </div>
+    <progress id="xProg" value="0" max="1" class="hidden"></progress>
+    <p id="xMsg" class="small"></p>
+  </div>
+  <div class="card"><h2>Đang có trên máy chủ</h2><div class="tbl"><table><thead><tr><th>Áp cho</th><th>Tên file</th><th class="num">Dung lượng</th><th>Cập nhật</th><th></th></tr></thead><tbody id="xBody"></tbody></table></div></div>
+</section>
+
+<section data-p="avatars" class="hidden">
+  <div class="card">
+    <h2>Đẩy thư mục avatar</h2>
+    <p class="muted small">Chọn thư mục gốc (vd «Data avatar»). Giữ nguyên cây thư mục con theo kênh. Tên file = mã RP, bỏ đuôi A / AA / _Ava (vd <code>1994HAIRA.jpg</code> → <code>1994HAIR</code>). Ảnh không đổi so với lần trước được bỏ qua; ảnh lớn được máy chủ thu nhỏ <span id="shrinkInfo"></span>.</p>
+    <div class="row">
+      <input type="file" id="aDir" webkitdirectory multiple>
+      <label class="small"><input type="checkbox" id="aKeepRoot"> giữ tên thư mục gốc</label>
+      <button class="b" id="aGo">Đẩy lên</button>
+      <button class="g hidden" id="aStop">Dừng</button>
+    </div>
+    <progress id="aProg" value="0" max="1" class="hidden"></progress>
+    <p id="aMsg" class="small"></p>
+  </div>
+  <div class="card">
+    <div class="row" style="margin-bottom:10px"><h2 style="margin:0;flex:1">Kho avatar <span id="aCount" class="muted small"></span></h2>
+      <input id="aSearch" placeholder="Tìm mã / thư mục…" style="width:240px"></div>
+    <div class="tbl"><table><thead><tr><th></th><th>Mã RP</th><th>Đường dẫn</th><th class="num">Dung lượng</th><th>Cập nhật</th><th></th></tr></thead><tbody id="aBody"></tbody></table></div>
+    <p class="muted small" id="aMore"></p>
+  </div>
+</section>
+
+<section data-p="bgs" class="hidden">
+  <div class="card">
+    <h2>Đẩy ảnh nền chung</h2>
+    <p class="muted small">Ảnh nền chung hiện cho mọi người trong tab Mẫu của app. Nhân viên đẩy ảnh riêng từ trong app.</p>
+    <div class="row"><input type="file" id="bFiles" multiple accept=".png,.jpg,.jpeg,.webp"><button class="b" id="bGo">Đẩy lên</button></div>
+    <p id="bMsg" class="small"></p>
+  </div>
+  <div class="card"><h2>Ảnh nền chung <span id="bCount" class="muted small"></span></h2><div class="bgs" id="bGrid"></div></div>
+</section>
+
+<section data-p="report" class="hidden">
+  <div class="card">
+    <h2>Đối chiếu mã RP trong FILE TỔNG với kho avatar</h2>
+    <p class="muted small">Dùng đúng cách khớp của app khi xuất PPTX (khớp tên, bỏ dấu/gạch, alias BLOCK/THÁP, gần giống).</p>
+    <div class="row"><select id="rOwner"></select><button class="b" id="rGo">Đối chiếu</button><button class="g" id="rCsv" disabled>Tải CSV mã thiếu ảnh</button></div>
+    <p id="rMsg" class="small"></p>
+  </div>
+  <div id="rOut"></div>
+</section>
+
+<section data-p="users" class="hidden">
+  <div class="card">
+    <h2>Thêm tài khoản</h2>
+    <form id="uForm" class="row">
+      <input id="uEmail" type="email" placeholder="email@goldenasia.vn" required style="width:240px">
+      <input id="uName" placeholder="Họ tên" style="width:200px">
+      <select id="uRole"><option value="user">Nhân viên</option><option value="admin">Quản trị viên</option></select>
+      <button class="b">Tạo tài khoản</button>
+    </form>
+    <p class="muted small">Máy chủ tạo mật khẩu tạm; gửi cho người dùng, họ nên đổi sau lần đăng nhập đầu.</p>
+  </div>
+  <div class="card"><div class="tbl"><table><thead><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Đăng nhập gần nhất</th><th></th></tr></thead><tbody id="uBody"></tbody></table></div></div>
+</section>
+</main>
+</div>
+
+<dialog id="dlg"><h3 id="dTitle" style="margin-top:0"></h3><div id="dBody"></div><div class="row" style="justify-content:flex-end;margin-top:14px" id="dBtns"></div></dialog>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtB = n => n >= 1073741824 ? (n/1073741824).toFixed(2)+' GB' : n >= 1048576 ? (n/1048576).toFixed(1)+' MB' : n >= 1024 ? Math.round(n/1024)+' KB' : (n||0)+' B';
+const fmtT = s => s ? new Date(s).toLocaleString('vi-VN', {dateStyle:'short', timeStyle:'short'}) : '—';
+const ROLE = {user:'Nhân viên', admin:'Quản trị viên', super_admin:'Super Admin'};
+let me = null, users = [], avatars = [], lastReport = null;
+
+function toast(t){ const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), 3200); }
+
+async function api(path, opt = {}){
+  const o = {method: opt.method || 'GET', headers: {'X-Requested-With':'autopptx', ...(opt.headers||{})}, credentials:'same-origin'};
+  if (opt.json !== undefined){ o.body = JSON.stringify(opt.json); o.headers['Content-Type'] = 'application/json'; }
+  else if (opt.body !== undefined) o.body = opt.body;
+  const r = await fetch('api' + path, o);
+  let d = {};
+  try { d = await r.json(); } catch(e) {}
+  if (r.status === 401 && path !== '/login'){ showLogin(); throw new Error(d.msg || 'Hết phiên'); }
+  if (!r.ok || d.ok === false) throw new Error(d.msg || ('Lỗi ' + r.status));
+  return d;
+}
+const fileUrl = (kind, p) => 'api/files/' + kind + '/' + p.split('/').map(encodeURIComponent).join('/');
+
+function dialog(title, html, buttons){
+  $('#dTitle').textContent = title; $('#dBody').innerHTML = html;
+  const box = $('#dBtns'); box.innerHTML = '';
+  return new Promise(res => {
+    (buttons || [['Đóng', 'g', null]]).forEach(([label, cls, val]) => {
+      const b = document.createElement('button'); b.className = cls; b.textContent = label;
+      b.onclick = () => { $('#dlg').close(); res(val); }; box.appendChild(b);
+    });
+    $('#dlg').showModal();
+  });
+}
+const confirmBox = (t, h) => dialog(t, h, [['Huỷ', 'g', false], ['Đồng ý', 'b', true]]);
+const showTemp = (email, pw) => dialog('Mật khẩu tạm', `<p>Gửi cho <b>${esc(email)}</b>. Mật khẩu chỉ hiện một lần:</p><p><code class="pw">${esc(pw)}</code></p>`);
+
+// ── đăng nhập ──
+function showLogin(){ $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }
+$('#fLogin').onsubmit = async e => {
+  e.preventDefault(); $('#lErr').textContent = '';
+  try {
+    const d = await api('/login', {method:'POST', json:{email:$('#lEmail').value, password:$('#lPw').value, cookie:true, client:'web-admin'}});
+    $('#lPw').value = ''; await enter(d.user);
+  } catch(err){ $('#lErr').textContent = err.message; }
+};
+$('#btnOut').onclick = async () => { try { await api('/logout', {method:'POST'}); } catch(e){} showLogin(); };
+$('#btnPw').onclick = changePw;
+async function changePw(){
+  const ok = await dialog('Đổi mật khẩu', `<input id="pOld" type="password" placeholder="Mật khẩu hiện tại" style="width:100%;margin-bottom:8px"><input id="pNew" type="password" placeholder="Mật khẩu mới (≥ 8 ký tự)" style="width:100%">`, [['Huỷ','g',false],['Đổi','b',true]]);
+  if (!ok) return;
+  try { await api('/me/password', {method:'POST', json:{old:$('#pOld').value, new:$('#pNew').value}}); toast('Đã đổi mật khẩu.'); me.must_change = false; }
+  catch(e){ toast(e.message); }
+}
+async function enter(u){
+  me = u;
+  if (!['admin','super_admin'].includes(u.role)){ await api('/logout', {method:'POST'}).catch(()=>{}); showLogin(); $('#lErr').textContent = 'Tài khoản này không có quyền quản trị.'; return; }
+  $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('#who').textContent = (u.name || u.email) + ' · ' + ROLE[u.role];
+  await Promise.all([loadUsers(), loadHome()]);
+  if (u.must_change) changePw();
+}
+
+// ── tab ──
+$('#tabs').onclick = e => {
+  const t = e.target.dataset.t; if (!t) return;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('hidden', s.dataset.p !== t));
+  ({home:loadHome, excel:loadExcel, avatars:loadAvatars, bgs:loadBgs, report:fillOwners, users:loadUsers}[t] || (()=>{}))();
+};
+
+// ── tổng quan ──
+async function loadHome(){
+  const s = await api('/admin/stats');
+  $('#shrinkInfo').textContent = s.shrink.enabled ? `(cạnh dài tối đa ${s.shrink.max_px}px)` : '(máy chủ chưa bật thu nhỏ)';
+  const shared = s.excel.find(x => x.owner === 'shared');
+  $('#stats').innerHTML = [
+    ['Avatar', s.avatars.count.toLocaleString('vi-VN'), fmtB(s.avatars.bytes) + ' · ' + fmtT(s.avatars.updated_at)],
+    ['Ảnh nền', s.backgrounds.count, fmtB(s.backgrounds.bytes)],
+    ['FILE TỔNG chung', shared ? esc(shared.file_name) : '—', shared ? fmtT(shared.updated_at) : 'chưa đẩy'],
+    ['Tài khoản', s.users, (s.excel.length - (shared ? 1 : 0)) + ' bản Excel riêng'],
+    ['Ổ đĩa còn trống', fmtB(s.disk.free), 'trên ' + fmtB(s.disk.total)],
+  ].map(([k, v, sub]) => `<div class="card stat"><span>${k}</span><b>${v}</b><span>${sub}</span></div>`).join('');
+  $('#auditBody').innerHTML = s.audit.map(a => `<tr><td>${fmtT(a.ts)}</td><td>${esc(a.email||'')}</td><td>${esc(a.action)}</td><td class="small">${esc(a.detail||'')}</td></tr>`).join('') || '<tr><td colspan="4" class="muted">Chưa có.</td></tr>';
+}
+
+// ── tài khoản ──
+async function loadUsers(){
+  users = (await api('/admin/users')).users;
+  $('#uBody').innerHTML = users.map(u => `<tr data-id="${u.id}">
+    <td>${esc(u.name)}${u.id === me.id ? ' <span class="chip">bạn</span>' : ''}${u.disabled ? ' <span class="chip err">đã khoá</span>' : ''}</td>
+    <td>${esc(u.email)}</td>
+    <td>${u.role === 'super_admin' || u.id === me.id ? ROLE[u.role] : `<select data-act="role"><option value="user"${u.role==='user'?' selected':''}>Nhân viên</option><option value="admin"${u.role==='admin'?' selected':''}>Quản trị viên</option></select>`}</td>
+    <td class="small">${fmtT(u.last_login)}${u.must_change ? ' <span class="chip warn">chưa đổi MK</span>' : ''}</td>
+    <td class="row" style="justify-content:flex-end">${u.role === 'super_admin' && me.role !== 'super_admin' ? '' : `<button class="g" data-act="pw">Cấp MK tạm</button>`}
+      ${u.id === me.id || u.role === 'super_admin' ? '' : `<button class="g" data-act="lock">${u.disabled ? 'Mở khoá' : 'Khoá'}</button><button class="g d" data-act="del">Xoá</button>`}</td></tr>`).join('');
+  const opts = '<option value="all">Tất cả tài khoản</option>' + users.map(u => `<option value="${u.id}">Riêng: ${esc(u.name || u.email)}</option>`).join('');
+  $('#xTarget').innerHTML = opts;
+}
+$('#uForm').onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const d = await api('/admin/users', {method:'POST', json:{email:$('#uEmail').value, name:$('#uName').value, role:$('#uRole').value}});
+    $('#uEmail').value = $('#uName').value = ''; await loadUsers(); showTemp(d.user.email, d.temp_password);
+  } catch(err){ toast(err.message); }
+};
+$('#uBody').addEventListener('change', async e => {
+  if (e.target.dataset.act !== 'role') return;
+  const u = users.find(x => x.id == e.target.closest('tr').dataset.id);
+  try { await api('/admin/users', {method:'POST', json:{...u, role:e.target.value}}); toast('Đã đổi vai trò.'); } catch(err){ toast(err.message); }
+  loadUsers();
+});
+$('#uBody').addEventListener('click', async e => {
+  const act = e.target.dataset.act; if (!act || act === 'role') return;
+  const u = users.find(x => x.id == e.target.closest('tr').dataset.id);
+  try {
+    if (act === 'pw'){ if (!await confirmBox('Cấp mật khẩu tạm', `Mật khẩu cũ của <b>${esc(u.email)}</b> hết hiệu lực và các máy đang đăng nhập bị đăng xuất.`)) return;
+      const d = await api(`/admin/users/${u.id}/password`, {method:'POST'}); showTemp(u.email, d.temp_password); }
+    if (act === 'lock'){ await api('/admin/users', {method:'POST', json:{...u, disabled:!u.disabled}}); toast(u.disabled ? 'Đã mở khoá.' : 'Đã khoá, các máy của người này bị đăng xuất.'); }
+    if (act === 'del'){ if (!await confirmBox('Xoá tài khoản', `Xoá <b>${esc(u.email)}</b>, kèm FILE TỔNG riêng nếu có. Không hoàn tác được.`)) return;
+      await api(`/admin/users/${u.id}`, {method:'DELETE'}); toast('Đã xoá.'); }
+  } catch(err){ toast(err.message); }
+  loadUsers();
+});
+
+// ── FILE TỔNG ──
+async function loadExcel(){
+  const s = await api('/admin/stats');
+  const name = o => o === 'shared' ? '<b>Tất cả tài khoản</b>' : esc((users.find(u => String(u.id) === o) || {}).email || ('#' + o));
+  $('#xBody').innerHTML = s.excel.map(x => `<tr><td>${name(x.owner)}</td><td>${esc(x.file_name)}</td><td class="num">${fmtB(x.size)}</td><td>${fmtT(x.updated_at)}</td><td><a href="api/excel/file?owner=${encodeURIComponent(x.owner)}">Tải về</a></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Chưa có FILE TỔNG.</td></tr>';
+}
+$('#xGo').onclick = () => {
+  const f = $('#xFile').files[0]; if (!f){ toast('Chọn file .xlsx trước.'); return; }
+  const target = $('#xTarget').value;
+  const xhr = new XMLHttpRequest();
+  xhr.open('PUT', 'api/excel?target=' + encodeURIComponent(target));
+  xhr.setRequestHeader('X-Requested-With', 'autopptx');
+  xhr.setRequestHeader('X-File-Name', encodeURIComponent(f.name));
+  const pr = $('#xProg'); pr.classList.remove('hidden'); pr.value = 0; $('#xGo').disabled = true; $('#xMsg').textContent = 'Đang đẩy…';
+  xhr.upload.onprogress = e => { if (e.lengthComputable) pr.value = e.loaded / e.total; };
+  xhr.onloadend = () => {
+    $('#xGo').disabled = false; let d = {}; try { d = JSON.parse(xhr.responseText); } catch(e){}
+    $('#xMsg').innerHTML = xhr.status === 200 ? `<span class="ok">${esc(d.msg)}</span>` : `<span class="err">${esc(d.msg || 'Lỗi ' + xhr.status)}</span>`;
+    loadExcel();
+  };
+  xhr.send(f);
+};
+
+// ── avatar ──
+async function loadAvatars(){
+  const d = await api('/manifest/avatars'); avatars = d.files;
+  $('#aCount').textContent = `${d.count.toLocaleString('vi-VN')} ảnh · ${fmtB(d.bytes)}`; renderAvatars();
+}
+function renderAvatars(){
+  const q = $('#aSearch').value.trim().toUpperCase();
+  const list = q ? avatars.filter(a => a.code.includes(q) || a.path.toUpperCase().includes(q)) : avatars;
+  const show = list.slice(0, 200);
+  $('#aBody').innerHTML = show.map(a => `<tr><td><img class="thumb" loading="lazy" src="${fileUrl('avatars', a.path)}" alt=""></td><td><b>${esc(a.code)}</b></td><td class="small">${esc(a.path)}</td><td class="num">${fmtB(a.size)}</td><td class="small">${fmtT(a.updated_at)}</td><td><button class="g d" data-p="${esc(a.path)}">Xoá</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Không có ảnh.</td></tr>';
+  $('#aMore').textContent = list.length > show.length ? `Đang hiện ${show.length}/${list.length}. Gõ để lọc.` : '';
+}
+$('#aSearch').oninput = renderAvatars;
+$('#aBody').onclick = async e => {
+  const p = e.target.dataset.p; if (!p) return;
+  if (!await confirmBox('Xoá avatar', `Xoá <b>${esc(p)}</b> khỏi kho? Máy người dùng đã tải vẫn giữ bản cũ.`)) return;
+  try { await api('/files/avatars/' + p.split('/').map(encodeURIComponent).join('/'), {method:'DELETE'}); toast('Đã xoá.'); loadAvatars(); } catch(err){ toast(err.message); }
+};
+async function sha256(file){ const h = await crypto.subtle.digest('SHA-256', await file.arrayBuffer()); return [...new Uint8Array(h)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+let stopFlag = false;
+$('#aStop').onclick = () => { stopFlag = true; };
+$('#aGo').onclick = async () => {
+  const files = [...$('#aDir').files].filter(f => /\.(png|jpe?g|webp)$/i.test(f.name) && !f.name.startsWith('.'));
+  if (!files.length){ toast('Chọn thư mục có ảnh.'); return; }
+  const keepRoot = $('#aKeepRoot').checked;
+  const relOf = f => { const parts = (f.webkitRelativePath || f.name).split('/'); return (keepRoot || parts.length < 2 ? parts : parts.slice(1)).join('/'); };
+  const have = new Map(avatars.map(a => [a.path.normalize('NFC'), a.src_sha]));
+  if (!avatars.length){ const d = await api('/manifest/avatars'); d.files.forEach(a => have.set(a.path.normalize('NFC'), a.src_sha)); }
+  stopFlag = false; $('#aGo').disabled = true; $('#aStop').classList.remove('hidden');
+  const pr = $('#aProg'); pr.classList.remove('hidden'); pr.value = 0;
+  let done = 0, up = 0, same = 0, err = 0, bytes = 0, idx = 0; const errs = [];
+  const total = files.length, t0 = Date.now();
+  const tick = () => { pr.value = done / total; $('#aMsg').textContent = `${done}/${total} · đẩy ${up} · không đổi ${same}${err ? ' · lỗi ' + err : ''} · ${fmtB(bytes)} · ${Math.round((Date.now()-t0)/1000)} giây`; };
+  async function worker(){
+    while (!stopFlag && idx < files.length){
+      const f = files[idx++]; const rel = relOf(f).normalize('NFC');
+      try {
+        if (have.get(rel) && have.get(rel) === await sha256(f)) { same++; }
+        else {
+          const r = await fetch(fileUrl('avatars', rel), {method:'PUT', body:f, credentials:'same-origin', headers:{'X-Requested-With':'autopptx'}});
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || d.ok === false) throw new Error(d.msg || r.status);
+          d.unchanged ? same++ : (up++, bytes += f.size);
+        }
+      } catch(e){ err++; if (errs.length < 30) errs.push(rel + ': ' + e.message); }
+      done++; if (done % 5 === 0 || done === total) tick();
+    }
+  }
+  await Promise.all([1,2,3,4].map(worker));
+  tick(); $('#aGo').disabled = false; $('#aStop').classList.add('hidden');
+  if (errs.length) $('#aMsg').innerHTML += '<br><span class="err">' + errs.map(esc).join('<br>') + '</span>';
+  else $('#aMsg').innerHTML += stopFlag ? ' · <span class="warn">đã dừng</span>' : ' · <span class="ok">xong</span>';
+  loadAvatars();
+};
+
+// ── ảnh nền ──
+async function loadBgs(){
+  const d = await api('/manifest/backgrounds');
+  const list = d.files.filter(f => f.path.startsWith('shared/'));
+  $('#bCount').textContent = list.length + ' ảnh';
+  $('#bGrid').innerHTML = list.map(f => `<figure><img loading="lazy" src="${fileUrl('backgrounds', f.path)}" alt=""><figcaption><span title="${esc(f.path)}">${esc(f.path.slice(7))}</span><button class="g d" data-p="${esc(f.path)}">Xoá</button></figcaption></figure>`).join('') || '<p class="muted">Chưa có ảnh nền chung.</p>';
+}
+$('#bGrid').onclick = async e => {
+  const p = e.target.dataset.p; if (!p) return;
+  if (!await confirmBox('Xoá ảnh nền', `Xoá <b>${esc(p)}</b>?`)) return;
+  try { await api('/files/backgrounds/' + p.split('/').map(encodeURIComponent).join('/'), {method:'DELETE'}); loadBgs(); } catch(err){ toast(err.message); }
+};
+$('#bGo').onclick = async () => {
+  const files = [...$('#bFiles').files]; if (!files.length){ toast('Chọn ảnh.'); return; }
+  let ok = 0, err = 0; $('#bGo').disabled = true;
+  for (const f of files){
+    try { await api('/files/backgrounds/shared/' + encodeURIComponent(f.name.normalize('NFC')), {method:'PUT', body:f}); ok++; }
+    catch(e){ err++; }
+    $('#bMsg').textContent = `Đã đẩy ${ok}/${files.length}${err ? ', lỗi ' + err : ''}`;
+  }
+  $('#bGo').disabled = false; loadBgs();
+};
+
+// ── đối chiếu ──
+async function fillOwners(){
+  const s = await api('/admin/stats');
+  $('#rOwner').innerHTML = s.excel.map(x => `<option value="${esc(x.owner)}">${x.owner === 'shared' ? 'FILE TỔNG chung' : 'Riêng: ' + esc((users.find(u => String(u.id) === x.owner) || {}).email || x.owner)} · ${esc(x.file_name)}</option>`).join('') || '<option value="">Chưa có FILE TỔNG</option>';
+}
+$('#rGo').onclick = async () => {
+  const owner = $('#rOwner').value; if (!owner){ toast('Chưa có FILE TỔNG.'); return; }
+  $('#rMsg').textContent = 'Đang đối chiếu… (lần đầu có thể mất vài chục giây)'; $('#rGo').disabled = true;
+  try {
+    const r = lastReport = await api('/admin/report?owner=' + encodeURIComponent(owner));
+    const pct = r.codes ? Math.round(r.matched * 100 / r.codes) : 0;
+    $('#rMsg').innerHTML = `<b>${r.matched}/${r.codes}</b> mã có avatar (${pct}%) · <span class="${r.missing.length ? 'warn' : 'ok'}">${r.missing.length} mã thiếu ảnh</span> · ${r.unused.length} ảnh không khớp mã nào · ${r.duplicates.length} mã có nhiều ảnh`;
+    const tbl = (title, head, rows) => `<div class="card"><h2>${title}</h2><div class="tbl"><table><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}" class="muted">Không có.</td></tr>`}</tbody></table></div></div>`;
+    $('#rOut').innerHTML =
+      tbl('Mã trong FILE TỔNG chưa có avatar', ['Mã RP', 'Tên điểm', 'Kênh'], r.missing.map(m => `<tr><td><b>${esc(m.code)}</b></td><td>${esc(m.name)}</td><td>${esc(m.channel)}</td></tr>`).join('')) +
+      tbl('Avatar không khớp mã nào trong FILE TỔNG', ['Đường dẫn'], r.unused.slice(0, 1000).map(p => `<tr><td class="small">${esc(p)}</td></tr>`).join('')) +
+      tbl('Mã có nhiều ảnh (app chỉ dùng 1)', ['Mã RP', 'Các file'], r.duplicates.map(d => `<tr><td><b>${esc(d.code)}</b></td><td class="small">${d.paths.map(esc).join('<br>')}</td></tr>`).join(''));
+    $('#rCsv').disabled = false;
+  } catch(err){ $('#rMsg').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+  $('#rGo').disabled = false;
+};
+$('#rCsv').onclick = () => {
+  if (!lastReport) return;
+  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const csv = '﻿Code_RP,Tên điểm,Kênh\n' + lastReport.missing.map(m => [m.code, m.name, m.channel].map(q).join(',')).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'})); a.download = 'ma_thieu_avatar.csv'; a.click();
+};
+
+// ── khởi động ──
+api('/me').then(d => enter(d.user)).catch(() => showLogin());
+</script>
+</body>
+</html>

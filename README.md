@@ -15,9 +15,10 @@ Yêu cầu Python 3.10+. Không cần pandas — Excel đọc trực tiếp bằ
 
 ## Quy trình sử dụng
 
-1. **Đăng nhập** tài khoản công ty (cùng hệ thống RP SALES / bản AutoPPTX cũ).
-   Mật khẩu nhớ được trên máy (Windows Credential Manager).
-2. Tab **Nguồn**: đồng bộ Excel + Avatar trên đám mây, thêm **nhiều thư mục ảnh**
+1. **Đăng nhập** tài khoản công ty trên máy chủ kho Golden Asia
+   (`https://talent.goldenasia.vn/pptx/`, quản trị cấp tài khoản). Tick «Giữ đăng nhập»
+   thì lần sau app tự vào — máy chỉ nhớ *phiên*, không nhớ mật khẩu.
+2. Tab **Nguồn**: tải FILE TỔNG + Avatar từ máy chủ, thêm **nhiều thư mục ảnh**
    (chọn thư mục cha → tick nhiều thư mục con, hoặc kéo-thả nhiều folder).
 3. Tab **Slide**: bấm phần tử trên canvas — tiêu đề hiện font/cỡ/màu; ảnh hiện
    bo góc, đóng dấu ngày giờ, mini-map GPS. Double-click cũng mở inspector này
@@ -51,10 +52,31 @@ tự lưu cấu hình (mở lại là khôi phục).
 | Ảnh decode trên luồng UI khi thiếu cache | Mọi decode ở thread nền; UI chỉ resize thumbnail RAM |
 | 1 class ~10.700 dòng trộn UI + ảnh + mạng + PPTX | 7 module tách bạch, exporter thuần không đụng Tkinter |
 
+## Cấu trúc thư mục
+
+```
+AutoPPTX_Studio_V2.py   # điểm chạy app (+ cờ --selftest cho CI)
+AutoPPTX_Studio_V2.spec # PyInstaller — build_win.bat / build_mac.sh / CI dùng chung
+autopptx2/              # mã app (bên dưới)
+server/                 # máy chủ kho tài nguyên + trang quản trị web (server/README.md)
+tests/                  # python -m unittest discover -s tests
+tools/                  # script phân tích mẫu PPTX
+hooks/                  # runtime hook PyInstaller (macOS)
+LOGO/, app_icon.*       # logo đăng nhập, icon app
+Data avatar/            # cache avatar app tự tải từ máy chủ (không đưa vào git)
+Data background/        # cache ảnh nền (không đưa vào git)
+data/                   # dữ liệu làm việc, không đưa vào git:
+  excel/                #   FILE TỔNG cũ, file so sánh
+  mau-pptx/             #   SALESKIT, THE NELSON… (mẫu để phân tích)
+  LIST BAN HANG/, REPORTW32_CUONG/, AVATAR FULL/, outputs/
+  sao-luu/              #   Data avatar.rar
+  script-mot-lan/       #   script dựng master W31/W33 (đường dẫn cứng, chạy 1 lần)
+build/, dist/           # đầu ra PyInstaller
+```
+
 ## Cấu trúc mã
 
 ```
-AutoPPTX_Studio_V2.py   # điểm chạy
 autopptx2/
   constants.py    # hằng số, bố cục mặc định
   geometry.py     # toán bố cục DÙNG CHUNG preview & export (WYSIWYG)
@@ -66,6 +88,8 @@ autopptx2/
   exporter.py     # sinh PPTX (thread-safe, progress, huỷ, chia part)
   editor.py       # canvas kéo-thả (snap, guides, zoom, undo)
   app.py          # cửa sổ chính, sidebar 3 tab, timeline
+  cloud.py        # đăng nhập + đồng bộ với máy chủ kho (urllib, không thư viện ngoài)
+  login.py        # màn hình đăng nhập
 ```
 
 ## Đóng gói (Windows .exe & macOS .app)
@@ -149,5 +173,6 @@ chỉ ghi log bỏ qua. Mở file PPTX rồi "Save as PDF" nếu cần.
 
 - Cấu hình + preset lưu tại `%USERPROFILE%\.autopptx_studio_v2\`.
   Tile bản đồ OSM cache tại `...\map_cache\` (cũng đọc cache bản 1 nếu có).
-- Đăng nhập + đám mây dùng cùng project Supabase với bản 1 (Excel theo tài khoản,
-  avatar kho chung, ảnh nền mẫu). Cần: `pip install supabase keyring`.
+- Đăng nhập + kho tài nguyên (FILE TỔNG, avatar theo mã RP, ảnh nền) nằm trên
+  máy chủ của công ty — xem `server/README.md`. App chỉ nhớ phiên đăng nhập
+  (token, quản trị thu hồi được), không lưu mật khẩu. Cần: `pip install keyring certifi`.

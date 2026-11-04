@@ -1,29 +1,28 @@
-"""Supabase Auth + đồng bộ Excel / Avatar / ảnh nền.
+"""Đăng nhập + đồng bộ Excel / Avatar / ảnh nền với máy chủ kho của công ty.
+
+Máy chủ: server/autopptx_server.py chạy trên VPS (thay Supabase). App chỉ giữ
+phiên đăng nhập (token, thu hồi được), không lưu mật khẩu.
 
 Không import Tkinter — gọi từ worker thread. App chỉ nhận dict kết quả
 rồi cập nhật UI trên luồng chính.
 """
 import os
 import re
+import ssl
 import json
-import base64
+import hashlib
 import datetime
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor
 import threading
+import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from .constants import (CONFIG_DIR, CONFIG_PATH, V1_CREDS_PATH, KEYRING_SERVICE,
-                        SUPABASE_URL, SUPABASE_ANON_KEY, IMG_EXTS)
-
-# Bản đóng gói có thể nạp hụt supabase vì thiếu submodule / metadata dist-info.
-# Giữ lại nguyên văn lỗi, nếu không màn đăng nhập chỉ báo "thiếu package" sai hướng.
-SUPABASE_IMPORT_ERROR = ''
-try:
-    from supabase import create_client
-except Exception as _e:
-    create_client = None
-    SUPABASE_IMPORT_ERROR = '{}: {}'.format(type(_e).__name__, _e)
+                        SERVER_URL, IMG_EXTS)
 
 KEYRING_IMPORT_ERROR = ''
 try:
@@ -31,6 +30,15 @@ try:
 except Exception as _e:
     keyring = None
     KEYRING_IMPORT_ERROR = '{}: {}'.format(type(_e).__name__, _e)
+
+try:
+    import certifi
+except Exception:
+    certifi = None
+
+# Số luồng tải song song (máy chủ nhẹ, mỗi ảnh ~0,3–1 MB).
+SYNC_WORKERS = 4
+TIMEOUT = 30
 
 
 def runtime_info():
@@ -47,34 +55,30 @@ def runtime_info():
         where, osv, platform.machine() or '?', platform.python_version())
 
 
-def supabase_missing_message():
-    err = SUPABASE_IMPORT_ERROR or 'không rõ lý do'
-    info = runtime_info()
-    # Chạy từ source mà chưa cài gói: hướng dẫn cài là đúng việc cần làm.
-    if (not getattr(sys, 'frozen', False) and err.startswith('ModuleNotFoundError')
-            and "'supabase'" in err):
-        return 'Thiếu package supabase. Chạy: pip install supabase\n({})'.format(info)
-    return 'Không nạp được supabase: {}\n({}) — chụp màn hình này gửi lại.'.format(err, info)
+def _client_label():
+    """Nhãn máy cho User-Agent / danh sách phiên — header HTTP chỉ nhận ASCII."""
+    try:
+        from . import __version__ as v
+    except Exception:
+        v = '?'
+    txt = unicodedata.normalize('NFKD', f'AutoPPTX {v} · {runtime_info()}'.replace('·', '-'))
+    return txt.replace('đ', 'd').encode('ascii', 'ignore').decode('ascii')
+
 
 _KEYRING_TIMEOUT = 2.5 if (sys.platform == 'darwin' or getattr(sys, 'frozen', False)) else 8.0
 
 
-def _keyring_get_password(service, username):
+def _keyring_call(fn, *args):
     """Keychain macOS / app đóng gói có thể treo — giới hạn thời gian."""
-    if not keyring or not username:
+    if not keyring:
         return None
-    if _KEYRING_TIMEOUT <= 0:
-        try:
-            return keyring.get_password(service, username)
-        except Exception:
-            return None
-    box = {'pw': None}
+    box = {'v': None}
 
     def work():
         try:
-            box['pw'] = keyring.get_password(service, username)
+            box['v'] = fn(*args)
         except Exception:
-            pass
+            box['v'] = None
 
     t = threading.Thread(target=work, daemon=True)
     t.start()
@@ -82,7 +86,14 @@ def _keyring_get_password(service, username):
     if t.is_alive():
         print('keyring: timeout — bỏ qua Keychain, dùng file config nếu có')
         return None
-    return box['pw']
+    return box['v']
+
+
+def _keyring_get_password(service, username):
+    if not keyring or not username:
+        return None
+    return _keyring_call(keyring.get_password, service, username)
+
 
 _AVATAR_STRIP = re.compile(r'(_Ava|AA|A)$', re.IGNORECASE)
 
@@ -159,196 +170,246 @@ def _read_json(path, default=None):
 
 def _write_json(path, data):
     os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
 
 
-def load_saved_creds():
-    """Đọc email + mật khẩu đã nhớ (keyring, rồi fallback file V1/V2)."""
-    email = pw = ''
-    for path in (CONFIG_PATH, V1_CREDS_PATH):
-        d = _read_json(path)
-        if d.get('email'):
-            email = d.get('email') or ''
-            if d.get('pw'):
-                try:
-                    pw = base64.b64decode(d['pw'].encode()).decode('utf-8')
-                except Exception:
-                    pw = ''
-            break
-    if email and not pw:
-        got = _keyring_get_password(KEYRING_SERVICE, email)
-        if got:
-            pw = got
-    return {'email': email, 'pw': pw} if email else None
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 20), b''):
+            h.update(chunk)
+    return h.hexdigest()
 
 
-def save_creds(email, pw):
+_SHA_RE = re.compile(r'^[0-9a-f]{64}$')
+
+
+def _is_sha(v):
+    return bool(v and _SHA_RE.match(str(v)))
+
+
+def _nfc(s):
+    return unicodedata.normalize('NFC', str(s or ''))
+
+
+def _local_path(base, rel):
+    return os.path.join(base, *rel.split('/'))
+
+
+def _quote_path(rel):
+    return '/'.join(urllib.parse.quote(p, safe='') for p in rel.split('/'))
+
+
+# ── Ghi nhớ phiên đăng nhập (token, KHÔNG phải mật khẩu) ──
+def _token_user(email):
+    return 'session:' + (email or '').strip().lower()
+
+
+def load_saved_session():
+    """{'email', 'token'} nếu máy này đã chọn «Giữ đăng nhập». token có thể rỗng."""
+    d = _read_json(CONFIG_PATH)
+    email = d.get('email') or ''
+    if not email:
+        return None
+    token = d.get('session_token') or ''
+    if not token:
+        token = _keyring_get_password(KEYRING_SERVICE, _token_user(email)) or ''
+    return {'email': email, 'token': token}
+
+
+def save_session(email, token):
     stored = False
-    if keyring:
-        try:
-            keyring.set_password(KEYRING_SERVICE, email, pw)
-            stored = True
-        except Exception:
-            pass
+    if keyring and token:
+        _keyring_call(keyring.set_password, KEYRING_SERVICE, _token_user(email), token)
+        stored = _keyring_get_password(KEYRING_SERVICE, _token_user(email)) == token
     d = _read_json(CONFIG_PATH)
     d['email'] = email
     d['remember'] = True
-    if not stored:
-        d['pw'] = base64.b64encode(pw.encode('utf-8')).decode()
+    if stored:
+        d.pop('session_token', None)
     else:
-        d.pop('pw', None)
+        d['session_token'] = token
+    d.pop('pw', None)
     _write_json(CONFIG_PATH, d)
+    forget_legacy_password(email)
 
 
-def clear_creds():
+def clear_session(keep_email=True):
     d = _read_json(CONFIG_PATH)
     email = d.get('email', '')
     if keyring and email:
-        try:
-            keyring.delete_password(KEYRING_SERVICE, email)
-        except Exception:
-            pass
-    d.pop('email', None)
+        _keyring_call(keyring.delete_password, KEYRING_SERVICE, _token_user(email))
+    d.pop('session_token', None)
     d.pop('pw', None)
     d.pop('remember', None)
+    if not keep_email:
+        d.pop('email', None)
     _write_json(CONFIG_PATH, d)
 
 
+def forget_legacy_password(email=None):
+    """Bản cũ (Supabase) nhớ mật khẩu thật trong keyring / file base64 — xoá đi."""
+    for path in (CONFIG_PATH, V1_CREDS_PATH):
+        d = _read_json(path)
+        if not d:
+            continue
+        em = d.get('email') or email
+        changed = False
+        if 'pw' in d:
+            d.pop('pw', None)
+            changed = True
+        if changed:
+            try:
+                _write_json(path, d)
+            except Exception:
+                pass
+        if keyring and em:
+            _keyring_call(keyring.delete_password, KEYRING_SERVICE, em)
+
+
+class CloudError(Exception):
+    def __init__(self, msg, status=0):
+        super().__init__(msg)
+        self.msg = msg
+        self.status = status
+
+
 class CloudClient:
-    def __init__(self, url=None, key=None):
-        self.url = (url or SUPABASE_URL).strip()
-        self.key = (key or SUPABASE_ANON_KEY).strip()
-        self._client = None
-        self._access_token = None
+    def __init__(self, url=None):
+        self.url = (url or SERVER_URL).strip().rstrip('/')
+        self.token = None
         self._api_lock = threading.Lock()
         self.user_id = None
         self.email = None
         self.role = 'user'
         self.name = None
+        self.must_change = False
+        self._ssl = None
 
+    # ── trạng thái ──
     def is_admin(self):
         return self.role in ('admin', 'super_admin')
 
     def logged_in(self):
-        return bool(self.user_id)
+        return bool(self.user_id and self.token)
 
     def package_ok(self):
-        return create_client is not None
-
-    def client(self):
-        if create_client is None or not self.url or not self.key:
-            return None
-        if self._client is None:
-            try:
-                self._client = create_client(self.url, self.key)
-            except Exception as e:
-                print('Supabase client err:', e)
-                self._client = None
-        if self._client is not None:
-            self._attach_session(self._client)
-        return self._client
-
-    def _attach_session(self, sb, access_token=None):
-        """Gắn JWT vào PostgREST/Storage — sign_in không luôn đẩy token sang các client con."""
-        token = access_token or self._access_token
-        if not token and sb is not None:
-            try:
-                sess = sb.auth.get_session()
-                token = getattr(sess, 'access_token', None) if sess else None
-            except Exception:
-                token = None
-        if not token or sb is None:
-            return False
-        self._access_token = token
-        try:
-            sb.postgrest.auth(token)
-        except Exception:
-            pass
-        try:
-            storage = getattr(sb, 'storage', None)
-            inner = getattr(storage, '_client', None)
-            headers = getattr(inner, 'headers', None)
-            if isinstance(headers, dict):
-                headers['Authorization'] = f'Bearer {token}'
-                headers['apikey'] = self.key
-        except Exception:
-            pass
         return True
 
-    @staticmethod
-    def _api_error(exc):
-        text = str(exc or '')
-        low = text.casefold()
-        if '42501' in text or 'permission denied' in low:
-            return ('Phiên Cloud chưa được xác thực. Đăng xuất rồi đăng nhập lại '
-                    'trước khi đồng bộ FILE TỔNG / avatar.')
-        return text
+    def admin_url(self):
+        return self.url + '/'
 
-    def _select_all(self, table, columns='*', page=1000):
-        """Đọc hết hàng. PostgREST mặc định cắt 1000 — phải lật trang."""
-        sb = self.client()
-        if not sb:
-            return []
-        self._attach_session(sb)
-        out, start = [], 0
-        page = max(100, int(page or 1000))
-        while True:
-            res = (sb.table(table)
-                   .select(columns)
-                   .range(start, start + page - 1)
-                   .execute())
-            chunk = list(res.data or [])
-            out.extend(chunk)
-            if len(chunk) < page:
-                break
-            start += page
-        return out
+    # ── HTTP ──
+    def _ctx(self):
+        if self._ssl is None:
+            try:
+                self._ssl = (ssl.create_default_context(cafile=certifi.where())
+                             if certifi else ssl.create_default_context())
+            except Exception:
+                self._ssl = ssl.create_default_context()
+        return self._ssl
+
+    def _request(self, method, path, body=None, headers=None, timeout=TIMEOUT,
+                 want='json', dest=None, auth=True):
+        """Gọi API. want='json' trả dict; want='file' ghi vào dest (atomic)."""
+        h = {'User-Agent': _client_label(), 'Accept': 'application/json'}
+        if auth and self.token:
+            h['Authorization'] = 'Bearer ' + self.token
+        h.update(headers or {})
+        data = body
+        if isinstance(body, dict):
+            data = json.dumps(body).encode('utf-8')
+            h['Content-Type'] = 'application/json'
+        req = urllib.request.Request(self.url + path, data=data, method=method, headers=h)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=self._ctx()) as resp:
+                if want == 'file':
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    tmp = dest + '.part'
+                    with open(tmp, 'wb') as f:
+                        shutil.copyfileobj(resp, f, 1 << 16)
+                    os.replace(tmp, dest)
+                    return {'ok': True, 'path': dest}
+                raw = resp.read()
+                return json.loads(raw.decode('utf-8') or '{}')
+        except urllib.error.HTTPError as e:
+            try:
+                msg = json.loads(e.read().decode('utf-8')).get('msg') or ''
+            except Exception:
+                msg = ''
+            if e.code == 401 and auth and path not in ('/api/login',):
+                self.user_id = None
+                msg = msg or 'Phiên đăng nhập đã hết. Đăng nhập lại.'
+            raise CloudError(msg or f'Máy chủ trả lỗi {e.code}.', e.code)
+        except urllib.error.URLError as e:
+            reason = getattr(e, 'reason', e)
+            if isinstance(reason, ssl.SSLError):
+                raise CloudError(f'Lỗi chứng chỉ HTTPS khi kết nối máy chủ: {reason}')
+            host = urllib.parse.urlsplit(self.url).netloc or self.url
+            raise CloudError(f'Không kết nối được máy chủ {host}. Kiểm tra mạng rồi thử lại.')
+        except (TimeoutError, OSError) as e:
+            raise CloudError(f'Mất kết nối tới máy chủ: {e}')
 
     # ── Auth ──
+    def _set_user(self, u):
+        self.user_id = str(u.get('id')) if u.get('id') is not None else None
+        self.email = u.get('email') or self.email
+        self.role = u.get('role') or 'user'
+        self.name = u.get('name') or None
+        self.must_change = bool(u.get('must_change'))
+
     def login(self, email, password):
-        """Trả (ok, message). ok=True kể cả chế độ local-only (không có package)."""
-        self.user_id = self.name = None
+        """Trả (ok, message)."""
+        self.user_id = self.name = self.token = None
         self.role = 'user'
         self.email = email
-        sb = self.client()
-        if sb is None:
-            if self.url and self.key and create_client is None:
-                return False, supabase_missing_message()
-            return True, 'local'          # chưa cấu hình → vào máy này
         try:
-            res = sb.auth.sign_in_with_password({'email': email, 'password': password})
-            user = getattr(res, 'user', None)
-            session = getattr(res, 'session', None)
-            if user is None:
-                return False, 'Sai email hoặc mật khẩu.'
-            token = getattr(session, 'access_token', None) if session else None
-            self._attach_session(sb, token)
-            self.user_id = user.id
-            try:
-                prof = (sb.table('profiles').select('full_name, role')
-                        .eq('id', user.id).single().execute())
-                if prof.data:
-                    self.role = prof.data.get('role') or 'user'
-                    self.name = prof.data.get('full_name')
-            except Exception as e:
-                print('Load profile err:', e)
-            return True, 'ok'
-        except Exception as e:
-            print('Supabase login err:', repr(e))
-            return False, 'Sai email hoặc mật khẩu.'
+            d = self._request('POST', '/api/login', auth=False, body={
+                'email': email, 'password': password, 'client': _client_label()})
+        except CloudError as e:
+            return False, e.msg
+        self.token = d.get('token')
+        self._set_user(d.get('user') or {})
+        if not self.token or not self.user_id:
+            return False, 'Máy chủ không trả phiên đăng nhập.'
+        return True, 'ok'
+
+    def resume(self, email, token):
+        """Vào lại bằng phiên đã nhớ. Trả (ok, message)."""
+        if not token:
+            return False, ''
+        self.token = token
+        self.email = email
+        try:
+            d = self._request('GET', '/api/me')
+        except CloudError as e:
+            self.token = None
+            self.user_id = None
+            return False, e.msg
+        self._set_user(d.get('user') or {})
+        return bool(self.user_id), 'ok'
+
+    def change_password(self, old, new):
+        try:
+            d = self._request('POST', '/api/me/password', body={'old': old, 'new': new})
+        except CloudError as e:
+            return {'ok': False, 'msg': e.msg}
+        self.must_change = False
+        return {'ok': True, 'msg': d.get('msg') or 'Đã đổi mật khẩu.'}
 
     def logout(self):
-        try:
-            sb = self.client()
-            if sb is not None:
-                sb.auth.sign_out()
-        except Exception:
-            pass
-        self._client = None
-        self._access_token = None
+        if self.token:
+            try:
+                self._request('POST', '/api/logout', timeout=8)
+            except Exception:
+                pass
+        self.token = None
         self.user_id = self.email = self.name = None
         self.role = 'user'
+        self.must_change = False
 
     # ── Excel ──
     def excel_meta_path(self):
@@ -367,7 +428,7 @@ class CloudClient:
         return f'Lần cuối: {when}' if when else 'Chưa đồng bộ lần nào'
 
     def excel_local_display_name(self, path):
-        """Tên hiển thị — cache Cloud dùng file_name trong meta, không phải {uid}.xlsx."""
+        """Tên hiển thị — cache dùng file_name trong meta, không phải {uid}.xlsx."""
         if not path:
             return ''
         uid = self.user_id
@@ -380,125 +441,94 @@ class CloudClient:
                     return meta['file_name']
         return os.path.basename(path)
 
+    def _remember_excel(self, uid, info):
+        meta = _read_json(self.excel_meta_path())
+        meta[uid] = {
+            'sha': info.get('sha'),
+            'updated_at': info.get('updated_at'),
+            'synced_at_local': datetime.datetime.now().strftime('%d/%m/%Y %H:%M'),
+            'file_name': info.get('file_name') or '',
+        }
+        _write_json(self.excel_meta_path(), meta)
+
     def sync_excel(self, progress=None, force=False):
-        """Tải Excel của tài khoản đang đăng nhập. Trả dict kết quả."""
-        sb = self.client()
+        """Tải FILE TỔNG áp cho tài khoản đang đăng nhập. Trả dict kết quả."""
         uid = self.user_id
-        if not sb or not uid:
-            return {'ok': False, 'msg': 'Cần đăng nhập Cloud.'}
+        if not self.logged_in():
+            return {'ok': False, 'msg': 'Cần đăng nhập.'}
         if progress:
             progress(0.15, 'Đang kiểm tra bản Excel mới…')
         try:
-            res = (sb.table('excel_data_files')
-                   .select('storage_path, file_name, updated_at')
-                   .eq('owner_id', uid).limit(1).execute())
-            rows = res.data or []
-        except Exception as e:
-            return {'ok': False, 'msg': f'Lỗi kết nối: {self._api_error(e)}'}
-        if not rows:
-            return {'ok': False, 'msg': 'Chưa có file Excel trên Cloud cho tài khoản này.'}
-        row = rows[0]
+            info = self._request('GET', '/api/excel/meta').get('excel') or {}
+        except CloudError as e:
+            if e.status == 404:
+                return {'ok': False, 'msg': 'Chưa có FILE TỔNG trên máy chủ cho tài khoản này.'}
+            return {'ok': False, 'msg': f'Lỗi kết nối: {e.msg}'}
         cache_path = excel_cache_path(uid)
-        meta = _read_json(self.excel_meta_path())
-        local = meta.get(uid, {})
-        if (not force
-                and _ts_equal(local.get('updated_at'), row.get('updated_at'))
+        local = _read_json(self.excel_meta_path()).get(uid, {})
+        if (not force and local.get('sha') and local.get('sha') == info.get('sha')
                 and os.path.exists(cache_path)):
             if progress:
                 progress(1.0, 'Đã là bản mới nhất')
-            return {'ok': True, 'path': cache_path, 'file_name': row.get('file_name'),
+            return {'ok': True, 'path': cache_path, 'file_name': info.get('file_name'),
                     'fresh': False, 'msg': 'Excel đã là bản mới nhất.'}
         if progress:
             progress(0.6, 'Đang tải Excel…')
         try:
-            with self._api_lock:
-                data = sb.storage.from_('excel-data').download(row['storage_path'])
-            with open(cache_path, 'wb') as f:
-                f.write(data)
-        except Exception as e:
-            return {'ok': False, 'msg': f'Lỗi tải Excel: {e}'}
-        meta[uid] = {
-            'updated_at': row.get('updated_at'),
-            'synced_at_local': datetime.datetime.now().strftime('%d/%m/%Y %H:%M'),
-            'file_name': row.get('file_name') or os.path.basename(cache_path),
-        }
-        _write_json(self.excel_meta_path(), meta)
+            self._request('GET', '/api/excel/file', want='file', dest=cache_path, timeout=120)
+        except CloudError as e:
+            return {'ok': False, 'msg': f'Lỗi tải Excel: {e.msg}'}
+        self._remember_excel(uid, info)
         if progress:
             progress(1.0, 'Đã cập nhật Excel')
-        return {'ok': True, 'path': cache_path, 'file_name': row.get('file_name'),
-                'fresh': True, 'msg': 'Đã tải Excel từ Cloud.'}
+        return {'ok': True, 'path': cache_path, 'file_name': info.get('file_name'),
+                'fresh': True, 'msg': 'Đã tải Excel từ máy chủ.'}
 
-    def upload_excel(self, local_path, target_user_id=None, progress=None):
+    def _put_excel(self, local_path, target, progress=None):
         def prog(frac, text):
             if progress:
                 progress(frac, text)
 
-        sb = self.client()
-        uid = self.user_id
-        if not sb or not uid:
-            return {'ok': False, 'msg': 'Cần đăng nhập Cloud.'}
+        if not self.logged_in():
+            return {'ok': False, 'msg': 'Cần đăng nhập.'}
         if not local_path or not os.path.exists(local_path):
             return {'ok': False, 'msg': 'Chưa chọn file Excel trên máy.'}
-        target = target_user_id or uid
-        storage_path = f'{target}/data.xlsx'
         file_name = os.path.basename(local_path)
-        cache_path = excel_cache_path(target)
         try:
             prog(0.12, 'Đang đọc file…')
             with open(local_path, 'rb') as f:
                 data = f.read()
-            prog(0.4, 'Đang tải lên Cloud…')
-            sb.storage.from_('excel-data').upload(
-                storage_path, data,
-                {'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                 'upsert': 'true'})
-            prog(0.78, 'Đang ghi thông tin…')
-            now_iso = _utc_now_iso()
-            sb.table('excel_data_files').upsert({
-                'owner_id': target,
-                'storage_path': storage_path,
-                'file_name': file_name,
-                'updated_at': now_iso,
-                'updated_by': uid,
-            }, on_conflict='owner_id').execute()
-            if cache_path:
-                os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-                shutil.copy2(local_path, cache_path)
-            if target == uid:
-                meta = _read_json(self.excel_meta_path())
-                meta[uid] = {
-                    'updated_at': now_iso,
-                    'synced_at_local': datetime.datetime.now().strftime('%d/%m/%Y %H:%M'),
-                    'file_name': file_name,
-                }
-                _write_json(self.excel_meta_path(), meta)
-            prog(1.0, 'Đã đẩy xong')
-            return {'ok': True, 'msg': 'Đã đẩy Excel lên Cloud.',
-                    'path': cache_path or local_path, 'file_name': file_name}
-        except Exception as e:
-            return {'ok': False, 'msg': self._api_error(e)}
+            prog(0.4, 'Đang tải lên máy chủ…')
+            d = self._request(
+                'PUT', '/api/excel?target=' + urllib.parse.quote(str(target)), body=data,
+                headers={'X-File-Name': urllib.parse.quote(_nfc(file_name)),
+                         'Content-Type': 'application/vnd.openxmlformats-officedocument'
+                                         '.spreadsheetml.sheet'},
+                timeout=300)
+        except CloudError as e:
+            return {'ok': False, 'msg': e.msg}
+        except OSError as e:
+            return {'ok': False, 'msg': f'Không đọc được file: {e}'}
+        info = d.get('excel') or {}
+        uid = self.user_id
+        cache_path = excel_cache_path(uid)
+        # Bản vừa đẩy áp cho chính mình (me / all) → cập nhật cache để khỏi tải lại.
+        if target in ('me', 'all') and cache_path:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            shutil.copy2(local_path, cache_path)
+            self._remember_excel(uid, info)
+        prog(1.0, 'Đã đẩy xong')
+        return {'ok': True, 'msg': d.get('msg') or 'Đã đẩy Excel lên máy chủ.',
+                'path': cache_path or local_path, 'file_name': file_name}
 
-    def upload_excel_broadcast(self, local_path, profiles, progress=None):
-        """Admin: đẩy cùng 1 file cho mọi tài khoản trong danh sách profiles."""
-        targets = [p for p in (profiles or []) if p.get('id')]
-        if not targets:
-            return {'ok': False,
-                    'msg': 'Không lấy được danh sách tài khoản. Đăng xuất rồi đăng nhập lại.'}
-        ok = err = 0
-        last = ''
-        n = max(1, len(targets))
-        for i, p in enumerate(targets, 1):
-            if progress:
-                progress((i - 1) / n, f'Đẩy {i}/{n} tài khoản…')
-            r = self.upload_excel(local_path, target_user_id=p.get('id'))
-            if r.get('ok'):
-                ok += 1
-            else:
-                err += 1
-                last = r.get('msg', '')
-        if progress:
-            progress(1.0, f'Xong {ok}/{n} tài khoản')
-        return {'ok': err == 0, 'msg': f'Đã đẩy cho {ok} tài khoản' + (f', {err} lỗi ({last})' if err else '')}
+    def upload_excel(self, local_path, target_user_id=None, progress=None):
+        return self._put_excel(local_path, target_user_id or 'me', progress)
+
+    def upload_excel_broadcast(self, local_path, profiles=None, progress=None):
+        """Admin: một file chung cho mọi tài khoản (máy chủ bỏ các bản riêng)."""
+        if not self.is_admin():
+            return {'ok': False, 'msg': 'Chỉ quản trị mới đẩy cho mọi tài khoản.'}
+        return self._put_excel(local_path, 'all', progress)
 
     # ── Avatar ──
     def avatar_meta_path(self):
@@ -521,136 +551,186 @@ class CloudClient:
         last = meta.get('synced_at', '')
         return f'{n} ảnh trong kho' + (f' · {last}' if last else '')
 
+    def _manifest(self, kind):
+        return self._request('GET', f'/api/manifest/{kind}', timeout=60).get('files') or []
+
+    @staticmethod
+    def _migrate_supabase_layout(cache, files, files_meta):
+        """Bản Supabase tải avatar vào <cache>/shared/<…>; máy chủ mới dùng <cache>/<…>.
+        Chuyển chỗ thay vì tải lại hàng trăm MB."""
+        old_root = os.path.join(cache, 'shared')
+        if not os.path.isdir(old_root):
+            return 0
+        moved = 0
+        for f in files:
+            rel = f['path']
+            src = _local_path(old_root, rel)
+            dst = _local_path(cache, rel)
+            if os.path.isfile(src) and not os.path.exists(dst):
+                try:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    os.replace(src, dst)
+                    moved += 1
+                except OSError:
+                    pass
+        for k in [k for k in files_meta if k.startswith('shared/')]:
+            files_meta.pop(k, None)
+        for root, _ds, _fs in sorted(os.walk(old_root), key=lambda t: -len(t[0])):
+            try:
+                os.rmdir(root)
+            except OSError:
+                pass
+        return moved
+
     def sync_avatars(self, progress=None):
-        sb = self.client()
-        if not sb or not self.user_id:
-            return {'ok': False, 'msg': 'Cần đăng nhập Cloud.'}
+        if not self.logged_in():
+            return {'ok': False, 'msg': 'Cần đăng nhập.'}
         if progress:
             progress(0, 1, 'Đang kiểm tra kho avatar…')
         try:
-            rows = self._select_all(
-                'avatar_files', 'storage_path, file_name, updated_at')
-        except Exception as e:
-            return {'ok': False, 'msg': f'Lỗi kết nối kho avatar: {self._api_error(e)}'}
+            files = self._manifest('avatars')
+        except CloudError as e:
+            return {'ok': False, 'msg': f'Lỗi kết nối kho avatar: {e.msg}'}
         cache = avatar_cache_dir()
         meta = _read_json(self.avatar_meta_path())
         files_meta = meta.get('files', {})
-        to_dl = []
-        skipped = 0
-        for r in rows:
-            sp = r.get('storage_path')
-            fn = r.get('file_name') or (os.path.basename(sp) if sp else '')
-            up = r.get('updated_at')
-            if not sp or not fn:
-                continue
-            rel = sp.lstrip('/').replace('\\', '/')
-            local_fp = os.path.join(cache, *rel.split('/'))
-            if os.path.exists(local_fp) and files_meta.get(sp) == up:
-                skipped += 1
-            else:
-                to_dl.append((sp, up, local_fp))
+        moved = self._migrate_supabase_layout(cache, files, files_meta)
+        to_dl, skipped, adopted = [], 0, 0
+        for f in files:
+            rel, sha = f['path'], f['sha']
+            local_fp = _local_path(cache, rel)
+            if os.path.exists(local_fp):
+                old = files_meta.get(rel)
+                if old == sha:
+                    skipped += 1
+                    continue
+                # Meta bản Supabase lưu updated_at (không phải sha): coi như chưa biết.
+                if not _is_sha(old):
+                    # Ảnh đã có sẵn trên máy (kho cũ / chép tay): nhận luôn, không tải lại.
+                    files_meta[rel] = sha
+                    adopted += 1
+                    continue
+            to_dl.append((rel, sha, local_fp))
         need = len(to_dl)
-        downloaded = errors = 0
+        state = {'done': 0, 'ok': 0, 'err': 0}
+        lock = threading.Lock()
+
+        def one(item):
+            rel, sha, local_fp = item
+            try:
+                self._request('GET', '/api/files/avatars/' + _quote_path(rel),
+                              want='file', dest=local_fp, timeout=120)
+                good = True
+            except CloudError as e:
+                print('Avatar download err:', rel, e.msg)
+                good = False
+            with lock:
+                state['done'] += 1
+                if good:
+                    files_meta[rel] = sha
+                    state['ok'] += 1
+                else:
+                    state['err'] += 1
+                i = state['done']
+                if i % 100 == 0:
+                    meta['files'] = files_meta
+                    _write_json(self.avatar_meta_path(), meta)
+            if progress and (i % 8 == 0 or i == need):
+                progress(i, need, f'Đang tải {state["ok"]}/{need}…')
+
         if need:
-            for i, item in enumerate(to_dl, 1):
-                sp, up, local_fp = item
-                try:
-                    with self._api_lock:
-                        data = sb.storage.from_('avatars').download(sp)
-                    os.makedirs(os.path.dirname(local_fp), exist_ok=True)
-                    with open(local_fp, 'wb') as f:
-                        f.write(data)
-                    files_meta[sp] = up
-                    downloaded += 1
-                except Exception as e:
-                    print('Avatar download err:', sp, e)
-                    errors += 1
-                if progress and (i % 8 == 0 or i == need):
-                    progress(i, need, f'Đang tải {downloaded}/{need}…')
+            with ThreadPoolExecutor(max_workers=SYNC_WORKERS) as ex:
+                list(ex.map(one, to_dl))
         meta['files'] = files_meta
         meta['synced_at'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
         meta['local_count'] = self._count_local_avatars(cache)
         _write_json(self.avatar_meta_path(), meta)
-        msg = (f'Avatar: kho Cloud {len(rows)} · tải {downloaded} mới, '
-               f'sẵn có {skipped}' + (f', {errors} lỗi' if errors else ''))
+        msg = (f'Avatar: kho máy chủ {len(files)} · tải {state["ok"]} mới, '
+               f'sẵn có {skipped + adopted}' + (f', {state["err"]} lỗi' if state['err'] else ''))
+        if moved:
+            msg += f' · chuyển {moved} ảnh từ kho cũ'
         if progress:
             progress(1, 1, msg)
-        return {'ok': True, 'path': cache, 'downloaded': downloaded,
-                'skipped': skipped, 'errors': errors, 'msg': msg}
+        return {'ok': state['err'] == 0 or state['ok'] > 0, 'path': cache,
+                'downloaded': state['ok'], 'skipped': skipped + adopted,
+                'errors': state['err'], 'msg': msg}
 
     def upload_avatars(self, folder, progress=None):
-        sb = self.client()
-        if not sb or not self.user_id:
-            return {'ok': False, 'msg': 'Cần đăng nhập Cloud.'}
+        if not self.logged_in():
+            return {'ok': False, 'msg': 'Cần đăng nhập.'}
+        if not self.is_admin():
+            return {'ok': False, 'msg': 'Chỉ quản trị mới được đẩy avatar.'}
         files = []
         for root, _ds, fns in os.walk(folder):
             for fn in fns:
-                if fn.lower().endswith(IMG_EXTS):
+                if fn.lower().endswith(IMG_EXTS) and not fn.startswith('.'):
                     files.append(os.path.join(root, fn))
         if not files:
             return {'ok': False, 'msg': 'Thư mục không có ảnh avatar.'}
-        ctype = {'.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                 '.webp': 'image/webp'}
-        ok = err = 0
-        for i, path in enumerate(files, 1):
-            fn = os.path.basename(path)
+        try:
+            have = {f['path']: f.get('src_sha') for f in self._manifest('avatars')}
+        except CloudError as e:
+            return {'ok': False, 'msg': e.msg}
+        state = {'done': 0, 'up': 0, 'same': 0, 'err': 0, 'last': ''}
+        lock = threading.Lock()
+        total = len(files)
+
+        def one(path):
+            rel = _nfc(os.path.relpath(path, folder).replace('\\', '/'))
             try:
-                with open(path, 'rb') as f:
-                    data = f.read()
-                rel = os.path.relpath(path, folder).replace('\\', '/')
-                sp = f'shared/{rel}'
-                ext = os.path.splitext(fn)[1].lower()
-                sb.storage.from_('avatars').upload(
-                    sp, data, {'content-type': ctype.get(ext, 'image/png'), 'upsert': 'true'})
-                code = _AVATAR_STRIP.sub('', os.path.splitext(fn)[0])
-                sb.table('avatar_files').upsert({
-                    'storage_path': sp, 'file_name': fn, 'code': code,
-                    'size': len(data),
-                    'updated_at': datetime.datetime.utcnow().isoformat(),
-                }, on_conflict='storage_path').execute()
-                ok += 1
-            except Exception as e:
-                err += 1
-                print('Avatar upload err:', fn, e)
+                if have.get(rel) and have[rel] == _sha256_file(path):
+                    res = 'same'
+                else:
+                    with open(path, 'rb') as f:
+                        data = f.read()
+                    d = self._request('PUT', '/api/files/avatars/' + _quote_path(rel),
+                                      body=data, timeout=180,
+                                      headers={'Content-Type': 'application/octet-stream'})
+                    res = 'same' if d.get('unchanged') else 'up'
+            except (CloudError, OSError) as e:
+                res = 'err'
+                state['last'] = f'{rel}: {getattr(e, "msg", e)}'
+            with lock:
+                state['done'] += 1
+                state[res] += 1
+                i = state['done']
             if progress:
-                progress(i, len(files), f'Đẩy {i}/{len(files)}…')
-        return {'ok': err == 0,
-                'msg': f'Đã đẩy {ok}/{len(files)} avatar' + (f', {err} lỗi' if err else '')}
+                progress(i, total, f'Đẩy {i}/{total}…')
+
+        with ThreadPoolExecutor(max_workers=SYNC_WORKERS) as ex:
+            list(ex.map(one, files))
+        msg = (f'Đã đẩy {state["up"]} avatar mới/đổi, {state["same"]} không đổi'
+               + (f', {state["err"]} lỗi (vd {state["last"]})' if state['err'] else ''))
+        return {'ok': state['err'] == 0, 'msg': msg}
 
     # ── Ảnh nền ──
     def list_backgrounds(self, prefix=''):
-        sb = self.client()
-        if not sb:
+        if not self.logged_in():
+            return []
+        try:
+            files = self._manifest('backgrounds')
+        except CloudError as e:
+            print('BG list err:', e.msg)
             return []
         out = []
-        try:
-            items = sb.storage.from_('backgrounds').list(prefix) or []
-        except Exception as e:
-            print('BG storage list err:', prefix, e)
-            return out
-        for it in items:
-            name = it.get('name') if isinstance(it, dict) else getattr(it, 'name', None)
-            if not name or name.startswith('.'):
+        for f in files:
+            sp = f['path']
+            if prefix and not sp.startswith(prefix.rstrip('/') + '/'):
                 continue
-            full = f'{prefix}/{name}' if prefix else name
-            meta = it.get('metadata') if isinstance(it, dict) else getattr(it, 'metadata', None)
-            _id = it.get('id') if isinstance(it, dict) else getattr(it, 'id', None)
-            if _id is None and not meta:
-                out.extend(self.list_backgrounds(full))
-            elif name.lower().endswith(IMG_EXTS):
-                up = (it.get('updated_at') if isinstance(it, dict)
-                      else getattr(it, 'updated_at', None)) or ''
-                out.append({'storage_path': full, 'file_name': name, 'updated_at': up})
+            # updated_at dùng làm «phiên bản» để cache: lấy luôn sha cho chắc.
+            out.append({'storage_path': sp, 'file_name': sp.rsplit('/', 1)[-1],
+                        'updated_at': f.get('sha') or f.get('updated_at') or ''})
         return out
 
-    def bg_thumb_path(self, storage_path):
+    def bg_thumb_path(self, storage_path, version=''):
         safe = storage_path.lstrip('/').replace('\\', '/').replace('/', '__')
-        return os.path.join(bg_cache_dir(), '_thumbs', safe + '.jpg')
+        tag = ('.' + str(version)[:10]) if version else ''
+        return os.path.join(bg_cache_dir(), '_thumbs', safe + tag + '.jpg')
 
     def ensure_bg_thumb(self, storage_path, updated_at=None, size=(280, 158)):
         """Tải (nếu thiếu) rồi cắt thumbnail JPEG để gallery xem trước."""
         from PIL import Image
-        thumb = self.bg_thumb_path(storage_path)
+        thumb = self.bg_thumb_path(storage_path, updated_at or '')
         if os.path.exists(thumb):
             return {'ok': True, 'path': thumb}
         res = self.download_background(storage_path, updated_at)
@@ -668,56 +748,54 @@ class CloudClient:
             return {'ok': False, 'msg': str(e)}
 
     def download_background(self, storage_path, updated_at=None):
-        local_fp = os.path.join(bg_cache_dir(), *storage_path.lstrip('/').replace('\\', '/').split('/'))
+        local_fp = _local_path(bg_cache_dir(), storage_path.lstrip('/').replace('\\', '/'))
         meta_path = os.path.join(bg_cache_dir(), 'sync_meta.json')
-        meta = _read_json(meta_path)
+        with self._api_lock:
+            meta = _read_json(meta_path)
         if os.path.exists(local_fp) and meta.get('files', {}).get(storage_path) == updated_at:
             return {'ok': True, 'path': local_fp, 'fresh': False}
-        sb = self.client()
-        if not sb:
-            return {'ok': False, 'msg': 'Cần đăng nhập Cloud.'}
+        if not self.logged_in():
+            return {'ok': False, 'msg': 'Cần đăng nhập.'}
         try:
-            data = sb.storage.from_('backgrounds').download(storage_path)
-            os.makedirs(os.path.dirname(local_fp), exist_ok=True)
-            with open(local_fp, 'wb') as f:
-                f.write(data)
+            self._request('GET', '/api/files/backgrounds/' + _quote_path(storage_path),
+                          want='file', dest=local_fp, timeout=120)
+        except CloudError as e:
+            return {'ok': False, 'msg': e.msg}
+        with self._api_lock:
+            meta = _read_json(meta_path)
             meta.setdefault('files', {})[storage_path] = updated_at
             meta['synced_at'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
             _write_json(meta_path, meta)
-            return {'ok': True, 'path': local_fp, 'fresh': True}
-        except Exception as e:
-            return {'ok': False, 'msg': str(e)}
+        return {'ok': True, 'path': local_fp, 'fresh': True}
 
     def upload_background_files(self, paths, shared=False):
-        """Đẩy 1 hoặc nhiều file nền. Nhân viên → users/{uid}/; admin chọn shared/."""
-        sb = self.client()
-        if not sb or not self.user_id:
-            return {'ok': False, 'msg': 'Cần đăng nhập Cloud.'}
+        """Đẩy 1 hoặc nhiều file nền. Nhân viên → users/{id}/; admin chọn shared/."""
+        if not self.logged_in():
+            return {'ok': False, 'msg': 'Cần đăng nhập.'}
         files = [p for p in paths if os.path.isfile(p) and p.lower().endswith(IMG_EXTS)]
         if not files:
             return {'ok': False, 'msg': 'Không có file ảnh hợp lệ.'}
         prefix = 'shared' if (shared and self.is_admin()) else f'users/{self.user_id}'
-        ctype = {'.png': 'image/png', '.jpg': 'image/jpeg',
-                 '.jpeg': 'image/jpeg', '.webp': 'image/webp'}
         ok = err = 0
         last_path = None
+        last_err = ''
         for p in files:
-            fn = os.path.basename(p)
+            fn = _nfc(os.path.basename(p))
+            sp = f'{prefix}/{fn}'
             try:
                 with open(p, 'rb') as f:
                     data = f.read()
-                ext = os.path.splitext(fn)[1].lower()
-                sp = f'{prefix}/{fn}'
-                sb.storage.from_('backgrounds').upload(
-                    sp, data, {'content-type': ctype.get(ext, 'image/png'), 'upsert': 'true'})
+                self._request('PUT', '/api/files/backgrounds/' + _quote_path(sp), body=data,
+                              headers={'Content-Type': 'application/octet-stream'}, timeout=180)
                 ok += 1
                 last_path = sp
-            except Exception as e:
+            except (CloudError, OSError) as e:
                 err += 1
-                print('BG upload err:', fn, e)
+                last_err = getattr(e, 'msg', str(e))
+                print('BG upload err:', fn, last_err)
         return {'ok': err == 0, 'storage_path': last_path, 'prefix': prefix,
-                'msg': f'Đã đẩy {ok}/{len(files)} ảnh nền lên Cloud'
-                       + (f', {err} lỗi' if err else '')}
+                'msg': f'Đã đẩy {ok}/{len(files)} ảnh nền lên máy chủ'
+                       + (f', {err} lỗi ({last_err})' if err else '')}
 
     def upload_backgrounds(self, folder, shared=False):
         files = [os.path.join(folder, f) for f in os.listdir(folder)
@@ -726,33 +804,28 @@ class CloudClient:
             return {'ok': False, 'msg': 'Thư mục không có ảnh nền.'}
         return self.upload_background_files(files, shared=shared)
 
-    # ── Profiles / admin ──
+    # ── Tài khoản / quản trị ──
     def fetch_profiles(self):
-        sb = self.client()
-        if not sb:
-            return []
         try:
-            rows = self._select_all('profiles', 'id, full_name, role')
-            rows.sort(key=lambda r: str(r.get('full_name') or '').casefold())
-            return [{'id': r.get('id'), 'name': r.get('full_name'), 'role': r.get('role')}
-                    for r in rows]
-        except Exception as e:
-            print('Fetch profiles err:', e)
+            rows = self._request('GET', '/api/admin/users').get('users') or []
+        except CloudError as e:
+            print('Fetch profiles err:', e.msg)
             return []
+        return [{'id': str(r.get('id')), 'name': r.get('name') or r.get('email'),
+                 'email': r.get('email'), 'role': r.get('role')} for r in rows]
 
     def set_admin(self, uid, name, make_admin):
-        sb = self.client()
-        if not sb:
-            return {'ok': False, 'msg': 'Cần đăng nhập Cloud.'}
+        if str(uid) == str(self.user_id) and not make_admin:
+            return {'ok': False, 'msg': 'Không thể tự thu hồi quyền của chính mình.'}
         try:
-            if make_admin:
-                sb.table('admins').upsert(
-                    {'id': uid, 'full_name': name or 'Quản trị viên'},
-                    on_conflict='id').execute()
-            else:
-                if uid == self.user_id:
-                    return {'ok': False, 'msg': 'Không thể tự thu hồi quyền của chính mình.'}
-                sb.table('admins').delete().eq('id', uid).execute()
+            rows = self._request('GET', '/api/admin/users').get('users') or []
+            u = next((r for r in rows if str(r.get('id')) == str(uid)), None)
+            if not u:
+                return {'ok': False, 'msg': 'Không có tài khoản này.'}
+            self._request('POST', '/api/admin/users', body={
+                'id': u['id'], 'email': u['email'], 'name': u.get('name') or name or '',
+                'role': 'admin' if make_admin else 'user',
+                'disabled': u.get('disabled', False)})
             return {'ok': True, 'msg': 'Đã cập nhật quyền.'}
-        except Exception as e:
-            return {'ok': False, 'msg': str(e)}
+        except CloudError as e:
+            return {'ok': False, 'msg': e.msg}

@@ -15,21 +15,21 @@ dist/
 map_cache/
 .autopptx_studio_v2/
 
-# Large data files (not needed for build)
-Data avatar/
-Data background/
-LIST BAN HANG/
-REPORTW32_CUONG/
-AVATAR FULL/
-outputs/
+# Dữ liệu làm việc (Excel, PPTX mẫu, list bán hàng, sao lưu, script 1 lần) — data/
+data/
 *.xlsx
 *.pptx
-_build_w33_master.py
-_merge_building_w31.py
-_w33_building_merge_summary.txt
-_*.json
-_*.py
-_*.txt
+
+# Cache kho tài nguyên: app tự tải từ máy chủ (server/), không đưa vào git
+Data avatar/
+Data background/
+
+# Bản server chạy thử trên máy
+server/data/
+server/_unused_data/
+
+# Cấu hình chạy thử riêng máy (Claude Code preview)
+.claude/
 
 # Environment / Secret variables
 .env

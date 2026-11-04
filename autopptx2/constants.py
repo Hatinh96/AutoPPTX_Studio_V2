@@ -81,14 +81,10 @@ STAMP_LOGOS = (
     os.path.join('LOGO', 'Logo Golden_Symbol Multicolor.png'),
 )
 
-# Project Supabase của hệ thống RP SALES / AutoPPTX (anon key — giống bản 1)
-SUPABASE_URL = "https://jrwsbpbtkopuqipojspl.supabase.co"
-SUPABASE_ANON_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Impyd3NicGJ0a29wdXFpcG9qc3BsIiwicm9sZSI6ImFub24i"
-    "LCJpYXQiOjE3ODM0MTY4NjksImV4cCI6MjA5ODk5Mjg2OX0."
-    "txHyGEWAS7C5wArp4i-qEtr7LUlo7ijVJk2IKSGuQSg"
-)
+# Máy chủ kho tài nguyên của công ty (server/autopptx_server.py trên VPS 360).
+# Tạm chạy dưới talent.goldenasia.vn/pptx; khi có tên miền riêng chỉ cần đổi dòng này.
+# Đặt biến môi trường AUTOPPTX_SERVER để trỏ máy chủ khác (vd http://127.0.0.1:8780 khi thử).
+SERVER_URL = os.environ.get('AUTOPPTX_SERVER') or "https://talent.goldenasia.vn/pptx"
 
 GA_BLUE_DEEP = "#0e56c8"
 GA_BLUE_GLOW = "#4aa3f5"

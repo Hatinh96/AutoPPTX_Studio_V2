@@ -14,7 +14,7 @@ def sc(v, axis):
 
 
 def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else "THE NELSON.pptx"
+    path = sys.argv[1] if len(sys.argv) > 1 else "data/mau-pptx/THE NELSON.pptx"
     prs = Presentation(path)
     out = {"file": path, "slides": len(prs.slides), "content_slides": []}
     for si in range(len(prs.slides)):
