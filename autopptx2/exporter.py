@@ -594,32 +594,86 @@ def _border_cell(cell, hexv, width_pt=0.75):
         pass
 
 
-def _pptx_photo_path(path, temp_dir):
-    """File chèn PPTX: pixel đã đúng chiều, không EXIF Orientation 2–8.
+# Ảnh nhúng vào PPTX: cạnh dài tối đa (px) và chất lượng JPEG. Một ô ảnh trên slide
+# rộng ~4–8″; 1920px vẫn nét khi chiếu toàn màn hình mà file nhẹ hơn nhiều lần
+# so với nhúng nguyên ảnh điện thoại 4000px / PNG.
+EXPORT_MAX_PX = 1920
+EXPORT_MIN_PX = 640
+EXPORT_DPI = 220          # điểm ảnh / inch của Ô trên slide — đủ nét khi chiếu, file nhẹ
+EXPORT_JPEG_Q = 84
+# Ảnh đã nhỏ hơn ngưỡng này (và đúng chiều, đủ nhỏ) thì chèn nguyên file.
+_KEEP_ORIGINAL_BYTES = 200 * 1024
+
+
+def slide_px(w_in, h_in):
+    """Cạnh dài (px) cần cho một ô w×h inch trên slide."""
+    need = int(round(max(float(w_in or 0), float(h_in or 0)) * EXPORT_DPI))
+    return max(EXPORT_MIN_PX, min(EXPORT_MAX_PX, need))
+
+
+def _save_slide_image(im, out_base):
+    """Lưu ảnh cho slide: JPEG nếu không có vùng trong suốt, ngược lại PNG.
+    Trả đường dẫn file đã ghi (đuôi .jpg hoặc .png)."""
+    if im.mode in ('RGBA', 'LA') or (im.mode == 'P' and 'transparency' in im.info):
+        rgba = im.convert('RGBA')
+        lo, _hi = rgba.getchannel('A').getextrema()
+        if lo < 255:
+            out = out_base + '.png'
+            rgba.save(out, 'PNG', optimize=False, compress_level=6)
+            return out
+        im = rgba
+    out = out_base + '.jpg'
+    rgb = im.convert('RGB')
+    try:
+        rgb.info.pop('exif', None)
+    except Exception:
+        pass
+    rgb.save(out, 'JPEG', quality=EXPORT_JPEG_Q, optimize=True, progressive=True,
+             subsampling='4:2:0')
+    return out
+
+
+def _pptx_photo_path(path, temp_dir, max_px=None):
+    """File chèn PPTX: đúng chiều (không EXIF Orientation 2–8) và đã thu về
+    max_px (theo cỡ ô trên slide; mặc định EXPORT_MAX_PX).
 
     PowerPoint tự xoay JPEG theo tag — nếu PIL đã tính crop theo ảnh đứng
     mà file gốc vẫn còn Orientation=6/8 thì slide bị xoay thêm 90°.
     """
-    if not path or G.exif_orientation(path) == 1:
+    if not path:
+        return path
+    max_px = int(max_px or EXPORT_MAX_PX)
+    try:
+        upright = G.exif_orientation(path) == 1
+        small = os.path.getsize(path) <= _KEEP_ORIGINAL_BYTES
+        if upright and small:
+            with Image.open(path) as im0:
+                if max(im0.size) <= max_px:
+                    return path
+    except Exception:
         return path
     try:
         key = hashlib.md5(
-            f"upright|{os.path.abspath(path)}|{os.path.getmtime(path)}".encode(
-                errors='replace')).hexdigest()
+            f"slide|{max_px}|{EXPORT_JPEG_Q}|{os.path.abspath(path)}|"
+            f"{os.path.getmtime(path)}".encode(errors='replace')).hexdigest()
     except Exception:
-        key = hashlib.md5(f"upright|{path}".encode(errors='replace')).hexdigest()
-    out = os.path.join(temp_dir, f"up_{key}.jpg")
-    if os.path.exists(out):
-        return out
-    im = G.open_upright(path)
+        key = hashlib.md5(f"slide|{path}".encode(errors='replace')).hexdigest()
+    base = os.path.join(temp_dir, f"up_{key}")
+    for ext in ('.jpg', '.png'):
+        if os.path.exists(base + ext):
+            return base + ext
+    im = Image.open(path)
     try:
-        rgb = im.convert('RGB')
         try:
-            rgb.info.pop('exif', None)
+            im.draft('RGB', (max_px, max_px))   # JPEG: giải mã nhỏ luôn, nhanh hơn
         except Exception:
             pass
-        rgb.save(out, 'JPEG', quality=95)
-        return out
+        im = G.exif_upright(im)
+        if max(im.size) > max_px:
+            im.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
+        return _save_slide_image(im, base)
+    except Exception:
+        return path
     finally:
         try:
             im.close()
@@ -632,7 +686,7 @@ def _place_avatar(slide, path, av, temp_dir):
     a_ar = av.get('ar') or (4 / 3)
     w_in = av['w']
     h_in = w_in / a_ar
-    src = _pptx_photo_path(path, temp_dir)
+    src = _pptx_photo_path(path, temp_dir, slide_px(w_in, h_in))
     pic = slide.shapes.add_picture(src, Inches(av['x']), Inches(av['y']),
                                    width=Inches(w_in), height=Inches(h_in))
     try:
@@ -719,13 +773,18 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
             iar = 1.0
         use_fit = G.photo_fit_mode(fit_mode, iw, ih)
         box_ar = bw / bh if bh else 1.0
+        # Ảnh lấp đầy bị cắt viền: cần đủ px theo cạnh ngắn của ảnh → cạnh dài lớn hơn ô.
+        cell_px = slide_px(bw, bh)
+        if use_fit == 'fill' and iw and ih:
+            iar_ = iw / ih
+            cell_px = slide_px(max(bw, bh * iar_), max(bh, bw / iar_))
         pic = None
         baked = False
 
         if bake_fx:
             try:
                 rp = FX.bake_export_png(path, fx, box_ar, use_fit, radius,
-                                        temp_dir, opacity)
+                                        temp_dir, opacity, px=slide_px(bw, bh))
                 if rp:
                     if use_fit == 'fill':
                         pic = slide.shapes.add_picture(
@@ -754,7 +813,7 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
                 except Exception:
                     pic = None
             if pic is None:
-                src = _pptx_photo_path(path, temp_dir)
+                src = _pptx_photo_path(path, temp_dir, cell_px)
                 pic = slide.shapes.add_picture(src, Inches(bx), Inches(by),
                                                width=Inches(bw), height=Inches(bh))
                 try:
@@ -764,7 +823,7 @@ def _place_images(slide, paths, area_cfg, img_ar, temp_dir, fx=None):
                 except Exception:
                     pass
         elif pic is None:
-            src = _pptx_photo_path(path, temp_dir)
+            src = _pptx_photo_path(path, temp_dir, cell_px)
             pic = _add_contained_picture(slide, src, bx, by, bw, bh, iar)
         if pic is not None and not baked:
             _set_pic_opacity(pic, opacity)

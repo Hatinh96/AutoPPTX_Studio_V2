@@ -702,6 +702,36 @@ class App(ctk.CTk):
         import webbrowser
         webbrowser.open(self.cloud.admin_url())
 
+    def _open_report_web(self):
+        import webbrowser
+        webbrowser.open(self.cloud.web_url())
+
+    def _save_preset_to_server(self):
+        """Gửi bố cục + tuỳ chọn đang chỉnh lên máy chủ để bản web xuất y hệt."""
+        from tkinter import simpledialog
+        default = dept_label(self.opts.get('dept')) + ' · ' + {
+            'saleskit': 'SALESKIT', 'nelson': 'THE NELSON'}.get(self.opts.get('slide_style'), 'Báo cáo')
+        name = simpledialog.askstring(
+            'Lưu mẫu lên máy chủ',
+            'Tên mẫu (trùng tên thì ghi đè).\nBản web sẽ có mẫu này trong ô «Mẫu slide».',
+            initialvalue=default, parent=self)
+        if not name or not name.strip():
+            return
+        shared = False
+        if self.cloud.is_admin():
+            shared = messagebox.askyesno(
+                'Lưu mẫu lên máy chủ',
+                'Lưu làm MẪU CHUNG cho mọi người?\n(Không = chỉ mình bạn thấy)', parent=self)
+        layout, opts = copy.deepcopy(self.layout), copy.deepcopy(self.opts)
+        opts['slide_size'] = self.opts.get('slide_size', '16:9')
+
+        def work():
+            res = self.cloud.save_preset(name.strip(), layout, opts, shared=shared)
+            self.after(0, lambda: (self.log('☁ ' + res.get('msg', '')),
+                                   (messagebox.showinfo if res.get('ok') else messagebox.showerror)(
+                                       'Lưu mẫu', res.get('msg', ''), parent=self)))
+        threading.Thread(target=work, daemon=True).start()
+
     def show_main(self):
         self._clear_shell()
         self._build_ui()
@@ -6628,6 +6658,10 @@ class App(ctk.CTk):
             menu.add_command(label='👥  Quản lý quyền tài khoản',
                              command=self._show_account_manager)
         if self.cloud.logged_in():
+            menu.add_command(label='☁  Lưu mẫu hiện tại lên máy chủ (bản web)…',
+                             command=self._save_preset_to_server)
+            menu.add_command(label='🌐  Mở bản web xuất báo cáo',
+                             command=self._open_report_web)
             menu.add_command(label='🔑  Đổi mật khẩu',
                              command=self._show_change_password)
         menu.add_command(label='⚙  Cài đặt',

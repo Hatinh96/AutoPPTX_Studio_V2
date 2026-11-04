@@ -15,7 +15,7 @@ from .constants import CONFIG_DIR
 CACHE_PATH = os.path.join(CONFIG_DIR, "fonts_cache.json")
 VIET_SAMPLE = "ÁÀẢÃẠăâêôơưĐƯỢỘỮỨờợộữự"
 VIET_FALLBACKS = (
-    "Arial", "Helvetica Neue", "Helvetica", "Be Vietnam Pro",
+    "Arial", "Liberation Sans", "Helvetica Neue", "Helvetica", "Be Vietnam Pro",
     "Segoe UI", "Tahoma", "Calibri", "DejaVu Sans", "Noto Sans",
 )
 PINNED = ("Arial", "Be Vietnam Pro", "Segoe UI", "Tahoma", "Calibri",

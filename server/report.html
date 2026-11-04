@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>AutoPPTX Xuất nhanh</title>
+<style>
+:root{
+  --bg:#f6f7f9;--card:#fff;--text:#16181d;--muted:#5d6572;--border:#e2e5ea;--input:#f1f3f6;
+  --accent:#1774d2;--accent-h:#0f5fb0;--ok:#15803d;--warn:#b45309;--err:#dc2626;--chip:#e8f1fb;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1115;--card:#171a21;--text:#e8eaee;--muted:#9aa3b2;--border:#2a2f3a;--input:#1f232c;
+  --accent:#3595ee;--accent-h:#62adf3;--ok:#4ade80;--warn:#fbbf24;--err:#f87171;--chip:#1b2a40;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+header{display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--card);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:16px;margin:0;font-weight:650}
+header .sp{flex:1}
+main{padding:16px 20px 60px;max-width:1080px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+.step{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:#fff;font-size:12px;font-weight:700}
+.muted{color:var(--muted)}.small{font-size:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px 14px;margin-top:12px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input,select{background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit;min-width:0;width:100%}
+input[type=checkbox]{width:auto}
+label.c{display:flex;gap:8px;align-items:center;font-size:13px}
+button.b{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+button.b:hover{background:var(--accent-h)}
+button.big{padding:12px 22px;font-size:15px}
+button.g{background:var(--input);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 12px;font:inherit;cursor:pointer}
+button.d{color:var(--err)}
+button:disabled{opacity:.5;cursor:default}
+.chip{display:inline-block;padding:1px 9px;border-radius:99px;background:var(--chip);font-size:12px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
+progress{width:100%;height:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.bgs{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.bgs figure{margin:0;width:128px;border:2px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--input)}
+.bgs figure.on{border-color:var(--accent)}
+.bgs img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.bgs figcaption{font-size:11px;padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.none{display:grid;place-items:center;aspect-ratio:16/9;font-size:12px;color:var(--muted)}
+.folders li{margin:3px 0}
+details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:10px}
+#login{max-width:380px;margin:12vh auto}
+#login input{margin-bottom:10px}
+.hidden{display:none!important}
+dialog{border:1px solid var(--border);border-radius:12px;background:var(--card);color:var(--text);max-width:440px;width:calc(100% - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+#toast.show{opacity:1}
+.result{border-left:4px solid var(--accent);padding-left:12px}
+@media (max-width:640px){header,main{padding-left:16px;padding-right:16px}}
+</style>
+</head>
+<body>
+<div id="login" class="card hidden">
+  <h2>AutoPPTX · Golden Asia</h2>
+  <p class="muted small">Đăng nhập tài khoản công ty để xuất báo cáo PPTX ngay trên trình duyệt.</p>
+  <form id="fLogin">
+    <input id="lEmail" type="email" placeholder="Email" autocomplete="username" required>
+    <input id="lPw" type="password" placeholder="Mật khẩu" autocomplete="current-password" required>
+    <button class="b" style="width:100%">Đăng nhập</button>
+    <p id="lErr" class="err small"></p>
+  </form>
+</div>
+
+<div id="app" class="hidden">
+<header>
+  <h1>AutoPPTX · Xuất báo cáo</h1><span class="sp"></span>
+  <span id="who" class="muted small"></span>
+  <a href="../">Trình biên tập</a>
+  <a id="lnkAdmin" class="hidden" href="../admin/">Quản trị kho</a>
+  <button class="g" id="btnPw">Đổi mật khẩu</button>
+  <button class="g" id="btnOut">Đăng xuất</button>
+</header>
+<main>
+  <div class="card">
+    <h2><span class="step">1</span> Mẫu & tuỳ chọn</h2>
+    <p class="muted small" id="excelInfo">Đang đọc FILE TỔNG…</p>
+    <div class="grid">
+      <label class="f">Mẫu slide<select id="oPreset"></select></label>
+      <label class="f">Kênh<select id="oChannel"></select></label>
+      <label class="f">Tỉnh / thành<select id="oCity"></select></label>
+      <label class="f">Quận / huyện<select id="oDistrict"></select></label>
+      <label class="f">Xếp slide<select id="oSort"><option value="city">Theo tỉnh (Bắc → Nam)</option><option value="list">Theo thứ tự list</option></select></label>
+      <label class="f">Ảnh mỗi slide<select id="oN"><option value="0">Tự</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>9</option></select></label>
+      <label class="f">Tỉ lệ ảnh<select id="oAr"><option>4:3</option><option>16:9</option><option>3:2</option><option>1:1</option><option>3:4</option><option>Tự do</option></select></label>
+      <label class="f">Khổ slide<select id="oSize"><option>16:9</option><option>4:3</option></select></label>
+      <label class="f">Chia file<select id="oSplit"><option value="0">Một file</option><option>100</option><option>200</option><option>300</option><option>500</option></select></label>
+      <label class="f">Tên file<input id="oTitle" placeholder="vd Report_CF_W33"></label>
+    </div>
+    <div class="row" style="margin-top:12px;gap:18px">
+      <label class="c"><input type="checkbox" id="oStamp"> Đóng dấu ngày giờ lên ảnh</label>
+      <label class="c"><input type="checkbox" id="oMinimap"> Mini-map GPS</label>
+      <label class="c"><input type="checkbox" id="oDash"> Slide tổng quan</label>
+      <label class="c"><input type="checkbox" id="oIndex"> Slide + Excel danh sách cửa hàng</label>
+      <label class="c"><input type="checkbox" id="oCheck"> Checklist đối chiếu</label>
+    </div>
+    <details><summary>Ảnh nền slide</summary><div class="bgs" id="bgList"></div></details>
+    <details><summary>List xếp slide riêng (tuỳ chọn)</summary>
+      <p class="muted small">Up list Excel (List CF, University List…) để xếp slide đúng thứ tự list — chọn «Xếp slide: Theo thứ tự list».</p>
+      <input type="file" id="oOrder" accept=".xlsx,.xlsm">
+    </details>
+  </div>
+
+  <div class="card">
+    <h2><span class="step">2</span> Ảnh hiện trường</h2>
+    <p class="muted small">Chọn thư mục ảnh của báo cáo (gồm cả thư mục con). Thêm nhiều thư mục được. Tên ảnh theo mã RP như trên app, vd <code>HL08NGUYENAIQUOC (5).jpg</code>.</p>
+    <div class="row">
+      <label class="b" style="display:inline-block;background:var(--accent);color:#fff;border-radius:8px;padding:9px 16px;cursor:pointer;font-weight:600">+ Thêm thư mục ảnh<input type="file" id="pDir" webkitdirectory multiple class="hidden"></label>
+      <button class="g" id="pClear">Bỏ hết</button>
+      <span id="pSummary" class="muted small"></span>
+    </div>
+    <ul class="folders small" id="pFolders"></ul>
+  </div>
+
+  <div class="card">
+    <h2><span class="step">3</span> Xuất PPTX</h2>
+    <div class="row"><button class="b big" id="goBtn">Xuất PPTX trên máy chủ</button><button class="g hidden" id="cancelBtn">Huỷ</button></div>
+    <div id="runBox" class="hidden" style="margin-top:12px">
+      <p id="runMsg" class="small"></p>
+      <progress id="runProg" value="0" max="1"></progress>
+    </div>
+    <div id="resultBox"></div>
+  </div>
+
+  <div class="card">
+    <h2>Lần xuất gần đây <span class="muted small" id="keepNote"></span></h2>
+    <table><thead><tr><th>Thời gian</th><th>Tên</th><th>Trạng thái</th><th>Tải về</th><th></th></tr></thead><tbody id="histBody"></tbody></table>
+  </div>
+</main>
+</div>
+
+<dialog id="dlg"><h3 id="dTitle" style="margin-top:0"></h3><div id="dBody"></div><div class="row" style="justify-content:flex-end;margin-top:14px" id="dBtns"></div></dialog>
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtB = n => n >= 1073741824 ? (n/1073741824).toFixed(2)+' GB' : n >= 1048576 ? (n/1048576).toFixed(1)+' MB' : n >= 1024 ? Math.round(n/1024)+' KB' : (n||0)+' B';
+const fmtT = s => s ? new Date(s).toLocaleString('vi-VN', {dateStyle:'short', timeStyle:'short'}) : '—';
+const IMG = /\.(png|jpe?g|webp)$/i;
+const ALL = {ch:'Tất cả kênh', city:'Tất cả tỉnh', dist:'Tất cả quận'};
+const STATE = {uploading:'Đang tải ảnh', queued:'Đang chờ', running:'Đang xuất', done:'Xong', failed:'Lỗi', cancelled:'Đã huỷ'};
+let me = null, folders = [], presets = [], presetData = {}, bgChoice = '', running = null, stopUpload = false;
+
+function toast(t){ const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), 3500); }
+async function api(path, opt = {}){
+  const o = {method: opt.method || 'GET', headers: {'X-Requested-With':'autopptx', ...(opt.headers||{})}, credentials:'same-origin'};
+  if (opt.json !== undefined){ o.body = JSON.stringify(opt.json); o.headers['Content-Type'] = 'application/json'; }
+  else if (opt.body !== undefined) o.body = opt.body;
+  const r = await fetch('../api' + path, o);
+  let d = {}; try { d = await r.json(); } catch(e) {}
+  if (r.status === 401 && path !== '/login'){ showLogin(); throw new Error(d.msg || 'Hết phiên'); }
+  if (!r.ok || d.ok === false) throw new Error(d.msg || ('Lỗi ' + r.status));
+  return d;
+}
+const enc = p => p.split('/').map(encodeURIComponent).join('/');
+function dialog(title, html, buttons){
+  $('#dTitle').textContent = title; $('#dBody').innerHTML = html;
+  const box = $('#dBtns'); box.innerHTML = '';
+  return new Promise(res => {
+    (buttons || [['Đóng','g',null]]).forEach(([l, c, v]) => { const b = document.createElement('button'); b.className = c; b.textContent = l; b.onclick = () => { $('#dlg').close(); res(v); }; box.appendChild(b); });
+    $('#dlg').showModal();
+  });
+}
+
+// ── đăng nhập ──
+function showLogin(){ $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }
+$('#fLogin').onsubmit = async e => {
+  e.preventDefault(); $('#lErr').textContent = '';
+  try { const d = await api('/login', {method:'POST', json:{email:$('#lEmail').value, password:$('#lPw').value, cookie:true, client:'web-report'}}); $('#lPw').value = ''; enter(d.user); }
+  catch(err){ $('#lErr').textContent = err.message; }
+};
+$('#btnOut').onclick = async () => { try { await api('/logout', {method:'POST'}); } catch(e){} showLogin(); };
+$('#btnPw').onclick = changePw;
+async function changePw(){
+  const ok = await dialog('Đổi mật khẩu', `<input id="pOld" type="password" placeholder="Mật khẩu hiện tại" style="margin-bottom:8px"><input id="pNew" type="password" placeholder="Mật khẩu mới (≥ 8 ký tự)">`, [['Huỷ','g',false],['Đổi','b',true]]);
+  if (!ok) return;
+  try { await api('/me/password', {method:'POST', json:{old:$('#pOld').value, new:$('#pNew').value}}); toast('Đã đổi mật khẩu.'); } catch(e){ toast(e.message); }
+}
+async function enter(u){
+  me = u; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  $('#who').textContent = u.name || u.email;
+  $('#lnkAdmin').classList.toggle('hidden', !['admin','super_admin'].includes(u.role));
+  await Promise.all([loadFields(), loadPresets(), loadBgs(), loadHistory()]);
+  if (u.must_change) changePw();
+}
+
+// ── tuỳ chọn ──
+function fillSelect(sel, allLabel, values, keep){
+  const cur = keep ?? sel.value;
+  sel.innerHTML = `<option>${esc(allLabel)}</option>` + values.map(v => `<option>${esc(v)}</option>`).join('');
+  if ([allLabel, ...values].includes(cur)) sel.value = cur;
+}
+async function loadFields(){
+  try {
+    const d = await api('/excel/fields');
+    $('#excelInfo').innerHTML = `FILE TỔNG: <b>${esc(d.excel.file_name)}</b> · ${d.rows.toLocaleString('vi-VN')} dòng · cập nhật ${fmtT(d.excel.updated_at)}`;
+    fillSelect($('#oChannel'), ALL.ch, d.channels); fillSelect($('#oCity'), ALL.city, d.cities); fillSelect($('#oDistrict'), ALL.dist, d.districts);
+  } catch(e){ $('#excelInfo').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('#goBtn').disabled = true; }
+}
+async function loadPresets(){
+  presets = (await api('/presets')).presets;
+  const lab = {builtin:'Có sẵn', shared:'Mẫu chung', mine:'Mẫu của tôi'};
+  $('#oPreset').innerHTML = ['builtin','shared','mine'].map(k => { const g = presets.filter(p => p.kind === k); return g.length ? `<optgroup label="${lab[k]}">${g.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</optgroup>` : ''; }).join('');
+  let saved = ''; try { saved = localStorage.getItem('ap_preset') || ''; } catch(e){}
+  if (saved && presets.some(p => p.id === saved)) $('#oPreset').value = saved;
+  await applyPreset();
+}
+async function applyPreset(){
+  const id = $('#oPreset').value; if (!id) return;
+  try { localStorage.setItem('ap_preset', id); } catch(e){}
+  if (!presetData[id]) presetData[id] = (await api('/presets/' + encodeURIComponent(id))).data;
+  const o = presetData[id].opts || {}, fx = o.fx || {};
+  const set = (sel, v) => { const el = $(sel); if (v !== undefined && [...el.options].some(x => x.value == v || x.text == v)) el.value = v; };
+  set('#oChannel', o.channel_filter); set('#oCity', o.city_filter); set('#oDistrict', o.district_filter);
+  set('#oSort', o.sort_mode || 'city'); set('#oN', String(o.n_per_slide ?? 0)); set('#oAr', o.ar_label || '4:3');
+  set('#oSize', o.slide_size || '16:9'); set('#oSplit', String(o.slides_per_file || 0));
+  $('#oStamp').checked = fx.use_timestamp !== false; $('#oMinimap').checked = !!fx.minimap; $('#oDash').checked = fx.dashboard !== false;
+  $('#oIndex').checked = o.store_index !== false; $('#oCheck').checked = o.write_checklist !== false;
+}
+$('#oPreset').onchange = applyPreset;
+function overrides(){
+  return {
+    channel_filter: $('#oChannel').value, city_filter: $('#oCity').value, district_filter: $('#oDistrict').value,
+    sort_mode: $('#oSort').value, n_per_slide: +$('#oN').value, ar_label: $('#oAr').value, slide_size: $('#oSize').value,
+    slides_per_file: +$('#oSplit').value, store_index: $('#oIndex').checked, write_checklist: $('#oCheck').checked,
+    fx: {use_timestamp: $('#oStamp').checked, minimap: $('#oMinimap').checked, dashboard: $('#oDash').checked},
+  };
+}
+async function loadBgs(){
+  const d = await api('/manifest/backgrounds');
+  const box = $('#bgList');
+  box.innerHTML = `<figure data-p="" class="${bgChoice ? '' : 'on'}"><div class="none">Nền trắng</div><figcaption>Nền trắng</figcaption></figure>` +
+    d.files.map(f => `<figure data-p="${esc(f.path)}" class="${bgChoice === f.path ? 'on' : ''}"><img loading="lazy" src="../api/files/backgrounds/${enc(f.path)}" alt=""><figcaption>${f.path.startsWith('shared/') ? '' : '★ '}${esc(f.path.split('/').pop())}</figcaption></figure>`).join('');
+}
+$('#bgList').onclick = e => { const f = e.target.closest('figure'); if (!f) return; bgChoice = f.dataset.p; document.querySelectorAll('#bgList figure').forEach(x => x.classList.toggle('on', x === f)); };
+
+// ── ảnh ──
+$('#pDir').onchange = e => {
+  const files = [...e.target.files].filter(f => IMG.test(f.name) && !f.name.startsWith('.'));
+  e.target.value = '';
+  if (!files.length){ toast('Thư mục không có ảnh png/jpg/webp.'); return; }
+  const root = (files[0].webkitRelativePath || files[0].name).split('/')[0];
+  folders.push({name: root, files, bytes: files.reduce((a, f) => a + f.size, 0)});
+  renderFolders();
+};
+$('#pClear').onclick = () => { folders = []; renderFolders(); };
+function renderFolders(){
+  const n = folders.reduce((a, f) => a + f.files.length, 0), b = folders.reduce((a, f) => a + f.bytes, 0);
+  $('#pSummary').textContent = n ? `${n.toLocaleString('vi-VN')} ảnh · ${fmtB(b)}` : 'Chưa chọn thư mục nào';
+  $('#pFolders').innerHTML = folders.map((f, i) => `<li>📁 <b>${esc(f.name)}</b> — ${f.files.length} ảnh, ${fmtB(f.bytes)} <button class="g d" data-i="${i}" style="padding:1px 8px">bỏ</button></li>`).join('');
+}
+$('#pFolders').onclick = e => { if (e.target.dataset.i !== undefined){ folders.splice(+e.target.dataset.i, 1); renderFolders(); } };
+renderFolders();
+
+// ── xuất ──
+function putFile(url, file, onProgress){
+  return new Promise((res, rej) => {
+    const x = new XMLHttpRequest(); x.open('PUT', url); x.setRequestHeader('X-Requested-With', 'autopptx');
+    x.upload.onprogress = e => onProgress && onProgress(e.loaded);
+    x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch(e){} (x.status === 200 && d.ok !== false) ? res(d) : rej(new Error(d.msg || ('Lỗi ' + x.status))); };
+    x.onerror = () => rej(new Error('Mất kết nối')); x.send(file);
+  });
+}
+function setRun(msg, frac){ $('#runBox').classList.remove('hidden'); $('#runMsg').innerHTML = msg; if (frac !== undefined) $('#runProg').value = frac; }
+$('#goBtn').onclick = async () => {
+  const all = folders.flatMap((f, i) => f.files.map(file => ({file, rel: `f${i + 1}/` + (file.webkitRelativePath || file.name)})));
+  if (!all.length){ toast('Chọn thư mục ảnh trước (bước 2).'); return; }
+  $('#goBtn').disabled = true; $('#cancelBtn').classList.remove('hidden'); $('#resultBox').innerHTML = ''; stopUpload = false;
+  try {
+    const job = await api('/jobs', {method:'POST', json:{preset_id: $('#oPreset').value, overrides: overrides(), background: bgChoice, title: $('#oTitle').value.trim()}});
+    running = job.id;
+    const order = $('#oOrder').files[0];
+    if (order) await putFile(`../api/jobs/${job.id}/order-list`, order);
+    const total = all.reduce((a, x) => a + x.file.size, 0); let sent = 0, done = 0, idx = 0; const t0 = Date.now(); const inflight = new Map();
+    const tick = () => { const cur = sent + [...inflight.values()].reduce((a, b) => a + b, 0); const sec = (Date.now() - t0) / 1000; const sp = cur / Math.max(sec, .5);
+      setRun(`Đang tải ảnh lên: <b>${done}/${all.length}</b> ảnh · ${fmtB(cur)}/${fmtB(total)} · ${fmtB(sp)}/s · còn ~${Math.max(0, Math.round((total - cur) / Math.max(sp, 1)))} giây`, cur / total); };
+    async function worker(){
+      while (!stopUpload && idx < all.length){
+        const k = idx++, it = all[k];
+        for (let attempt = 1; ; attempt++){
+          try { await putFile(`../api/jobs/${job.id}/photos/${enc(it.rel)}`, it.file, l => { inflight.set(k, l); tick(); }); break; }
+          catch(e){ if (attempt >= 3 || /quá|đầy|không hợp lệ|bắt đầu/i.test(e.message)) throw e; await new Promise(r => setTimeout(r, 1500 * attempt)); }
+        }
+        inflight.delete(k); sent += it.file.size; done++; tick();
+      }
+    }
+    await Promise.all([1,2,3,4].map(worker));
+    if (stopUpload){ await api(`/jobs/${job.id}/cancel`, {method:'POST'}); throw new Error('Đã huỷ.'); }
+    await api(`/jobs/${job.id}/start`, {method:'POST'});
+    setRun('Đã tải xong ảnh — máy chủ đang dựng slide…', 0);
+    await poll(job.id);
+  } catch(err){ setRun(`<span class="err">${esc(err.message)}</span>`); }
+  running = null; $('#goBtn').disabled = false; $('#cancelBtn').classList.add('hidden'); loadHistory();
+};
+$('#cancelBtn').onclick = async () => { stopUpload = true; if (running){ try { await api(`/jobs/${running}/cancel`, {method:'POST'}); } catch(e){} } };
+async function poll(id){
+  while (true){
+    const j = (await api('/jobs/' + id)).job;
+    if (j.state === 'running') setRun(esc(j.msg), j.total ? j.done / j.total : 0);
+    else if (j.state === 'queued') setRun(esc(j.msg), 0);
+    else { showResult(j); $('#runBox').classList.add('hidden'); return; }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
+function filesHtml(j){ return (j.files || []).map(f => `<a href="../api/jobs/${j.id}/files/${encodeURIComponent(f.name)}">${esc(f.name)}</a> <span class="muted small">(${fmtB(f.size)})</span>`).join('<br>'); }
+function showResult(j){
+  const r = j.report || {}, s = j.stats || {};
+  let html = `<div class="result" style="margin-top:12px"><p><b class="${j.state === 'done' ? 'ok' : 'err'}">${esc(j.msg)}</b></p>`;
+  if (j.state === 'done'){
+    html += `<p class="small muted">${s.photos || 0} ảnh · ${r.groups || 0} nhóm · ${r.slides || 0} slide · ${s.avatars || 0} avatar</p><p>${filesHtml(j)}</p>`;
+    const warn = [];
+    if ((r.unmatched || []).length) warn.push(`<b>${r.unmatched.length}</b> mã ảnh không có trong FILE TỔNG: ${r.unmatched.slice(0, 30).map(esc).join(', ')}${r.unmatched.length > 30 ? '…' : ''}`);
+    if ((r.fuzzy || []).length) warn.push(`<b>${r.fuzzy.length}</b> mã khớp gần đúng: ${r.fuzzy.slice(0, 15).map(x => esc(x[0]) + ' → ' + esc(x[1])).join(', ')}${r.fuzzy.length > 15 ? '…' : ''}`);
+    if ((r.missing_avatars || []).length) warn.push(`<b>${r.missing_avatars.length}</b> mã thiếu avatar: ${r.missing_avatars.slice(0, 30).map(esc).join(', ')}${r.missing_avatars.length > 30 ? '…' : ''}`);
+    if (warn.length) html += `<div class="small warn">${warn.join('<br>')}</div>`;
+  }
+  $('#resultBox').innerHTML = html + '</div>';
+}
+async function loadHistory(){
+  const d = await api('/jobs');
+  $('#keepNote').textContent = '· file kết quả giữ 1 ngày';
+  $('#histBody').innerHTML = d.jobs.map(j => `<tr><td class="small">${fmtT(j.created_at)}</td><td>${esc(j.title)}<div class="muted small">${j.photos} ảnh · ${fmtB(j.bytes)}</div></td>
+    <td><span class="chip ${j.state === 'done' ? 'ok' : j.state === 'failed' ? 'err' : ''}">${STATE[j.state] || j.state}</span><div class="small muted">${esc(j.state === 'done' ? '' : j.msg)}</div></td>
+    <td class="small">${j.state === 'done' ? filesHtml(j) : ''}</td>
+    <td>${['done','failed','cancelled'].includes(j.state) ? `<button class="g d" data-del="${j.id}">Xoá</button>` : ['queued','running'].includes(j.state) && j.id !== running ? `<button class="g" data-watch="${j.id}">Xem</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">Chưa xuất lần nào.</td></tr>';
+}
+$('#histBody').onclick = async e => {
+  if (e.target.dataset.del){ try { await api('/jobs/' + e.target.dataset.del, {method:'DELETE'}); loadHistory(); } catch(err){ toast(err.message); } }
+  if (e.target.dataset.watch){ await poll(e.target.dataset.watch); loadHistory(); }
+};
+
+api('/me').then(d => enter(d.user)).catch(() => showLogin());
+</script>
+</body>
+</html>

@@ -308,6 +308,104 @@ class StoreServerTest(unittest.TestCase):
                 self.assertTrue(admin.set_admin(sid, 'Staff', True)['ok'])
                 self.assertTrue(admin.set_admin(sid, 'Staff', False)['ok'])
 
+    def test_web_export_job_end_to_end(self):
+        """Bản web: tạo job → tải ảnh → máy chủ dựng PPTX → tải về, đúng số slide."""
+        import time as _t
+        from pptx import Presentation
+        if not getattr(type(self), '_worker', None):
+            type(self)._worker = threading.Thread(target=self.S.job_worker, daemon=True)
+            type(self)._worker.start()
+        hdr = {'X-File-Name': urllib.parse.quote('Web.xlsx')}
+        st, d = self.req('PUT', '/api/excel?target=all', self.admin,
+                         make_xlsx(['WEB01', 'WEB02', 'WEB03']), hdr)
+        self.assertEqual(st, 200, d)
+        st, d = self.req('GET', '/api/excel/fields', self.staff)
+        self.assertEqual(st, 200, d)
+        self.assertIn('Building', d['channels'])
+        st, d = self.req('GET', '/api/presets', self.staff)
+        self.assertIn('builtin:SALESKIT', [p['id'] for p in d['presets']])
+        # Mẫu riêng do app gửi lên (CloudClient.save_preset)
+        import autopptx2.cloud as C
+        cli = C.CloudClient(self.base)
+        self.assertTrue(cli.login('staff@x.vn', 'staffpass1')[0])
+        from autopptx2 import pipeline as P
+        tpl = P.preset_template('Báo cáo')
+        r = cli.save_preset('Mẫu thử', tpl['layout'], {**tpl['opts'], 'n_per_slide': 2})
+        self.assertTrue(r['ok'], r)
+        st, d = self.req('GET', '/api/presets', self.staff)
+        mine = next(p for p in d['presets'] if p['name'] == 'Mẫu thử')
+        self.assertEqual(mine['kind'], 'mine')
+
+        st, job = self.req('POST', '/api/jobs', self.staff, {
+            'preset_id': mine['id'], 'title': 'Báo cáo thử W1',
+            'overrides': {'fx': {'use_timestamp': True}, 'store_index': True}})
+        self.assertEqual(st, 200, job)
+        jid = job['id']
+        photos = {'f1/Anh/WEB01 (1).jpg': (200, 0, 0), 'f1/Anh/WEB01 (2).jpg': (0, 200, 0),
+                  'f1/Anh/WEB01 (3).jpg': (0, 0, 200), 'f1/Anh/WEB02 (1).jpg': (90, 90, 0),
+                  'f1/Anh/LAMA99 (1).jpg': (9, 9, 9)}
+        for rel, col in photos.items():
+            st, d = self.req('PUT', f'/api/jobs/{jid}/photos/' + self.q(rel), self.staff,
+                             make_jpeg(640, 480, col))
+            self.assertEqual(st, 200, d)
+        # token sai không xem được job
+        st, _ = self.req('GET', f'/api/jobs/{jid}', 'token-khong-hop-le')
+        self.assertEqual(st, 401)
+        st, d = self.req('POST', f'/api/jobs/{jid}/start', self.staff, {})
+        self.assertEqual(st, 200, d)
+        st, d = self.req('PUT', f'/api/jobs/{jid}/photos/f1/x.jpg', self.staff, make_jpeg(10, 10))
+        self.assertEqual(st, 400)
+        t0 = _t.time()
+        while _t.time() - t0 < 180:
+            st, d = self.req('GET', f'/api/jobs/{jid}', self.staff)
+            if d['job']['state'] in ('done', 'failed', 'cancelled'):
+                break
+            _t.sleep(0.5)
+        j = d['job']
+        self.assertEqual(j['state'], 'done', j)
+        names = [f['name'] for f in j['files']]
+        self.assertIn('Báo cáo thử W1.pptx', names)
+        self.assertIn('LAMA99', j['report']['unmatched'])
+        st, b = self.req('GET', f'/api/jobs/{jid}/files/' + urllib.parse.quote('Báo cáo thử W1.pptx'),
+                         self.staff, raw=True)
+        self.assertEqual(st, 200)
+        prs = Presentation(io.BytesIO(b))
+        self.assertGreaterEqual(len(prs.slides), j['report']['slides'] - 1)
+        self.assertEqual(len(prs.slides), j['report']['slides'])
+        # ảnh gốc đã xoá sau khi xuất
+        self.assertFalse(os.path.isdir(os.path.join(self.S.JOBS, jid, 'photos')))
+        st, d = self.req('GET', '/api/jobs', self.staff)
+        self.assertIn(jid, [x['id'] for x in d['jobs']])
+        st, d = self.req('DELETE', f'/api/jobs/{jid}', self.staff)
+        self.assertEqual(st, 200)
+
+    def test_analyze_groups_from_names(self):
+        """Trang biên tập: gửi tên ảnh (chưa tải lên) → nhóm theo mã, khớp Excel, avatar."""
+        hdr = {'X-File-Name': urllib.parse.quote('An.xlsx')}
+        st, d = self.req('PUT', '/api/excel?target=all', self.admin,
+                         make_xlsx(['ANA01', 'ANA02']), hdr)
+        self.assertEqual(st, 200, d)
+        self.req('PUT', '/api/files/avatars/Building/ANA01A.jpg', self.admin, make_jpeg(40, 40))
+        files = ['f1/W1/ANA01 (1).jpg', 'f1/W1/ANA01 (2).jpg', 'f1/W1/ANA02 (1).jpg',
+                 'f1/W1/LAZZ9 (1).jpg', 'f1/W1/ghi-chu.txt']
+        st, d = self.req('POST', '/api/analyze', self.staff,
+                         {'files': files, 'preset_id': 'builtin:Báo cáo'})
+        self.assertEqual(st, 200, d)
+        by = {g['code']: g for g in d['groups']}
+        self.assertEqual(set(by), {'ANA01', 'ANA02', 'LAZZ9'})
+        self.assertEqual(by['ANA01']['files'], ['f1/W1/ANA01 (1).jpg', 'f1/W1/ANA01 (2).jpg'])
+        self.assertEqual(by['ANA01']['kind'], 'exact')
+        self.assertEqual(by['ANA01']['avatar'], 'Building/ANA01A.jpg')
+        self.assertEqual(by['ANA01']['name'], 'Điểm ANA01')
+        self.assertTrue(any(r[0] == 'Address' for r in by['ANA01']['info_rows']))
+        self.assertEqual(by['LAZZ9']['kind'], 'none')
+        self.assertEqual(d['photos'], 4)
+        # SALESKIT trả bảng riêng
+        st, d = self.req('POST', '/api/analyze', self.staff,
+                         {'files': files, 'preset_id': 'builtin:SALESKIT'})
+        g = next(x for x in d['groups'] if x['code'] == 'ANA01')
+        self.assertIn('specs', g['info_table'])
+
     def test_ui_served(self):
         st, b = self.req('GET', '/', raw=True)
         self.assertEqual(st, 200)

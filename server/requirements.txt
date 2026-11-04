@@ -1,0 +1,5 @@
+# Thư viện cho máy chủ (venv /opt/autopptx-server/venv) — cùng bản với app desktop.
+python-pptx==1.0.2
+openpyxl==3.1.5
+Pillow==12.2.0
+lxml==6.0.4

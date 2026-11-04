@@ -62,10 +62,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.abspath(os.environ.get('AP_DATA') or os.path.join(HERE, 'data'))
 STORE = os.path.join(DATA, 'store')
+JOBS = os.path.join(DATA, 'jobs')
 DB_PATH = os.path.join(DATA, 'autopptx.db')
 BIND = os.environ.get('AP_BIND', '127.0.0.1')
 PORT = int(os.environ.get('AP_PORT', '8780'))
 ACCEL_PREFIX = os.environ.get('AP_ACCEL_PREFIX', '').strip()
+ACCEL_JOBS = os.environ.get('AP_ACCEL_JOBS', '').strip()       # vd /pptx-jobs/
+# Xuất PPTX trên máy chủ (bản web)
+JOB_MAX_GB = float(os.environ.get('AP_JOB_MAX_GB', '4'))       # tối đa ảnh 1 lần xuất
+JOB_KEEP_HOURS = float(os.environ.get('AP_JOB_KEEP_HOURS', '24'))
+DISK_RESERVE_GB = float(os.environ.get('AP_DISK_RESERVE_GB', '5'))
+RENDER_PY = os.environ.get('AP_RENDER_PYTHON') or sys.executable
 URL_PREFIX = os.environ.get('AP_URL_PREFIX', '').strip().rstrip('/')
 COOKIE_PATH = os.environ.get('AP_COOKIE_PATH', '/') or '/'
 COOKIE_SECURE = os.environ.get('AP_COOKIE_SECURE', '') == '1'
@@ -246,6 +253,28 @@ CREATE TABLE IF NOT EXISTS audit (
     action TEXT NOT NULL,
     detail TEXT
 );
+CREATE TABLE IF NOT EXISTS presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner TEXT NOT NULL,              -- 'shared' hoặc id người dùng
+    name TEXT NOT NULL,
+    data TEXT NOT NULL,               -- JSON {layout, opts}
+    updated_at TEXT NOT NULL,
+    updated_by INTEGER,
+    UNIQUE (owner, name)
+);
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL,              -- uploading | queued | running | done | failed | cancelled
+    created_at TEXT NOT NULL,
+    created_ts REAL NOT NULL,
+    finished_ts REAL,
+    photos INTEGER NOT NULL DEFAULT 0,
+    bytes INTEGER NOT NULL DEFAULT 0,
+    msg TEXT NOT NULL DEFAULT '',
+    result TEXT                       -- JSON status cuối (files, report, stats)
+);
 """
 
 _write_lock = threading.Lock()
@@ -262,6 +291,7 @@ def init_db():
     os.makedirs(DATA, exist_ok=True)
     for k in KINDS + ('excel',):
         os.makedirs(os.path.join(STORE, k), exist_ok=True)
+    os.makedirs(JOBS, exist_ok=True)
     con = db()
     con.execute('PRAGMA journal_mode=WAL')
     con.executescript(SCHEMA)
@@ -426,6 +456,195 @@ def build_report(excel_path, excel_sha):
     return res
 
 
+# ═══════════════════════════ xuất PPTX trên máy chủ ═══════════════════════════
+_job_wake = threading.Event()
+_job_proc = {}            # id → Popen đang chạy
+JOB_ID_RE = re.compile(r'^[a-z0-9]{16}$')
+
+
+def job_dir(jid):
+    return os.path.join(JOBS, jid)
+
+
+def read_status(jid):
+    try:
+        with open(os.path.join(job_dir(jid), 'status.json'), encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _rm_photos(jid):
+    shutil.rmtree(os.path.join(job_dir(jid), 'photos'), ignore_errors=True)
+    try:
+        os.remove(os.path.join(job_dir(jid), 'order.xlsx'))
+    except OSError:
+        pass
+
+
+def _finish_job(con, jid, st, rc):
+    state = st.get('state')
+    if state not in ('done', 'failed', 'cancelled'):
+        state = 'failed'
+        st['msg'] = st.get('msg') or f'Tiến trình xuất dừng bất thường (mã {rc}).'
+    keep = {k: st.get(k) for k in ('files', 'report', 'stats', 'msg', 'log')}
+    with _write_lock:
+        con.execute('UPDATE jobs SET state=?, msg=?, finished_ts=?, result=? WHERE id=?',
+                    (state, str(st.get('msg') or '')[:500], time.time(),
+                     json.dumps(keep, ensure_ascii=False), jid))
+        con.commit()
+    _rm_photos(jid)          # ảnh gốc chỉ cần lúc dựng slide — xoá ngay cho nhẹ ổ đĩa
+
+
+def job_worker():
+    """Chạy lần lượt từng job (1 lúc 1 job) trong tiến trình con."""
+    import subprocess
+    render = os.path.join(HERE, 'render_job.py')
+    while True:
+        con = db()
+        try:
+            row = con.execute("SELECT id FROM jobs WHERE state='queued' "
+                              'ORDER BY created_ts LIMIT 1').fetchone()
+            if not row:
+                con.close()
+                _job_wake.wait(5)
+                _job_wake.clear()
+                continue
+            jid = row['id']
+            with _write_lock:
+                con.execute("UPDATE jobs SET state='running', msg='Đang chuẩn bị…' WHERE id=?",
+                            (jid,))
+                con.commit()
+            d = job_dir(jid)
+            with open(os.path.join(d, 'render.log'), 'w', encoding='utf-8') as logf:
+                p = subprocess.Popen([RENDER_PY, render, d], stdout=logf, stderr=subprocess.STDOUT,
+                                     cwd=d, env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
+                _job_proc[jid] = p
+                rc = p.wait()
+                _job_proc.pop(jid, None)
+            _finish_job(con, jid, read_status(jid), rc)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            time.sleep(2)
+        finally:
+            try:
+                con.close()
+            except Exception:
+                pass
+
+
+def job_janitor():
+    """Dọn job cũ: kết quả sau JOB_KEEP_HOURS, job bỏ dở (chưa bấm xuất) sau 12 giờ."""
+    while True:
+        try:
+            con = db()
+            t = time.time()
+            rows = con.execute(
+                "SELECT id, state, created_ts, finished_ts FROM jobs WHERE "
+                "(state IN ('done','failed','cancelled') AND finished_ts < ?) OR "
+                "(state='uploading' AND created_ts < ?)",
+                (t - JOB_KEEP_HOURS * 3600, t - 12 * 3600)).fetchall()
+            for r in rows:
+                shutil.rmtree(job_dir(r['id']), ignore_errors=True)
+                with _write_lock:
+                    con.execute('DELETE FROM jobs WHERE id=?', (r['id'],))
+                    con.commit()
+            con.close()
+        except Exception:
+            pass
+        time.sleep(1800)
+
+
+def recover_jobs():
+    """Máy chủ khởi động lại giữa lúc xuất: báo lỗi để người dùng bấm xuất lại."""
+    con = db()
+    with _write_lock:
+        for r in con.execute("SELECT id FROM jobs WHERE state='running'").fetchall():
+            _rm_photos(r['id'])
+        con.execute("UPDATE jobs SET state='failed', msg='Máy chủ khởi động lại khi đang xuất — "
+                    "tải ảnh lên và xuất lại.', finished_ts=? WHERE state='running'", (time.time(),))
+        con.commit()
+    con.close()
+
+
+def job_public(r, with_result=True):
+    d = {'id': r['id'], 'title': r['title'], 'state': r['state'], 'created_at': r['created_at'],
+         'photos': r['photos'], 'bytes': r['bytes'], 'msg': r['msg']}
+    if r['state'] == 'running':
+        st = read_status(r['id'])
+        d.update({'done': st.get('done', 0), 'total': st.get('total', 0),
+                  'msg': st.get('msg') or r['msg'], 'stats': st.get('stats'),
+                  'log': (st.get('log') or [])[-5:]})
+    elif with_result and r['result']:
+        try:
+            d.update(json.loads(r['result']))
+        except Exception:
+            pass
+        d['msg'] = r['msg'] or d.get('msg', '')
+    if r['state'] == 'queued':
+        d['msg'] = 'Đang chờ tới lượt xuất…'
+    return d
+
+
+def queue_position(con, jid):
+    rows = con.execute("SELECT id FROM jobs WHERE state IN ('queued','running') "
+                       'ORDER BY created_ts').fetchall()
+    ids = [r['id'] for r in rows]
+    return ids.index(jid) if jid in ids else -1
+
+
+_fields_cache = {}
+_sources_cache = {}
+_sources_lock = threading.Lock()
+
+
+def _pipeline():
+    for d in (HERE, os.path.dirname(HERE)):
+        if os.path.isdir(os.path.join(d, 'autopptx2')) and d not in sys.path:
+            sys.path.insert(0, d)
+    from autopptx2 import pipeline as P
+    return P
+
+
+def sources_cached(con, excel_row):
+    """FILE TỔNG + kho avatar đọc sẵn, làm mới khi Excel hoặc kho avatar đổi."""
+    av = con.execute("SELECT COUNT(*) n, COALESCE(MAX(updated_at),'') t FROM files "
+                     "WHERE kind='avatars'").fetchone()
+    key = (excel_row['owner'], excel_row['sha'], av['n'], av['t'])
+    with _sources_lock:
+        if key not in _sources_cache:
+            P = _pipeline()
+            src = P.Sources(os.path.join(STORE, 'excel', f'{excel_row["owner"]}.xlsx'),
+                            os.path.join(STORE, 'avatars'))
+            # Giữ tối đa 3 bản (bản chung + vài bản riêng).
+            while len(_sources_cache) >= 3:
+                _sources_cache.pop(next(iter(_sources_cache)))
+            _sources_cache[key] = src
+        return _sources_cache[key]
+
+
+def excel_fields_cached(path, sha):
+    if sha in _fields_cache:
+        return _fields_cache[sha]
+    for d in (HERE, os.path.dirname(HERE)):
+        if os.path.isdir(os.path.join(d, 'autopptx2')) and d not in sys.path:
+            sys.path.insert(0, d)
+    from autopptx2 import pipeline as P
+    res = P.excel_fields(path)
+    _fields_cache.clear()
+    _fields_cache[sha] = res
+    return res
+
+
+def builtin_presets():
+    for d in (HERE, os.path.dirname(HERE)):
+        if os.path.isdir(os.path.join(d, 'autopptx2')) and d not in sys.path:
+            sys.path.insert(0, d)
+    from autopptx2 import pipeline as P
+    return {name: P.preset_template(name) for name in P.PRESET_NAMES}
+
+
 # ═══════════════════════════ chặn dò mật khẩu ═══════════════════════════
 _fail_lock = threading.Lock()
 _fails = {}           # email → [thời điểm sai]
@@ -462,7 +681,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── phản hồi ──
     def send_json(self, obj, status=200, headers=None):
-        body = json.dumps(obj, ensure_ascii=False).encode('utf-8')
+        body = json.dumps(obj, ensure_ascii=False, default=str).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
@@ -597,7 +816,17 @@ class Handler(BaseHTTPRequestHandler):
         con = db()
         try:
             if path in ('/', '/index.html') and m in ('GET', 'HEAD'):
-                return self.serve_ui()
+                return self.serve_ui('editor.html')
+            if path in ('/admin', '/quick') and m in ('GET', 'HEAD'):
+                self.send_response(301)
+                self.send_header('Location', URL_PREFIX + path + '/')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            if path in ('/admin/', '/admin/index.html') and m in ('GET', 'HEAD'):
+                return self.serve_ui('admin.html')
+            if path in ('/quick/', '/quick/index.html') and m in ('GET', 'HEAD'):
+                return self.serve_ui('report.html')
             if not path.startswith('/api/'):
                 raise ApiError(404, 'Không có trang này.')
             p = path[4:]
@@ -624,6 +853,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_excel_file(con, u, q)
             if p == '/excel' and m == 'PUT':
                 return self.api_excel_put(con, u, q)
+            if p == '/excel/fields' and m == 'GET':
+                return self.api_excel_fields(con, u)
+            if p == '/analyze' and m == 'POST':
+                return self.api_analyze(con, u)
+            if p == '/presets' or p.startswith('/presets/'):
+                return self.api_presets(con, u, p[len('/presets'):])
+            if p == '/jobs' or p.startswith('/jobs/'):
+                return self.api_jobs(con, u, p[len('/jobs'):], q)
             if p.startswith('/admin/'):
                 self.need_admin(u)
                 return self.api_admin(con, u, p[6:], q)
@@ -643,13 +880,13 @@ class Handler(BaseHTTPRequestHandler):
             con.close()
 
     # ── trang quản trị ──
-    def serve_ui(self):
-        fp = os.path.join(HERE, 'admin.html')
+    def serve_ui(self, name):
+        fp = os.path.join(HERE, name)
         try:
             with open(fp, 'rb') as f:
                 body = f.read()
         except OSError:
-            raise ApiError(404, 'Thiếu admin.html')
+            raise ApiError(404, f'Thiếu {name}')
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
@@ -864,6 +1101,286 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({'ok': True, 'msg': msg, 'excel': self.excel_public(row),
                         'cleared_personal': cleared})
 
+    def api_excel_fields(self, con, u):
+        row = self.excel_for(con, u['id'])
+        if not row:
+            raise ApiError(404, 'Chưa có FILE TỔNG trên máy chủ cho tài khoản này.')
+        res = excel_fields_cached(os.path.join(STORE, 'excel', f'{row["owner"]}.xlsx'), row['sha'])
+        self.send_json({'ok': True, 'excel': self.excel_public(row), **res})
+
+    def api_analyze(self, con, u):
+        """Trang biên tập gửi danh sách tên ảnh (chưa tải lên) → nhóm, thứ tự, dữ liệu slide."""
+        d = self.read_json_big()
+        files = [str(f) for f in (d.get('files') or []) if isinstance(f, str)][:20000]
+        row = self.excel_for(con, u['id'])
+        if not row:
+            raise ApiError(404, 'Chưa có FILE TỔNG trên máy chủ cho tài khoản này.')
+        P = _pipeline()
+        preset = d.get('preset') if isinstance(d.get('preset'), dict) else             self.load_preset(con, u, d.get('preset_id'))
+        src = sources_cached(con, row)
+        res = P.analyze(src, files, preset)
+        self.send_json({'ok': True, **res})
+
+    # ── mẫu bố cục (preset) ──
+    def api_presets(self, con, u, rest):
+        m = self.command
+        is_admin = u['role'] in ('admin', 'super_admin')
+        if rest in ('', '/') and m == 'GET':
+            out = [{'id': f'builtin:{n}', 'name': n, 'kind': 'builtin'} for n in builtin_presets()]
+            for r in con.execute("SELECT id, owner, name, updated_at FROM presets WHERE owner='shared' "
+                                 'OR owner=? ORDER BY owner<>\'shared\', name COLLATE NOCASE',
+                                 (str(u['id']),)):
+                out.append({'id': str(r['id']), 'name': r['name'], 'updated_at': r['updated_at'],
+                            'kind': 'shared' if r['owner'] == 'shared' else 'mine'})
+            return self.send_json({'ok': True, 'presets': out})
+        if rest in ('', '/') and m == 'PUT':
+            d = self.read_json_big()
+            name = str(d.get('name') or '').strip()[:80]
+            data = d.get('data')
+            if not name or not isinstance(data, dict) or not isinstance(data.get('layout'), dict):
+                raise ApiError(400, 'Thiếu tên mẫu hoặc dữ liệu bố cục.')
+            owner = 'shared' if d.get('shared') else str(u['id'])
+            if owner == 'shared' and not is_admin:
+                raise ApiError(403, 'Chỉ quản trị viên được lưu mẫu chung.')
+            with _write_lock:
+                con.execute(
+                    'INSERT INTO presets (owner, name, data, updated_at, updated_by) VALUES (?,?,?,?,?) '
+                    'ON CONFLICT(owner, name) DO UPDATE SET data=excluded.data, '
+                    'updated_at=excluded.updated_at, updated_by=excluded.updated_by',
+                    (owner, name, json.dumps(data, ensure_ascii=False), now_iso(), u['id']))
+                audit(con, u['id'], 'preset', f'{owner} {name}')
+                con.commit()
+            return self.send_json({'ok': True, 'msg': f'Đã lưu mẫu «{name}» lên máy chủ.'})
+        mm = re.match(r'^/(builtin:.+|\d+)$', rest)
+        if not mm:
+            raise ApiError(404, 'Không có mẫu này.')
+        pid = mm.group(1)
+        if pid.startswith('builtin:'):
+            data = builtin_presets().get(pid[8:])
+            if not data or m != 'GET':
+                raise ApiError(404, 'Không có mẫu này.')
+            return self.send_json({'ok': True, 'name': pid[8:], 'data': data})
+        r = con.execute('SELECT * FROM presets WHERE id=?', (int(pid),)).fetchone()
+        if not r or (r['owner'] != 'shared' and r['owner'] != str(u['id']) and not is_admin):
+            raise ApiError(404, 'Không có mẫu này.')
+        if m == 'GET':
+            return self.send_json({'ok': True, 'name': r['name'], 'data': json.loads(r['data'])})
+        if m == 'DELETE':
+            if r['owner'] == 'shared' and not is_admin:
+                raise ApiError(403, 'Chỉ quản trị viên xoá được mẫu chung.')
+            with _write_lock:
+                con.execute('DELETE FROM presets WHERE id=?', (r['id'],))
+                con.commit()
+            return self.send_json({'ok': True})
+        raise ApiError(405, 'Phương thức không hỗ trợ.')
+
+    def read_json_big(self):
+        raw = self.read_body(limit=2 * 1024 * 1024)
+        try:
+            return json.loads(raw.decode('utf-8') or '{}')
+        except Exception:
+            raise ApiError(400, 'Dữ liệu gửi lên không hợp lệ.')
+
+    def load_preset(self, con, u, pid):
+        if not pid:
+            return builtin_presets()['Báo cáo']
+        if str(pid).startswith('builtin:'):
+            data = builtin_presets().get(str(pid)[8:])
+            if not data:
+                raise ApiError(400, 'Mẫu có sẵn không tồn tại.')
+            return data
+        r = con.execute('SELECT * FROM presets WHERE id=?', (int(pid),)).fetchone() \
+            if str(pid).isdigit() else None
+        if not r or (r['owner'] not in ('shared', str(u['id']))):
+            raise ApiError(400, 'Không tìm thấy mẫu đã chọn.')
+        return json.loads(r['data'])
+
+    # ── xuất PPTX trên máy chủ ──
+    def api_jobs(self, con, u, rest, q):
+        m = self.command
+        is_admin = u['role'] in ('admin', 'super_admin')
+        if rest in ('', '/') and m == 'GET':
+            if q.get('all') and is_admin:
+                rows = con.execute('SELECT j.*, u.email FROM jobs j LEFT JOIN users u ON u.id=j.user_id '
+                                   'ORDER BY created_ts DESC LIMIT 50').fetchall()
+            else:
+                rows = con.execute('SELECT * FROM jobs WHERE user_id=? ORDER BY created_ts DESC LIMIT 20',
+                                   (u['id'],)).fetchall()
+            out = []
+            for r in rows:
+                d = job_public(r)
+                if 'email' in r.keys():
+                    d['email'] = r['email']
+                out.append(d)
+            return self.send_json({'ok': True, 'jobs': out})
+        if rest in ('', '/') and m == 'POST':
+            return self.job_create(con, u)
+        mm = re.match(r'^/([a-z0-9]{16})(/.*)?$', rest)
+        if not mm:
+            raise ApiError(404, 'Không có lần xuất này.')
+        jid, sub = mm.group(1), mm.group(2) or ''
+        r = con.execute('SELECT * FROM jobs WHERE id=?', (jid,)).fetchone()
+        if not r or (r['user_id'] != u['id'] and not is_admin):
+            raise ApiError(404, 'Không có lần xuất này.')
+        d = job_dir(jid)
+        if sub == '' and m == 'GET':
+            out = job_public(r)
+            if r['state'] == 'queued':
+                pos = queue_position(con, jid)
+                if pos > 0:
+                    out['msg'] = f'Đang chờ: còn {pos} báo cáo phía trước.'
+            return self.send_json({'ok': True, 'job': out})
+        if sub == '' and m == 'DELETE':
+            if r['state'] in ('queued', 'running'):
+                raise ApiError(400, 'Huỷ lần xuất trước khi xoá.')
+            shutil.rmtree(d, ignore_errors=True)
+            with _write_lock:
+                con.execute('DELETE FROM jobs WHERE id=?', (jid,))
+                con.commit()
+            return self.send_json({'ok': True})
+        if sub.startswith('/photos/') and m == 'PUT':
+            if r['state'] != 'uploading':
+                raise ApiError(400, 'Lần xuất này đã bắt đầu — không nhận thêm ảnh.')
+            rel = clean_rel(sub[len('/photos/'):], 'avatars')
+            if not rel:
+                raise ApiError(400, 'Tên ảnh không hợp lệ (chỉ png/jpg/jpeg/webp).')
+            n = int(self.headers.get('Content-Length') or 0)
+            if r['bytes'] + n > JOB_MAX_GB * 1024 ** 3:
+                raise ApiError(413, f'Quá {JOB_MAX_GB:g} GB ảnh cho một lần xuất — chia nhỏ báo cáo.')
+            if shutil.disk_usage(DATA).free - n < DISK_RESERVE_GB * 1024 ** 3:
+                raise ApiError(507, 'Máy chủ sắp đầy ổ đĩa — báo quản trị dọn bớt.')
+            data = self.read_body()
+            fp = os.path.join(d, 'photos', *rel.split('/'))
+            existed = os.path.isfile(fp)
+            atomic_write(fp, data)
+            with _write_lock:
+                if not existed:
+                    con.execute('UPDATE jobs SET photos=photos+1, bytes=bytes+? WHERE id=?',
+                                (len(data), jid))
+                con.commit()
+            return self.send_json({'ok': True})
+        if sub == '/order-list' and m == 'PUT':
+            if r['state'] != 'uploading':
+                raise ApiError(400, 'Lần xuất này đã bắt đầu.')
+            data = self.read_body()
+            if not data.startswith(b'PK'):
+                raise ApiError(400, 'List xếp slide phải là file Excel .xlsx.')
+            atomic_write(os.path.join(d, 'order.xlsx'), data)
+            return self.send_json({'ok': True})
+        if sub == '/start' and m == 'POST':
+            if r['state'] != 'uploading':
+                raise ApiError(400, 'Lần xuất này đã bắt đầu rồi.')
+            if not r['photos']:
+                raise ApiError(400, 'Chưa tải ảnh nào lên.')
+            with _write_lock:
+                con.execute("UPDATE jobs SET state='queued', msg='Đang chờ tới lượt xuất…' "
+                            'WHERE id=?', (jid,))
+                audit(con, u['id'], 'job', f'{jid} {r["photos"]} ảnh {r["bytes"] // 1048576} MB')
+                con.commit()
+            _job_wake.set()
+            return self.send_json({'ok': True})
+        if sub == '/cancel' and m == 'POST':
+            if r['state'] in ('uploading', 'queued'):
+                _rm_photos(jid)
+                with _write_lock:
+                    con.execute("UPDATE jobs SET state='cancelled', msg='Đã huỷ.', finished_ts=? "
+                                'WHERE id=?', (time.time(), jid))
+                    con.commit()
+            elif r['state'] == 'running':
+                with open(os.path.join(d, 'CANCEL'), 'w') as f:
+                    f.write('1')
+            return self.send_json({'ok': True})
+        if sub.startswith('/files/') and m in ('GET', 'HEAD'):
+            name = os.path.basename(sub[len('/files/'):])
+            res = json.loads(r['result'] or '{}')
+            if name not in {f['name'] for f in res.get('files') or []}:
+                raise ApiError(404, 'Không có file này (kết quả chỉ giữ '
+                                    f'{JOB_KEEP_HOURS:g} giờ).')
+            ext = os.path.splitext(name)[1].lower()
+            ctype = ('application/vnd.openxmlformats-officedocument.presentationml.presentation'
+                     if ext == '.pptx' else CTYPES.get(ext, 'application/octet-stream'))
+            return self.send_path(os.path.join(d, 'out', name),
+                                  (ACCEL_JOBS.rstrip('/') + f'/{jid}/out/' + urllib.parse.quote(name))
+                                  if ACCEL_JOBS else '', ctype, name)
+        raise ApiError(404, 'Không có API này.')
+
+    def job_create(self, con, u):
+        d = self.read_json_big()
+        row = self.excel_for(con, u['id'])
+        if not row:
+            raise ApiError(400, 'Chưa có FILE TỔNG trên máy chủ cho tài khoản này — báo quản trị.')
+        busy = con.execute("SELECT COUNT(*) FROM jobs WHERE user_id=? AND state IN "
+                           "('uploading','queued','running')", (u['id'],)).fetchone()[0]
+        if busy >= 3:
+            raise ApiError(429, 'Bạn đang có 3 lần xuất chưa xong — chờ xong hoặc huỷ bớt.')
+        if shutil.disk_usage(DATA).free < DISK_RESERVE_GB * 1024 ** 3:
+            raise ApiError(507, 'Máy chủ sắp đầy ổ đĩa — báo quản trị dọn bớt.')
+        for k in (HERE, os.path.dirname(HERE)):
+            if os.path.isdir(os.path.join(k, 'autopptx2')) and k not in sys.path:
+                sys.path.insert(0, k)
+        from autopptx2 import pipeline as P
+        preset = d.get('preset') if isinstance(d.get('preset'), dict) else \
+            self.load_preset(con, u, d.get('preset_id'))
+        preset = {'layout': preset.get('layout') or {}, 'opts': dict(preset.get('opts') or {})}
+        for k, v in (d.get('overrides') or {}).items():
+            if k in P.PORTABLE_OPTS:
+                if k in ('fx', 'visible', 'qty_show') and isinstance(v, dict):
+                    preset['opts'][k] = {**(preset['opts'].get(k) or {}), **v}
+                else:
+                    preset['opts'][k] = v
+        bg_image = None
+        bg = str(d.get('background') or '').strip()
+        if bg:
+            rel = clean_rel(bg, 'backgrounds')
+            if not rel or not (rel.startswith('shared/') or rel.startswith(f'users/{u["id"]}/')):
+                raise ApiError(400, 'Ảnh nền không hợp lệ.')
+            bg_image = store_path('backgrounds', rel)
+            if not os.path.isfile(bg_image):
+                raise ApiError(400, 'Ảnh nền không còn trên máy chủ.')
+        title = str(d.get('title') or '').strip()[:120] or 'Report'
+        safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '_', title).strip(' ._') or 'Report'
+        jid = secrets.token_hex(8)
+        jd = job_dir(jid)
+        os.makedirs(os.path.join(jd, 'photos'), exist_ok=True)
+        shutil.copyfile(os.path.join(STORE, 'excel', f'{row["owner"]}.xlsx'),
+                        os.path.join(jd, 'excel.xlsx'))
+        spec = {'preset': preset, 'bg_image': bg_image, 'avatar_dir': os.path.join(STORE, 'avatars'),
+                'out_name': safe + '.pptx', 'excel_name': row['file_name'], 'user': u['email']}
+        with open(os.path.join(jd, 'job.json'), 'w', encoding='utf-8') as f:
+            json.dump(spec, f, ensure_ascii=False)
+        t = time.time()
+        with _write_lock:
+            con.execute("INSERT INTO jobs (id, user_id, title, state, created_at, created_ts, msg) "
+                        "VALUES (?,?,?,'uploading',?,?,'Đang tải ảnh lên…')",
+                        (jid, u['id'], title, now_iso(), t))
+            con.commit()
+        self.send_json({'ok': True, 'id': jid, 'excel': self.excel_public(row),
+                        'max_gb': JOB_MAX_GB})
+
+    def send_path(self, full, accel_uri, ctype, download_name):
+        if not os.path.isfile(full):
+            raise ApiError(404, 'Không có file.')
+        if accel_uri:
+            self.send_response(200)
+            self.send_header('X-Accel-Redirect', accel_uri)
+            self.send_header('Content-Type', ctype)
+            self.send_header('Content-Disposition', "attachment; filename*=UTF-8''"
+                             + urllib.parse.quote(download_name))
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        size = os.path.getsize(full)
+        self.send_response(200)
+        self.send_header('Content-Type', ctype)
+        self.send_header('Content-Length', str(size))
+        self.send_header('Content-Disposition', "attachment; filename*=UTF-8''"
+                         + urllib.parse.quote(download_name))
+        self.end_headers()
+        if self.command == 'HEAD':
+            return
+        with open(full, 'rb') as f:
+            shutil.copyfileobj(f, self.wfile, 1 << 16)
+
     # ── quản trị ──
     def api_admin(self, con, u, p, q):
         m = self.command
@@ -1051,6 +1568,9 @@ def main(argv):
         print(__doc__)
         sys.exit(2)
     init_db()
+    recover_jobs()
+    threading.Thread(target=job_worker, daemon=True, name='job-worker').start()
+    threading.Thread(target=job_janitor, daemon=True, name='job-janitor').start()
     srv = ThreadingHTTPServer((BIND, PORT), Handler)
     srv.daemon_threads = True
     print(f'AutoPPTX store: http://{BIND}:{PORT}  data={DATA}  '

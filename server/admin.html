@@ -78,6 +78,7 @@ code.pw{font-size:18px;padding:6px 10px;background:var(--input);border-radius:6p
 <header>
   <h1>AutoPPTX · Kho tài nguyên</h1><span class="sp"></span>
   <span id="who" class="muted small"></span>
+  <a href="../">Trình biên tập</a>
   <button class="g" id="btnPw">Đổi mật khẩu</button>
   <button class="g" id="btnOut">Đăng xuất</button>
 </header>
@@ -185,14 +186,14 @@ async function api(path, opt = {}){
   const o = {method: opt.method || 'GET', headers: {'X-Requested-With':'autopptx', ...(opt.headers||{})}, credentials:'same-origin'};
   if (opt.json !== undefined){ o.body = JSON.stringify(opt.json); o.headers['Content-Type'] = 'application/json'; }
   else if (opt.body !== undefined) o.body = opt.body;
-  const r = await fetch('api' + path, o);
+  const r = await fetch('../api' + path, o);
   let d = {};
   try { d = await r.json(); } catch(e) {}
   if (r.status === 401 && path !== '/login'){ showLogin(); throw new Error(d.msg || 'Hết phiên'); }
   if (!r.ok || d.ok === false) throw new Error(d.msg || ('Lỗi ' + r.status));
   return d;
 }
-const fileUrl = (kind, p) => 'api/files/' + kind + '/' + p.split('/').map(encodeURIComponent).join('/');
+const fileUrl = (kind, p) => '../api/files/' + kind + '/' + p.split('/').map(encodeURIComponent).join('/');
 
 function dialog(title, html, buttons){
   $('#dTitle').textContent = title; $('#dBody').innerHTML = html;
@@ -300,13 +301,13 @@ $('#uBody').addEventListener('click', async e => {
 async function loadExcel(){
   const s = await api('/admin/stats');
   const name = o => o === 'shared' ? '<b>Tất cả tài khoản</b>' : esc((users.find(u => String(u.id) === o) || {}).email || ('#' + o));
-  $('#xBody').innerHTML = s.excel.map(x => `<tr><td>${name(x.owner)}</td><td>${esc(x.file_name)}</td><td class="num">${fmtB(x.size)}</td><td>${fmtT(x.updated_at)}</td><td><a href="api/excel/file?owner=${encodeURIComponent(x.owner)}">Tải về</a></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Chưa có FILE TỔNG.</td></tr>';
+  $('#xBody').innerHTML = s.excel.map(x => `<tr><td>${name(x.owner)}</td><td>${esc(x.file_name)}</td><td class="num">${fmtB(x.size)}</td><td>${fmtT(x.updated_at)}</td><td><a href="../api/excel/file?owner=${encodeURIComponent(x.owner)}">Tải về</a></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Chưa có FILE TỔNG.</td></tr>';
 }
 $('#xGo').onclick = () => {
   const f = $('#xFile').files[0]; if (!f){ toast('Chọn file .xlsx trước.'); return; }
   const target = $('#xTarget').value;
   const xhr = new XMLHttpRequest();
-  xhr.open('PUT', 'api/excel?target=' + encodeURIComponent(target));
+  xhr.open('PUT', '../api/excel?target=' + encodeURIComponent(target));
   xhr.setRequestHeader('X-Requested-With', 'autopptx');
   xhr.setRequestHeader('X-File-Name', encodeURIComponent(f.name));
   const pr = $('#xProg'); pr.classList.remove('hidden'); pr.value = 0; $('#xGo').disabled = true; $('#xMsg').textContent = 'Đang đẩy…';

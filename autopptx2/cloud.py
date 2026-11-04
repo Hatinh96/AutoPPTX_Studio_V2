@@ -300,7 +300,20 @@ class CloudClient:
         return True
 
     def admin_url(self):
+        return self.url + '/admin/'
+
+    def web_url(self):
         return self.url + '/'
+
+    def save_preset(self, name, layout, opts, shared=False):
+        """Lưu bố cục + tuỳ chọn hiện tại thành mẫu trên máy chủ (bản web dùng)."""
+        from .pipeline import portable_preset
+        try:
+            d = self._request('PUT', '/api/presets', body={
+                'name': name, 'shared': bool(shared), 'data': portable_preset(layout, opts)})
+        except CloudError as e:
+            return {'ok': False, 'msg': e.msg}
+        return {'ok': True, 'msg': d.get('msg') or 'Đã lưu mẫu lên máy chủ.'}
 
     # ── HTTP ──
     def _ctx(self):

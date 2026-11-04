@@ -1,5 +1,5 @@
 [Unit]
-Description=AutoPPTX kho tai nguyen (FILE TONG, avatar, anh nen, tai khoan)
+Description=AutoPPTX kho tai nguyen + xuat PPTX tren web
 After=network.target
 
 [Service]
@@ -10,18 +10,23 @@ Environment=AP_BIND=127.0.0.1
 Environment=AP_PORT=8780
 Environment=AP_URL_PREFIX=/pptx
 Environment=AP_ACCEL_PREFIX=/pptx-store/
+Environment=AP_ACCEL_JOBS=/pptx-jobs/
 Environment=AP_COOKIE_PATH=/pptx/
 Environment=AP_COOKIE_SECURE=1
 Environment=AP_AVATAR_MAX_PX=1600
 Environment=AP_MAX_UPLOAD_MB=64
-ExecStart=/usr/bin/python3 /opt/autopptx-server/autopptx_server.py serve
+Environment=AP_JOB_MAX_GB=4
+Environment=AP_JOB_KEEP_HOURS=24
+Environment=AP_DISK_RESERVE_GB=5
+Environment=AP_RENDER_PYTHON=/opt/autopptx-server/venv/bin/python
+ExecStart=/opt/autopptx-server/venv/bin/python /opt/autopptx-server/autopptx_server.py serve
 Restart=always
 RestartSec=2
 UMask=0027
 LimitNOFILE=65536
-# Không để kho ảnh làm nghẹt trang talent chạy cùng máy.
+# Xuất PPTX (tiến trình con) dùng chung giới hạn này: không để làm nghẹt trang talent.
 CPUQuota=150%
-MemoryMax=1500M
+MemoryMax=3G
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

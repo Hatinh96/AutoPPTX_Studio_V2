@@ -1411,18 +1411,23 @@ def stamp_original(path, fx=None, allow_net=True):
     return im
 
 
-def bake_export_png(path, fx, box_ar, fit, radius, temp_dir, opacity=100):
+def bake_export_png(path, fx, box_ar, fit, radius, temp_dir, opacity=100, px=1600):
     """File PNG tạm cho export khi có đóng dấu / map / enhance."""
     payload = json.dumps({
         'p': path, 'm': os.path.getmtime(path), 'ar': round(box_ar, 4),
-        'fit': fit, 'r': radius, 'op': opacity, 'fx': fx,
+        'fit': fit, 'r': radius, 'op': opacity, 'fx': fx, 'px': int(px or 1600),
     }, sort_keys=True, default=str)
     key = hashlib.md5(payload.encode(errors='replace')).hexdigest()
-    out = os.path.join(temp_dir, f"fx_{key}.png")
-    if os.path.exists(out):
-        return out
-    tw = 1600
-    th = max(1, int(tw / max(0.2, box_ar)))
+    base = os.path.join(temp_dir, f"fx_{key}")
+    for ext in ('.jpg', '.png'):
+        if os.path.exists(base + ext):
+            return base + ext
+    # Cạnh dài theo cỡ ô trên slide (exporter.slide_px) — không render 1600px cho ô nhỏ.
+    long_px = int(px or 1600)
+    if box_ar >= 1:
+        tw, th = long_px, max(1, int(long_px / max(0.2, box_ar)))
+    else:
+        th, tw = long_px, max(1, int(long_px * box_ar))
     im = process_photo(path, None, fx, box=(tw, th), fit=fit, radius=radius,
                        preview=False)
     if im is None:
@@ -1433,5 +1438,14 @@ def bake_export_png(path, fx, box_ar, fit, radius, temp_dir, opacity=100):
             im = im.convert('RGBA')
         a = im.split()[-1].point(lambda p: int(p * op / 100))
         im.putalpha(a)
-    im.save(out, "PNG")
+    # Ảnh chụp lưu PNG nặng gấp ~8 lần JPEG. Chỉ giữ PNG khi thật sự có vùng trong
+    # suốt (bo góc, mờ, khung vừa ảnh); còn lại JPEG chất lượng cao.
+    if im.mode in ('RGBA', 'LA'):
+        lo, _hi = im.getchannel('A').getextrema()
+        if lo < 255:
+            out = base + '.png'
+            im.save(out, "PNG", compress_level=6)
+            return out
+    out = base + '.jpg'
+    im.convert('RGB').save(out, "JPEG", quality=88, optimize=True, progressive=True)
     return out
