@@ -35,6 +35,31 @@ if ! cmp -s "$SRC/requirements.txt" "$APP/requirements.txt" 2>/dev/null; then
 fi
 
 echo "== 4/6 mã nguồn"
+# Khởi động lại dịch vụ giết luôn lần xuất PPTX đang chạy (người dùng mất ảnh đã tải lên).
+# Chờ hàng đợi trống rồi mới cài + restart; quá hạn thì dừng, không cắt ngang người dùng.
+DRAIN_MIN=${AUTOPPTX_DRAIN_MIN:-40}
+if [ -f "$DATA/autopptx.db" ]; then
+  busy() {
+    "$VENV/bin/python" - "$DATA/autopptx.db" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1], timeout=10)
+try:
+    n = c.execute("SELECT COUNT(*) FROM jobs WHERE state IN ('queued','running')").fetchone()[0]
+except sqlite3.OperationalError:
+    n = 0
+print(n)
+PY
+  }
+  waited=0
+  while [ "$(busy)" != "0" ]; do
+    if [ "$waited" -ge $((DRAIN_MIN * 60)) ]; then
+      echo "!! Vẫn còn lần xuất đang chạy sau ${DRAIN_MIN} phút — KHÔNG cài bản mới để khỏi cắt ngang. Chạy lại deploy sau."
+      exit 3
+    fi
+    [ $((waited % 60)) -eq 0 ] && echo "   chờ $(busy) lần xuất đang chạy/chờ xong… (${waited}s)"
+    sleep 10; waited=$((waited + 10))
+  done
+fi
 install -m 644 "$SRC/autopptx_server.py" "$SRC/render_job.py" "$SRC/admin.html" "$SRC/report.html" "$SRC/editor.html" "$APP/"
 rm -f "$APP"/autopptx2/*.py
 install -m 644 "$SRC"/autopptx2/*.py "$APP/autopptx2/"

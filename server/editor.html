@@ -249,6 +249,13 @@ async function api(path, opt = {}){
   if (!r.ok || d.ok === false) throw new Error(d.msg || ('Lỗi ' + r.status));
   return d;
 }
+// Hỏi tiến độ: lỗi mạng / 502–504 thoáng qua (máy chủ đang khởi động lại) thì thử lại ~2 phút.
+async function pollJob(id){
+  for (let i = 0; ; i++){
+    try { return (await api('/jobs/' + id)).job; }
+    catch(e){ if (i >= 40 || !/Lỗi 50[234]|Failed to fetch|NetworkError|mất kết nối/i.test(e.message)) throw e; await new Promise(r => setTimeout(r, 3000)); }
+  }
+}
 function modal(title, bodyHtml, buttons, opts = {}){
   return new Promise(res => {
     const ov = document.createElement('div'); ov.className = 'ovl';
@@ -528,7 +535,7 @@ function renderSlide(){
         ${(t.specs || []).slice(0, 4).map(r => `<tr>${[r.qty, r.note, r.form].map(x => `<td style="background:rgba(44,36,25,.75)">${esc(x)}</td>`).join('')}</tr>`).join('')}</table>`;
     } else {
       const rows = (g && g.info_rows && g.info_rows.length) ? g.info_rows : [['Address', '[Địa chỉ]', false], ['District', '[Quận]', false], ['Quantity', '—', false], ['Traffic / day', '—', true], ['Traffic / week', '—', true]];
-      inner = `<table class="info" style="font-family:'${fam}',Arial;color:${vc}">${rows.map(([l, v, a]) => `<tr style="height:${a ? 1.35 : 1}fr"><td style="width:42%;font-size:${sz * .85}px;opacity:.6">${esc(l)}</td><td style="text-align:right;font-weight:700;font-size:${sz * (a ? 1.5 : 1)}px;color:${a ? acc : vc}">${esc(v)}</td></tr>`).join('')}</table>`;
+      inner = `<table class="info" style="font-family:'${fam}',Arial;color:${vc}">${rows.map(([l, v, a]) => `<tr style="height:${a ? 1.35 : 1}fr"><td style="width:42%;font-size:${sz * .85}px;font-weight:400;color:${lighten(vc, .45)}">${esc(l)}</td><td style="text-align:right;font-weight:700;font-size:${sz * (a ? 1.5 : 1)}px;color:${a ? acc : vc}">${esc(v)}</td></tr>`).join('')}</table>`;
     }
     html += `<div class="el ${vis.info ? '' : 'hid'}" data-el="info" style="${box('info')};${op(c)}">${inner}</div>`;
   }
@@ -780,8 +787,11 @@ function renderInsp(){
       <button class="btn icon" data-font="bold" aria-pressed="${font.bold !== false}" style="${font.bold !== false ? 'border-color:#2e9bff;background:var(--sel)' : ''};font-weight:700" aria-label="Đậm">B</button>
       <button class="btn icon" data-font="italic" aria-pressed="${!!font.italic}" style="${font.italic ? 'border-color:#2e9bff;background:var(--sel)' : ''};font-style:italic" aria-label="Nghiêng">I</button></div>`;
     if (textEl) h += `<div class="seg" style="align-self:flex-start">${['left', 'center', 'right'].map(a => `<button data-c-align="${a}" class="${(c.align || 'left') === a ? 'on' : ''}">${{left: 'Trái', center: 'Giữa', right: 'Phải'}[a]}</button>`).join('')}</div>`;
-    const colorKey = info ? 'accent_color' : 'color', cur = (c[colorKey] || (info ? '' : font.color) || '').toUpperCase();
-    h += `<div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)">${info ? 'Màu nhấn (số traffic, tiêu đề cột)' : 'Màu chữ'}<div style="display:flex;gap:6px;flex-wrap:wrap">${COLORS.map(col => `<button class="sw ${cur === col ? 'on' : ''}" data-col="${col}" data-ck="${colorKey}" style="background:${col}" aria-label="Màu ${col}"></button>`).join('')}<input type="color" value="${cur || '#000000'}" data-c="${colorKey}" style="width:30px;height:26px;border:0;background:none" aria-label="Màu khác"></div></div>`;
+    if (info){
+      h += colorRow('Màu chữ (giá trị; nhãn tự nhạt hơn)', font.color || '#000000', 'font.color');
+      h += colorRow('Màu nhấn (số traffic, tiêu đề cột)', c.accent_color || '#2563EB', 'accent_color');
+      h += `<p class="tiny muted" style="margin:0">Màu chữ là màu chữ chung của mẫu (giống nút màu chữ thân trên app): tiêu đề và dòng kênh chưa đặt màu riêng cũng đổi theo.</p>`;
+    } else h += colorRow('Màu chữ', c.color || font.color || '#000000', 'color');
     if (n === 'title') h += `<label class="c"><input type="checkbox" data-c="upper" ${c.upper !== false ? 'checked' : ''}> VIẾT HOA</label><label class="c"><input type="checkbox" data-c="full_width_on_slide" ${c.full_width_on_slide !== false ? 'checked' : ''}> Căn theo cả bề ngang slide</label><label class="c"><input type="checkbox" data-c="show_counter" ${c.show_counter ? 'checked' : ''}> Thêm (1/2) khi nhiều slide</label>`;
     h += `<label class="f">Độ đậm nhạt: ${c.opacity ?? 100}%<input type="range" min="10" max="100" step="5" value="${c.opacity ?? 100}" data-c="opacity" data-num="1"></label></div>`;
   }
@@ -796,6 +806,11 @@ function renderInsp(){
   p.innerHTML = h + layers;
   bindInsp();
 }
+function colorRow(label, cur, ck){
+  cur = String(cur || '').toUpperCase();
+  return `<div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)">${label}<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${COLORS.map(col => `<button class="sw ${cur === col ? 'on' : ''}" data-col="${col}" data-ck="${ck}" style="background:${col}" aria-label="Màu ${col}"></button>`).join('')}<input type="color" value="${/^#[0-9A-F]{6}$/.test(cur) ? cur.toLowerCase() : '#000000'}" data-cpick="${ck}" style="width:30px;height:26px;border:0;background:none;cursor:pointer" aria-label="Chọn màu khác"><span class="tiny">${esc(cur)}</span></div></div>`;
+}
+function lighten(hex, k){ const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return hex; const n = parseInt(m[1], 16), f = v => Math.round(v + (255 - v) * k); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; }
 function renderInspPos(){ const c = $('#posCard'); if (!c || !S.sel) return; const [x, y, w, h] = elemBox(S.sel); const v = {x, y, w, h}; c.querySelectorAll('[data-pos]').forEach(i => { if (document.activeElement !== i) i.value = r2(v[i.dataset.pos]); }); }
 function bindInsp(){
   const p = $('#insp'), c = S.sel ? S.layout[S.sel] : null;
@@ -808,7 +823,9 @@ function bindInsp(){
     saveDraft(); renderSlide(); if (i.type !== 'range') renderInsp(); else { const l = i.closest('label'); l.firstChild.textContent = l.firstChild.textContent.replace(/\d+%/, i.value + '%'); }
   }));
   p.querySelectorAll('[data-c-align]').forEach(b => b.onclick = () => { pushUndo(); c.align = b.dataset.cAlign; saveDraft(); renderSlide(); renderInsp(); });
-  p.querySelectorAll('[data-col]').forEach(b => b.onclick = () => { pushUndo(); c[b.dataset.ck] = b.dataset.col; saveDraft(); renderSlide(); renderInsp(); });
+  const setCol = (ck, v) => { pushUndo(); if (ck === 'font.color'){ S.layout.font = S.layout.font || {}; S.layout.font.color = v; } else c[ck] = v; saveDraft(); renderSlide(); renderInsp(); };
+  p.querySelectorAll('[data-col]').forEach(b => b.onclick = () => setCol(b.dataset.ck, b.dataset.col));
+  p.querySelectorAll('[data-cpick]').forEach(i => i.onchange = () => setCol(i.dataset.cpick, i.value.toUpperCase()));
   p.querySelectorAll('[data-font]').forEach(b => b.onclick = () => { pushUndo(); const f = S.layout.font = S.layout.font || {}; const k = b.dataset.font; f[k] = k === 'bold' ? f.bold === false : !f[k]; saveDraft(); renderSlide(); renderInsp(); });
   p.querySelectorAll('[data-pos]').forEach(i => i.onchange = () => { pushUndo(); const k = i.dataset.pos, v = +i.value; if (S.sel === 'title' && (k === 'x' || k === 'w')) c.full_width_on_slide = false; c[k] = r2(v); saveDraft(); renderSlide(); renderInspPos(); });
 }
@@ -891,7 +908,7 @@ function runExport(title, files){
       st[1].s = 'done'; st[1].d = `${list.length} ảnh · ${fmtB(total)} · ${Math.round((Date.now() - t0) / 1000)} giây`;
       await api(`/jobs/${jid}/start`, {method: 'POST'}); st[2].s = 'run'; st[2].d = 'Đang chờ máy chủ…'; st[2].p = 0; paint();
       while (true){
-        const r = (await api('/jobs/' + jid)).job;
+        const r = await pollJob(jid);
         if (r.state === 'running' || r.state === 'queued'){ st[2].d = r.msg; st[2].p = r.total ? r.done / r.total : 0; paint(); await new Promise(z => setTimeout(z, 1500)); continue; }
         if (r.state !== 'done') throw new Error(r.msg || 'Xuất không thành công.');
         st[2].s = 'done'; st[2].d = r.msg; st[3].s = 'run';

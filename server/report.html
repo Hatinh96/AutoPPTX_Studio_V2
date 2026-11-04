@@ -166,6 +166,13 @@ async function api(path, opt = {}){
   if (!r.ok || d.ok === false) throw new Error(d.msg || ('Lỗi ' + r.status));
   return d;
 }
+// Hỏi tiến độ: lỗi mạng / 502–504 thoáng qua (máy chủ đang khởi động lại) thì thử lại ~2 phút.
+async function pollJob(id){
+  for (let i = 0; ; i++){
+    try { return (await api('/jobs/' + id)).job; }
+    catch(e){ if (i >= 40 || !/Lỗi 50[234]|Failed to fetch|NetworkError|mất kết nối/i.test(e.message)) throw e; await new Promise(r => setTimeout(r, 3000)); }
+  }
+}
 const enc = p => p.split('/').map(encodeURIComponent).join('/');
 function dialog(title, html, buttons){
   $('#dTitle').textContent = title; $('#dBody').innerHTML = html;
@@ -309,7 +316,7 @@ $('#goBtn').onclick = async () => {
 $('#cancelBtn').onclick = async () => { stopUpload = true; if (running){ try { await api(`/jobs/${running}/cancel`, {method:'POST'}); } catch(e){} } };
 async function poll(id){
   while (true){
-    const j = (await api('/jobs/' + id)).job;
+    const j = await pollJob(id);
     if (j.state === 'running') setRun(esc(j.msg), j.total ? j.done / j.total : 0);
     else if (j.state === 'queued') setRun(esc(j.msg), 0);
     else { showResult(j); $('#runBox').classList.add('hidden'); return; }
