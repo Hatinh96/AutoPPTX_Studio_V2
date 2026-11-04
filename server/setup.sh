@@ -61,6 +61,8 @@ PY
   done
 fi
 install -m 644 "$SRC/autopptx_server.py" "$SRC/render_job.py" "$SRC/admin.html" "$SRC/report.html" "$SRC/editor.html" "$APP/"
+install -d -m 755 "$APP/static"
+install -m 644 "$SRC"/static/* "$APP/static/"
 rm -f "$APP"/autopptx2/*.py
 install -m 644 "$SRC"/autopptx2/*.py "$APP/autopptx2/"
 install -m 644 "$SRC/autopptx-store.service" /etc/systemd/system/autopptx-store.service

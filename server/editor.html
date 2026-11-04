@@ -4,211 +4,302 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>AutoPPTX Web</title>
+<title>AutoPPTX · Golden Asia</title>
+<link rel="icon" type="image/png" href="static/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Saira:wght@400;500;600;700&family=Be+Vietnam+Pro:wght@400;700&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#0c0c0f;--panel:#161619;--side:#121215;--input:#1e1e22;--border:#2a2a30;--work:#0a0a0d;
-  --text:#e8e8ec;--muted:#a6a6b3;--dim:#9a9aa8;--accent:#1774d2;--accent-h:#3595ee;--sel:#16304f;--sel-t:#7cbcf7;
-  --guide:#2e9bff;--ok:#34d399;--warn:#fbbf24;--err:#f87171}
+:root{--bg:#0b0d12;--hdr:#10141b;--panel:#0f131a;--card:#161b24;--card2:#12161e;--line:#232a36;--line2:#2c3442;--work:#080a0e;
+  --text:#e9edf3;--muted:#a8b3c5;--dim:#8f9bb0;--accent:#1791ff;--accent-h:#47a8ff;--sel:#13263f;--sel-t:#8cc8ff;--guide:#3aa0ff;
+  --ok:#7ee2a8;--okbg:#11211a;--okline:#1f3a2b;--warn:#fcd06a;--warnbg:#241c0d;--warnline:#4a3714;--err:#ff9a9a;--errbg:#2a1515;--errline:#5a2626}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 'Be Vietnam Pro',system-ui,sans-serif}
-a{color:#4aa3f5}a:hover{color:#7cbcf7}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 'Saira',system-ui,sans-serif}
+a{color:#5fb2ff}a:hover{color:#8cc8ff}
 button,input,select{font:inherit;color:inherit}
 .hidden{display:none!important}
-.btn{height:34px;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--input);color:var(--text);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.btn:hover{border-color:#3a3a44}
+.btn{height:32px;padding:0 11px;border-radius:9px;border:1px solid var(--line2);background:var(--card);color:var(--text);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;text-decoration:none}
+.btn:hover{border-color:#3a465a;color:var(--text)}
 .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
-.btn.pri:hover{background:var(--accent-h)}
+.btn.pri:hover{background:var(--accent-h);border-color:var(--accent-h)}
 .btn.ghost{background:transparent;border-color:transparent}
-.btn.sm{height:28px;padding:0 9px;font-size:12px}
-.btn.icon{width:34px;padding:0;justify-content:center}
+.btn.sm{height:26px;padding:0 8px;font-size:12px}
+.btn.icon{width:32px;padding:0}
+.btn.sm.icon{width:26px}
 .btn.danger{color:#fca5a5;border-color:#5b2a2a;background:transparent}
 .btn:disabled{opacity:.45;cursor:default}
-.inp,select.inp{height:34px;width:100%;background:var(--input);border:1px solid var(--border);border-radius:8px;padding:0 9px;color:var(--text)}
-.inp:focus{outline:2px solid #2e9bff;outline-offset:-1px}
+.inp{height:30px;width:100%;background:var(--card);border:1px solid var(--line2);border-radius:8px;padding:0 9px;color:var(--text)}
+.inp:focus{outline:2px solid var(--guide);outline-offset:-1px}
 label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
 label.c{display:flex;align-items:center;gap:8px;cursor:pointer}
 input[type=checkbox],input[type=range]{accent-color:var(--accent)}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px;display:flex;flex-direction:column;gap:8px}
 .g2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.g3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-.step{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;display:inline-grid;place-items:center;font-size:11px;font-weight:700;flex-shrink:0}
-.h{display:flex;align-items:center;gap:8px;font-weight:600}
+.eyebrow{font-size:11px;color:var(--dim);letter-spacing:1px}
 .muted{color:var(--muted)}.small{font-size:12px}.tiny{font-size:11px}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
-.stat{background:var(--input);border-radius:8px;padding:8px 4px;text-align:center}
-.stat b{display:block;font-size:16px}
-.stat span{font-size:11px;color:var(--dim)}
+.chip{font-size:11px;padding:1px 8px;border-radius:99px;white-space:nowrap}
+.chip.run{background:var(--sel);color:var(--sel-t)}.chip.done{background:#12301f;color:var(--ok)}.chip.fail{background:var(--errbg);color:#fca5a5}.chip.wait{background:var(--card);color:var(--muted)}
 /* khung */
 #app{height:100vh;display:flex;flex-direction:column;overflow:hidden}
-header{height:56px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--border);overflow-x:auto}
-.sep{width:1px;height:22px;background:var(--border);margin:0 4px;flex-shrink:0}
-.seg{display:flex;background:var(--input);border:1px solid var(--border);border-radius:9px;padding:2px;flex-shrink:0}
-.seg button{height:28px;padding:0 13px;border:0;border-radius:7px;background:transparent;color:#c9c9d2;cursor:pointer}
-.seg button.on{background:var(--accent);color:#fff;font-weight:600}
+header{height:52px;flex-shrink:0;display:flex;align-items:center;gap:14px;padding:0 14px;background:var(--hdr);border-bottom:1px solid var(--line);overflow-x:auto}
+header .logo{height:24px;width:auto;display:block;cursor:pointer}
+.vsep{width:1px;height:24px;background:var(--line);flex-shrink:0}
+#steps{flex:1;display:flex;justify-content:center;gap:4px;min-width:max-content}
+#steps button{height:34px;padding:0 13px 0 6px;border-radius:99px;border:1px solid transparent;background:transparent;color:var(--dim);display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500}
+#steps button .b{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--card);border:1px solid var(--line2);color:var(--dim)}
+#steps button.done{color:#c9d2df}#steps button.done .b{background:#12301f;color:var(--ok);border-color:#12301f}
+#steps button.cur{border-color:var(--accent);background:var(--sel);color:#fff}#steps button.cur .b{background:var(--accent);color:#fff;border-color:var(--accent)}
+.badge{min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--accent);color:#fff;font-size:11px;font-weight:700;display:inline-grid;place-items:center}
 #body{flex:1;min-height:0;display:flex}
-nav#rail{width:68px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:10px}
-nav#rail button{width:56px;height:56px;border-radius:10px;border:0;background:transparent;color:var(--dim);font-size:11px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
-nav#rail button.on{background:var(--sel);color:var(--sel-t)}
-aside#side{width:330px;flex-shrink:0;background:var(--side);border-right:1px solid var(--border);overflow:auto;padding:14px;display:flex;flex-direction:column;gap:14px}
-aside#insp{width:292px;flex-shrink:0;background:var(--side);border-left:1px solid var(--border);overflow:auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+aside#left{width:272px;flex-shrink:0;background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+aside#right{width:288px;flex-shrink:0;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#rtabs{display:flex;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--line)}
+#rtabs button{height:34px;padding:0 10px;border:0;background:transparent;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent}
+#rtabs button.on{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
+#rbody{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:12px}
+#rfoot{padding:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
 aside h2{margin:0;font-size:15px;font-weight:600}
 main#work{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--work)}
-#stage{flex:1;min-height:0;position:relative;overflow:auto;display:grid;place-items:center;padding:28px;outline:none}
-#slide{position:relative;background:#fff;box-shadow:0 18px 50px rgba(0,0,0,.55);border-radius:3px;overflow:hidden;flex-shrink:0;user-select:none;touch-action:none}
+#wbar{height:44px;flex-shrink:0;display:flex;align-items:center;gap:6px;padding:0 12px;border-bottom:1px solid #1a2029;overflow-x:auto}
+#stage{flex:1;min-height:0;position:relative;overflow:auto;display:grid;place-items:center;padding:22px 22px 70px;outline:none}
+#slide{position:relative;background:#fff;box-shadow:0 18px 50px rgba(0,0,0,.6);border-radius:3px;overflow:hidden;flex-shrink:0;user-select:none;touch-action:none}
 #slide .el{position:absolute;cursor:move}
 #slide .el.hid{display:none}
-#slide .el:hover{outline:1px dashed rgba(46,155,255,.6)}
+#slide .el:hover{outline:1px dashed rgba(58,160,255,.6)}
 #slide .el.sel{outline:2px solid var(--guide)}
-#slide .el.locked{cursor:default}
 .hd{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;background:#fff;border:2px solid var(--guide);z-index:5}
 .guide{position:absolute;background:#ff4fa3;z-index:4;pointer-events:none}
 .cell{position:absolute;overflow:hidden;background:#d9dde3}
 .cell img{width:100%;height:100%;display:block}
-.stamp{position:absolute;font-weight:700;white-space:nowrap;line-height:1.1;pointer-events:none}
+.stamp{position:absolute;font-weight:700;white-space:nowrap;line-height:1.1;pointer-events:none;font-family:Arial,sans-serif}
 .ttext{width:100%;height:100%;display:flex;align-items:center;overflow:hidden;line-height:1.15;word-break:break-word}
 table.info{width:100%;height:100%;border-collapse:collapse;table-layout:fixed}
 table.info td{padding:0 2px;vertical-align:middle;overflow:hidden}
-#hint{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:12px;color:var(--dim);background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:5px 12px;white-space:nowrap;pointer-events:none}
-#empty{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
-#empty div{background:rgba(22,22,25,.92);border:1px solid var(--border);border-radius:12px;padding:16px 20px;text-align:center;color:var(--muted)}
-#strip{height:150px;flex-shrink:0;border-top:1px solid var(--border);background:var(--side);display:flex;flex-direction:column;padding:8px 12px;gap:8px}
-#thumbs{flex:1;display:flex;gap:8px;overflow-x:auto;overflow-y:hidden;padding-bottom:4px}
-.th{width:96px;flex-shrink:0;border-radius:8px;padding:5px;display:flex;flex-direction:column;gap:4px;cursor:pointer;border:1px solid var(--border);background:#1a1a1e;text-align:left}
-.th.on{border:2px solid var(--guide);background:var(--sel)}
-.th .im{flex:1;width:100%;border-radius:5px;background:#2a2f38 center/cover no-repeat;position:relative;min-height:52px}
+#qbar{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;align-items:center;gap:5px;padding:5px;border-radius:12px;background:var(--card);border:1px solid var(--line2);box-shadow:0 12px 30px rgba(0,0,0,.5);z-index:8;white-space:nowrap}
+#qbar .lbl{padding:0 8px;font-size:12px;color:var(--muted)}
+#qbar .sz{width:30px;text-align:center;font-variant-numeric:tabular-nums}
+.swb{width:30px;height:30px;border-radius:8px;border:1px solid var(--line2);background:var(--panel);display:grid;place-items:center;cursor:pointer;padding:0}
+.swb i{width:16px;height:16px;border-radius:50%;border:2px solid #fff;display:block}
+.pop{position:absolute;z-index:20;background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:8px;display:flex;gap:6px;flex-wrap:wrap;width:196px;box-shadow:0 12px 30px rgba(0,0,0,.5)}
+.sw{width:24px;height:24px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
+.sw.on{border-color:#fff}
+#hint{position:absolute;right:12px;top:10px;font-size:11px;color:var(--dim);pointer-events:none}
+#strip{height:118px;flex-shrink:0;border-top:1px solid #1a2029;background:var(--panel);display:flex;flex-direction:column;padding:8px 12px;gap:6px}
+#thumbs{flex:1;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding-bottom:3px}
+.th{width:84px;flex-shrink:0;border-radius:8px;position:relative;cursor:pointer;border:1px solid var(--line);background:#2a2f38 center/cover no-repeat;padding:0}
+.th.on{border:2px solid var(--accent);box-shadow:0 0 0 2px rgba(23,145,255,.25)}
 .th .n{position:absolute;right:4px;top:4px;font-size:10px;background:rgba(0,0,0,.6);padding:0 4px;border-radius:3px}
 .th .dot{position:absolute;left:5px;top:5px;width:8px;height:8px;border-radius:50%}
-.th .c{font-size:10px;color:#c9c9d2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-footer{height:28px;flex-shrink:0;display:flex;align-items:center;gap:16px;padding:0 12px;background:var(--panel);border-top:1px solid var(--border);font-size:12px;color:var(--dim);white-space:nowrap;overflow:hidden}
-.drop{border:1.5px dashed #3a3a44;border-radius:10px;padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;color:var(--muted);cursor:pointer}
-.drop.over{border-color:var(--guide);background:rgba(46,155,255,.07)}
-.fold{display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--input);border-radius:9px}
-.fold div{flex:1;min-width:0;display:flex;flex-direction:column}
-.fold b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pick{border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;text-align:left;cursor:pointer;border:1px solid var(--border);background:var(--panel)}
-.pick.on{border:2px solid var(--guide);background:var(--sel)}
-.pick .pv{width:100%;aspect-ratio:16/9;border-radius:4px;background:#fff center/cover no-repeat;border:1px solid var(--border)}
-.layer{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer}
+.th .c{position:absolute;left:0;right:0;bottom:0;font-size:9px;background:rgba(0,0,0,.65);padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left;border-radius:0 0 7px 7px}
+.fchip{height:24px;padding:0 10px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:var(--muted);cursor:pointer;font-size:12px}
+.fchip.on{background:var(--text);color:var(--bg);border-color:var(--text);font-weight:600}
+.fchip.w{border-color:var(--warnline);color:var(--warn)}.fchip.e{border-color:var(--errline);color:var(--err)}
+.fchip.w.on{background:var(--warn);color:#241c0d}.fchip.e.on{background:var(--err);color:#2a1515}
+footer{height:24px;flex-shrink:0;display:flex;align-items:center;gap:16px;padding:0 12px;background:var(--hdr);border-top:1px solid var(--line);font-size:11px;color:var(--dim);white-space:nowrap;overflow:hidden}
+.drop{border:1.5px dashed #34405a;border-radius:10px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;color:var(--muted);cursor:pointer}
+.drop.over{border-color:var(--guide);background:rgba(58,160,255,.07)}
+.fold{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;background:var(--card);border:1px solid var(--line)}
+.fold .ic{width:34px;height:34px;border-radius:8px;background:var(--sel);display:grid;place-items:center;flex-shrink:0}
+.fold div.t{flex:1;min-width:0;display:flex;flex-direction:column}
+.fold b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.check{height:32px;border-radius:9px;display:flex;align-items:center;gap:8px;padding:0 10px;cursor:pointer;text-align:left;width:100%;font-size:12px}
+.check.ok{border:1px solid var(--okline);background:var(--okbg);color:var(--ok)}
+.check.w{border:1px solid var(--warnline);background:var(--warnbg);color:var(--warn)}
+.check.e{border:1px solid var(--errline);background:var(--errbg);color:var(--err)}
+.check span{flex:1}
+.pick{border-radius:10px;padding:6px;display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;cursor:pointer;border:1px solid var(--line);background:var(--card)}
+.pick.on{border:2px solid var(--accent);background:var(--sel)}
+.pick .pv{width:100%;aspect-ratio:16/9;border-radius:4px;background:#fff center/cover no-repeat;border:1px solid var(--line)}
+.layer{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:7px;cursor:pointer}
 .layer.on{background:var(--sel)}
-.sw{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0}
-.sw.on{border-color:#fff}
-.pos4{display:grid;grid-template-columns:repeat(2,44px);gap:4px}
-.pos4 button{height:30px;border-radius:6px;border:1px solid var(--border);background:var(--input);cursor:pointer}
+.seg{display:flex;background:var(--card);border:1px solid var(--line2);border-radius:9px;padding:2px;flex-shrink:0}
+.seg button{height:24px;padding:0 10px;border:0;border-radius:7px;background:transparent;color:#c9d2df;cursor:pointer;font-size:12px}
+.seg button.on{background:var(--accent);color:#fff;font-weight:600}
+.pos4{display:grid;grid-template-columns:repeat(2,40px);gap:4px}
+.pos4 button{height:26px;border-radius:6px;border:1px solid var(--line2);background:var(--card);cursor:pointer}
 .pos4 button.on{background:var(--accent);border-color:var(--accent)}
-/* hộp thoại */
-.ovl{position:fixed;inset:0;background:rgba(5,5,8,.62);display:grid;place-items:center;z-index:50;padding:16px}
-.dlg{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;box-shadow:0 30px 80px rgba(0,0,0,.6)}
-.dlg .hd2{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--border)}
-.dlg .bd{padding:16px 20px;display:flex;flex-direction:column;gap:12px}
-.dlg .ft{display:flex;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--border);flex-wrap:wrap}
-.stp{display:flex;gap:14px}
-.stp .b{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0;background:var(--input);color:var(--dim);border:1px solid var(--border)}
-.stp.done .b{background:#12301f;color:#6ee7a0;border-color:#12301f}
-.stp.run .b{background:var(--accent);color:#fff;border-color:var(--accent)}
-.stp .t{font-weight:600;font-size:14px}
-.bar{height:8px;border-radius:99px;background:var(--border);overflow:hidden}
+.jcard{border-radius:11px;border:1px solid var(--line);background:var(--card);padding:10px;display:flex;flex-direction:column;gap:6px}
+.bar{height:6px;border-radius:99px;background:var(--line);overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s}
-.menu{position:fixed;z-index:60;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px;min-width:230px;box-shadow:0 18px 40px rgba(0,0,0,.5)}
-.menu button,.menu a{display:flex;width:100%;text-align:left;padding:8px 10px;border:0;background:transparent;border-radius:7px;cursor:pointer;color:var(--text);text-decoration:none}
-.menu button:hover,.menu a:hover{background:var(--input)}
-#toast{position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:#e8e8ec;color:#0c0c0f;padding:9px 16px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:70;max-width:90vw}
+/* màn bắt đầu + lịch sử */
+.page{flex:1;overflow:auto}
+.page .wrap{width:100%;max-width:1060px;margin:0 auto;padding:28px 22px 48px;display:flex;flex-direction:column;gap:20px}
+.bigdrop{border:2px dashed #34507a;border-radius:18px;background:#0f1724;padding:30px 20px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;cursor:pointer}
+.bigdrop.over{border-color:var(--guide);background:#13233a}
+.how{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.how div{border-radius:12px;border:1px solid var(--line);background:var(--card2);padding:12px;display:flex;gap:10px}
+.how b.n{width:28px;height:28px;border-radius:50%;background:var(--sel);color:var(--sel-t);display:grid;place-items:center;flex-shrink:0}
+.hrow{border-radius:12px;border:1px solid var(--line);background:var(--card2);padding:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.hrow .th2{width:104px;aspect-ratio:16/9;border-radius:7px;flex-shrink:0;border:1px solid var(--line)}
+.hrow .info{flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.hrow .act{display:flex;flex-direction:column;gap:6px;width:230px}
+.tabsF{display:flex;gap:6px;flex-wrap:wrap}
+.tabsF button{height:30px;padding:0 13px;border-radius:99px;border:1px solid var(--line2);background:transparent;color:#c9d2df;cursor:pointer}
+.tabsF button.on{border-color:var(--text);background:var(--text);color:var(--bg);font-weight:600}
+/* hộp thoại */
+.ovl{position:fixed;inset:0;background:rgba(4,6,10,.66);display:grid;place-items:center;z-index:50;padding:16px}
+.dlg{width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--card2);border:1px solid var(--line);border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.7)}
+.dlg .hd2{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.dlg .bd{padding:14px 18px;display:flex;flex-direction:column;gap:10px}
+.dlg .ft{display:flex;align-items:center;gap:8px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+.stp{display:flex;gap:12px}
+.stp .b{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;flex-shrink:0;background:var(--card);color:var(--dim);border:1px solid var(--line2)}
+.stp.done .b{background:#12301f;color:var(--ok);border-color:#12301f}
+.stp.run .b{background:var(--accent);color:#fff;border-color:var(--accent)}
+.stp .t{font-weight:600}
+.menu{position:fixed;z-index:60;background:var(--card);border:1px solid var(--line2);border-radius:10px;padding:6px;min-width:230px;box-shadow:0 18px 40px rgba(0,0,0,.5)}
+.menu button,.menu a{display:flex;width:100%;text-align:left;padding:7px 10px;border:0;background:transparent;border-radius:7px;cursor:pointer;color:var(--text);text-decoration:none}
+.menu button:hover,.menu a:hover{background:var(--panel)}
+#toast{position:fixed;bottom:36px;left:50%;transform:translateX(-50%);background:#e9edf3;color:#0b0d12;padding:8px 14px;border-radius:8px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:70;max-width:90vw}
 #toast.show{opacity:1}
 /* đăng nhập */
-#login{min-height:100vh;display:grid;place-items:center;padding:24px}
-#login .box{width:100%;max-width:860px;min-height:500px;display:flex;flex-wrap:wrap;background:var(--panel);border:1px solid var(--border);border-radius:20px;overflow:hidden}
-#login .brand{flex:1 1 280px;min-height:200px;background:#0e56c8;padding:40px 34px;display:flex;flex-direction:column;gap:18px}
-#login form{flex:999 1 420px;padding:44px;display:flex;flex-direction:column;justify-content:center;gap:6px}
-#login .inp{height:46px;border-radius:10px;padding:0 14px}
-@media (max-width:900px){aside#side{width:280px}aside#insp{display:none}}
-@media (max-width:640px){#body{flex-wrap:wrap}aside#side{width:100%;max-height:45vh}nav#rail{width:100%;flex-direction:row;height:auto;padding:4px;justify-content:center}}
+#login{min-height:100vh;display:flex;flex-wrap:wrap;background:#081226}
+#login .brand{flex:1 1 480px;min-height:320px;position:relative;overflow:hidden;background:#0a1f44;padding:48px;display:flex;flex-direction:column}
+#login .brand svg{position:absolute;right:-120px;bottom:-140px;width:600px;height:auto;opacity:.16}
+#login .side{flex:999 1 440px;display:grid;place-items:center;padding:36px 22px;background:var(--bg)}
+#login form{width:100%;max-width:400px;display:flex;flex-direction:column;gap:7px}
+#login .inp{height:44px;border-radius:11px;padding:0 14px;background:var(--card2)}
+@media (max-width:1100px){aside#right{width:250px}aside#left{width:240px}}
+@media (max-width:820px){#body{flex-wrap:wrap;overflow:auto}aside#left,aside#right{width:100%}main#work{min-height:70vh}.how{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 
 <div id="login" class="hidden">
-  <div class="box">
-    <div class="brand">
-      <div style="font-size:26px;font-weight:700;color:#fff">GOLDEN ASIA</div>
-      <div style="font-size:11px;letter-spacing:4px;color:#bfe0ff">DISCOVER THE DIFFERENCE</div>
-      <div style="width:44px;height:2px;background:#fff"></div>
-      <div style="flex:1"></div>
-      <div style="font-size:12px;color:#cfe3fb">AutoPPTX Studio · bản web</div>
+  <section class="brand" aria-label="Golden Asia">
+    <svg aria-hidden="true" viewBox="0 0 600 700"><path d="M300 20 560 135v250L300 500 40 385V135z" fill="none" stroke="#1791ff" stroke-width="36" stroke-linejoin="round"/><path d="M300 160 440 230v95l-140 70-140-70V230z" fill="none" stroke="#1791ff" stroke-width="20" stroke-linejoin="round"/></svg>
+    <img src="static/ga-logo-white.png" alt="Golden Asia — Discover the difference" style="height:46px;width:auto;align-self:flex-start;position:relative">
+    <div style="flex:1"></div>
+    <div style="position:relative;display:flex;flex-direction:column;gap:12px;max-width:440px">
+      <span style="letter-spacing:4px;font-size:11px;color:#5fb2ff">GOLDEN ASIA · AUTOPPTX STUDIO</span>
+      <h1 style="margin:0;font-size:32px;line-height:1.18;font-weight:700;color:#fff">Báo cáo hình ảnh hệ thống màn hình, xuất PPTX trong vài phút.</h1>
+      <span style="color:#b9c8e0;line-height:1.55">Một tài khoản cho app desktop và bản web. FILE TỔNG, avatar và ảnh nền luôn đồng bộ từ máy chủ Golden Asia.</span>
     </div>
+    <div style="position:relative;margin-top:28px;color:#8fa6c8;font-size:12px">© Golden Asia Media</div>
+  </section>
+  <section class="side">
     <form id="fLogin">
-      <h1 style="margin:0;font-size:26px">Đăng nhập</h1>
-      <p class="muted" style="margin:0 0 16px">Dùng tài khoản công ty để tải FILE TỔNG, avatar, ảnh nền và xuất báo cáo PPTX ngay trên trình duyệt.</p>
-      <label class="f" for="lEmail" style="font-weight:600">Email</label>
-      <input class="inp" id="lEmail" type="email" placeholder="ban@goldenasia.vn" autocomplete="username" required style="margin-bottom:10px">
-      <label class="f" for="lPw" style="font-weight:600">Mật khẩu</label>
-      <input class="inp" id="lPw" type="password" placeholder="••••••••" autocomplete="current-password" required>
-      <span class="tiny muted" style="margin:10px 0">Trình duyệt giữ phiên đăng nhập 60 ngày, không lưu mật khẩu.</span>
-      <button class="btn pri" style="height:48px;justify-content:center;font-size:15px">Đăng nhập</button>
-      <p id="lErr" class="err small" style="margin:8px 0 0"></p>
-      <span class="small muted" style="margin-top:8px;text-align:center">Quên mật khẩu? Nhờ quản trị cấp mật khẩu tạm.</span>
+      <img src="static/ga-symbol.png" alt="" style="height:38px;width:auto;align-self:flex-start;margin-bottom:8px">
+      <h2 style="margin:0;font-size:26px;font-weight:700">Đăng nhập</h2>
+      <p class="muted" style="margin:0 0 14px">Dùng email công ty do quản trị cấp.</p>
+      <label for="lEmail" class="small" style="font-weight:600;color:var(--muted)">Email</label>
+      <input class="inp" id="lEmail" type="email" placeholder="ban@goldenasia.vn" autocomplete="username" required style="margin-bottom:8px">
+      <label for="lPw" class="small" style="font-weight:600;color:var(--muted)">Mật khẩu</label>
+      <div style="display:flex;gap:6px"><input class="inp" id="lPw" type="password" placeholder="••••••••" autocomplete="current-password" required style="flex:1;min-width:0">
+        <button type="button" class="btn" id="lEye" aria-label="Hiện mật khẩu" style="width:44px;height:44px;border-radius:11px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></div>
+      <span class="tiny muted" style="margin:8px 0 10px">Trình duyệt chỉ giữ phiên đăng nhập 60 ngày, không lưu mật khẩu.</span>
+      <button class="btn pri" style="height:46px;font-size:15px;border-radius:11px">Đăng nhập</button>
+      <p id="lErr" class="err small" style="margin:6px 0 0"></p>
+      <span class="small muted" style="margin-top:10px;text-align:center">Quên mật khẩu? Nhờ quản trị cấp mật khẩu tạm.</span>
     </form>
-  </div>
+  </section>
 </div>
 
 <div id="app" class="hidden">
   <header>
-    <div style="display:flex;align-items:center;gap:10px;padding-right:8px;flex-shrink:0">
-      <div style="width:30px;height:30px;border-radius:8px;background:#0e56c8;display:grid;place-items:center;font-weight:700;font-size:12px;color:#fff">GA</div>
-      <div style="display:flex;flex-direction:column;line-height:1.1"><b style="font-size:14px">AutoPPTX</b><span class="tiny muted" id="hdrSub">bản web</span></div>
-    </div>
-    <button class="btn icon ghost" id="bUndo" aria-label="Hoàn tác (Ctrl+Z)" title="Hoàn tác (Ctrl+Z)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
-    <button class="btn icon ghost" id="bRedo" aria-label="Làm lại (Ctrl+Y)" title="Làm lại (Ctrl+Y)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
-    <div class="sep"></div>
-    <button class="btn icon sm" id="bZoomOut" aria-label="Thu nhỏ">−</button>
-    <span id="zoomLbl" style="width:46px;text-align:center;font-variant-numeric:tabular-nums">100%</span>
-    <button class="btn icon sm" id="bZoomIn" aria-label="Phóng to">+</button>
-    <button class="btn sm" id="bFit">Vừa</button>
-    <div class="sep"></div>
-    <label class="c" style="padding:0 4px"><input type="checkbox" id="cSnap" checked> Hít</label>
-    <label class="c" style="padding:0 4px"><input type="checkbox" id="cGrid"> Lưới</label>
-    <div class="seg" id="segDept" role="group" aria-label="Phòng ban" style="margin-left:6px"><button data-d="sales">Sales</button><button data-d="bd">BD</button></div>
-    <label style="display:flex;align-items:center;gap:6px;margin-left:6px;flex-shrink:0"><span class="muted">Mẫu</span>
-      <select class="inp" id="hdrPreset" style="width:auto;min-width:150px;height:32px"></select></label>
-    <button class="btn icon ghost" id="bSavePreset" aria-label="Lưu thành mẫu trên máy chủ" title="Lưu thành mẫu trên máy chủ"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h8V3"/><path d="M8 21v-7h8v7"/></svg></button>
-    <button class="btn icon ghost" id="bReset" aria-label="Đặt lại theo mẫu" title="Đặt lại theo mẫu"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
-    <div style="flex:1;min-width:8px"></div>
-    <span id="syncChip" class="tiny" style="padding:4px 10px;border-radius:99px;background:#12261a;color:#6ee7a0;white-space:nowrap">Đang tải…</span>
-    <button class="btn" id="bJobs">Lần xuất</button>
-    <button class="btn pri" id="bExport" style="height:36px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Xuất PPTX</button>
+    <img class="logo" src="static/ga-logo-white.png" alt="Golden Asia" id="hLogo" title="Về trang bắt đầu">
+    <div class="vsep"></div>
+    <b style="font-size:14px;font-weight:600;white-space:nowrap">AutoPPTX</b>
+    <nav id="steps" aria-label="Các bước">
+      <button data-step="1"><span class="b">1</span>Chọn ảnh</button>
+      <button data-step="2"><span class="b">2</span>Chỉnh slide</button>
+      <button data-step="3"><span class="b">3</span>Xuất &amp; tải</button>
+    </nav>
+    <span id="syncChip" class="tiny muted" style="white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis"></span>
+    <button class="btn" id="bHist"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 7v5l3 2"/></svg>Lịch sử<span class="badge hidden" id="histBadge">0</span></button>
     <button class="btn icon" id="bAcc" aria-label="Tài khoản" style="border-radius:50%;font-weight:600">?</button>
   </header>
 
-  <div id="body">
-    <nav id="rail" aria-label="Bảng điều khiển">
-      <button data-tab="nguon" class="on"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg>Nguồn</button>
-      <button data-tab="mau"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M9 20V9"/></svg>Mẫu</button>
-      <button data-tab="dau"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18"/><path d="M8 2v4M16 2v4"/></svg>Dấu</button>
-      <button data-tab="xuat"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Tuỳ chọn</button>
-    </nav>
-    <aside id="side"></aside>
+  <!-- màn bắt đầu -->
+  <div id="vStart" class="page hidden"><div class="wrap">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <span class="eyebrow" style="color:#5fb2ff;letter-spacing:3px">DISCOVER THE DIFFERENCE</span>
+      <h1 style="margin:0;font-size:26px;font-weight:700" id="hello">Làm báo cáo nào hôm nay?</h1>
+      <span class="muted" id="startExcel"></span>
+    </div>
+    <div class="bigdrop" id="bigDrop" role="button" tabindex="0">
+      <div style="width:54px;height:54px;border-radius:14px;background:var(--sel);display:grid;place-items:center"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#5fb2ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/><path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/></svg></div>
+      <b style="font-size:17px">Kéo thả thư mục ảnh hiện trường vào đây</b>
+      <span class="muted">hoặc bấm để chọn — tên ảnh theo mã RP, ví dụ HL08NGUYENAIQUOC (5).jpg</span>
+      <span class="btn pri" style="height:36px;margin-top:4px">Chọn thư mục ảnh</span>
+    </div>
+    <div class="how">
+      <div><b class="n">1</b><span><b>Chọn ảnh</b><br><span class="small muted">Ảnh đọc ngay trên máy, đối chiếu FILE TỔNG và avatar trong vài giây.</span></span></div>
+      <div><b class="n">2</b><span><b>Chỉnh slide</b><br><span class="small muted">Chọn mẫu, kéo thả phần tử, đổi màu chữ ngay trên slide.</span></span></div>
+      <div><b class="n">3</b><span><b>Xuất &amp; tải</b><br><span class="small muted">Máy chủ dựng PPTX, file nằm trong Lịch sử để tải lại.</span></span></div>
+    </div>
+    <section id="recentBox" style="display:flex;flex-direction:column;gap:10px"></section>
+  </div></div>
+
+  <!-- màn lịch sử -->
+  <div id="vHist" class="page hidden"><div class="wrap">
+    <div style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:3px">
+        <h1 style="margin:0;font-size:22px;font-weight:700">Lịch sử xuất</h1>
+        <span class="muted" id="histSub"></span>
+      </div>
+      <label class="f" style="width:260px">Tìm theo tên báo cáo<input class="inp" id="hSearch" placeholder="vd Building W45"></label>
+      <button class="btn" id="hBack">← Về trình biên tập</button>
+    </div>
+    <div class="tabsF" id="hTabs" role="tablist"></div>
+    <div id="hBanner" style="padding:10px 14px;border-radius:12px;background:var(--sel);color:#cfe6ff;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span style="flex:1;min-width:220px" id="keepText">File kết quả tự xoá sau 24 giờ để máy chủ không đầy. Tải về máy nếu cần giữ lâu.</span>
+      <button class="btn" id="hZip" style="border-color:#2f5d93;background:transparent;color:#cfe6ff">Tải hết file còn hạn (.zip)</button>
+    </div>
+    <div id="hList" style="display:flex;flex-direction:column;gap:10px"></div>
+  </div></div>
+
+  <!-- màn biên tập -->
+  <div id="body" class="hidden">
+    <aside id="left" aria-label="Bước 1 — Ảnh và lọc"></aside>
     <main id="work">
+      <div id="wbar">
+        <span class="eyebrow">BƯỚC 2</span><b style="margin-right:6px;white-space:nowrap">Chỉnh slide</b>
+        <span style="flex:1"></span>
+        <select class="inp" id="hdrPreset" style="width:auto;min-width:170px" aria-label="Mẫu slide"></select>
+        <button class="btn icon ghost" id="bSavePreset" aria-label="Lưu thành mẫu trên máy chủ" title="Lưu thành mẫu"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h8V3"/><path d="M8 21v-7h8v7"/></svg></button>
+        <button class="btn icon ghost" id="bReset" aria-label="Đặt lại theo mẫu" title="Đặt lại theo mẫu"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+        <div class="vsep"></div>
+        <button class="btn icon" id="bUndo" aria-label="Hoàn tác (Ctrl+Z)" title="Hoàn tác (Ctrl+Z)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+        <button class="btn icon" id="bRedo" aria-label="Làm lại (Ctrl+Y)" title="Làm lại (Ctrl+Y)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+        <div class="vsep"></div>
+        <button class="btn icon" id="bZoomOut" aria-label="Thu nhỏ">−</button>
+        <span id="zoomLbl" style="width:40px;text-align:center;font-variant-numeric:tabular-nums" class="small">100%</span>
+        <button class="btn icon" id="bZoomIn" aria-label="Phóng to">+</button>
+        <button class="btn" id="bFit">Vừa</button>
+        <label class="c small" style="padding:0 2px"><input type="checkbox" id="cSnap" checked> Hít</label>
+        <label class="c small" style="padding:0 2px"><input type="checkbox" id="cGrid"> Lưới</label>
+      </div>
       <div id="stage" tabindex="0" aria-label="Slide xem trước">
         <div id="slide"></div>
-        <div id="empty"><div><b style="color:var(--text)">Chưa có ảnh</b><br><span class="small">Thêm thư mục ảnh ở tab Nguồn — slide xem trước hiện ở đây.</span></div></div>
-        <div id="hint">Kéo để di chuyển · 8 tay nắm đổi cỡ (Shift giữ tỉ lệ) · Alt tắt hít · mũi tên nhích · Ctrl + lăn để zoom</div>
+        <span id="hint">Kéo để di chuyển · Shift giữ tỉ lệ · Alt tắt hít · mũi tên nhích · Ctrl + lăn để zoom</span>
+        <div id="qbar" class="hidden" role="toolbar" aria-label="Chỉnh nhanh"></div>
       </div>
-      <section id="strip" aria-label="Dải ảnh theo mã">
-        <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted);flex-wrap:wrap">
-          <button class="btn icon sm" id="bPrev" aria-label="Nhóm trước">‹</button>
-          <b id="posLbl" style="color:var(--text)">0 / 0</b>
-          <button class="btn icon sm" id="bNext" aria-label="Nhóm sau">›</button>
-          <span id="estLbl"></span>
+      <section id="strip" aria-label="Dải slide">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <button class="btn sm icon" id="bPrev" aria-label="Nhóm trước">‹</button>
+          <b id="posLbl">0 / 0</b>
+          <button class="btn sm icon" id="bNext" aria-label="Nhóm sau">›</button>
+          <span id="estLbl" class="small muted"></span>
           <span style="flex:1"></span>
-          <input class="inp" id="findCode" placeholder="Tìm mã…" style="width:160px;height:28px">
-          <span style="display:flex;align-items:center;gap:5px"><span class="dotk" style="width:8px;height:8px;border-radius:50%;background:var(--ok)"></span>khớp</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--warn)"></span>gần đúng</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--err)"></span>không có trong FILE TỔNG</span>
+          <input class="inp" id="findCode" placeholder="Tìm mã…" style="width:140px;height:24px;font-size:12px">
+          <div id="fchips" style="display:flex;gap:5px" role="group" aria-label="Lọc dải ảnh"></div>
         </div>
         <div id="thumbs"></div>
       </section>
     </main>
-    <aside id="insp" aria-label="Thuộc tính phần tử"></aside>
+    <aside id="right">
+      <div id="rtabs" role="tablist">
+        <button data-r="chinh" class="on">Chỉnh</button><button data-r="mau">Mẫu</button><button data-r="dau">Dấu</button><button data-r="ls">Lịch sử</button>
+      </div>
+      <div id="rbody"></div>
+      <div id="rfoot">
+        <span class="eyebrow">BƯỚC 3</span>
+        <button class="btn pri" id="bExport" style="height:44px;font-size:15px;border-radius:11px">Xuất PPTX</button>
+        <span class="tiny muted" style="text-align:center">Ảnh tải lên máy chủ khi bấm xuất, xoá ngay sau khi xong</span>
+      </div>
+    </aside>
   </div>
   <footer><span id="logLine">Sẵn sàng.</span><span style="flex:1"></span><span id="orderLbl"></span></footer>
 </div>
@@ -223,7 +314,7 @@ footer{height:28px;flex-shrink:0;display:flex;align-items:center;gap:16px;paddin
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtB = n => n >= 1073741824 ? (n/1073741824).toFixed(2)+' GB' : n >= 1048576 ? (n/1048576).toFixed(1)+' MB' : n >= 1024 ? Math.round(n/1024)+' KB' : (n||0)+' B';
-const fmtT = s => s ? new Date(s).toLocaleString('vi-VN', {dateStyle:'short', timeStyle:'short'}) : '—';
+const fmtT = s => s ? new Date(typeof s === 'number' ? s * 1000 : s).toLocaleString('vi-VN', {dateStyle:'short', timeStyle:'short'}) : '—';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const r2 = v => Math.round(v * 100) / 100;
 const deep = o => JSON.parse(JSON.stringify(o));
@@ -231,11 +322,12 @@ const enc = p => p.split('/').map(encodeURIComponent).join('/');
 const IMG = /\.(png|jpe?g|webp)$/i;
 const ALL = {ch: 'Tất cả kênh', city: 'Tất cả tỉnh', dist: 'Tất cả quận'};
 const ELS = ['image', 'avatar', 'title', 'info', 'channel'];
-const EL_LABEL = {image: 'Ảnh hiện trường', avatar: 'Avatar', title: 'Tiêu đề', info: 'Bảng thông tin', channel: 'Kênh quảng cáo'};
+const EL_LABEL = {image: 'Ảnh hiện trường', avatar: 'Avatar', title: 'Tiêu đề', info: 'Bảng thông tin', channel: 'Dòng kênh'};
 const AR = {'4:3': 4/3, '16:9': 16/9, '3:2': 3/2, '1:1': 1, '3:4': 3/4, 'Tự do': null};
 const SLIDE = {'16:9': [13.33, 7.5], '4:3': [10, 7.5]};
 const FONTS = ['Arial', 'Be Vietnam Pro', 'Tahoma', 'Segoe UI', 'Calibri', 'Times New Roman'];
-const COLORS = ['#000000', '#1B2430', '#1E6EE8', '#E8B83C', '#FF9900', '#FFFFFF'];
+const COLORS = ['#000000', '#1B2430', '#FFFFFF', '#1E6EE8', '#1791FF', '#E8B83C', '#FF9900', '#E1E1E1'];
+const STATE = {uploading: 'Đang tải ảnh', queued: 'Đang chờ', running: 'Đang dựng slide', done: 'Xong', failed: 'Lỗi', cancelled: 'Đã huỷ'};
 let toastT;
 function toast(t){ const el = $('#toast'); el.textContent = t; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 3500); }
 function log(t){ $('#logLine').textContent = t; }
@@ -249,7 +341,6 @@ async function api(path, opt = {}){
   if (!r.ok || d.ok === false) throw new Error(d.msg || ('Lỗi ' + r.status));
   return d;
 }
-// Hỏi tiến độ: lỗi mạng / 502–504 thoáng qua (máy chủ đang khởi động lại) thì thử lại ~2 phút.
 async function pollJob(id){
   for (let i = 0; ; i++){
     try { return (await api('/jobs/' + id)).job; }
@@ -259,7 +350,7 @@ async function pollJob(id){
 function modal(title, bodyHtml, buttons, opts = {}){
   return new Promise(res => {
     const ov = document.createElement('div'); ov.className = 'ovl';
-    ov.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" style="${opts.width ? 'width:min(' + opts.width + 'px,100%)' : ''}"><div class="hd2"><h2 style="margin:0;font-size:17px;flex:1">${esc(title)}</h2></div><div class="bd">${bodyHtml}</div><div class="ft"><span style="flex:1"></span></div></div>`;
+    ov.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" style="${opts.width ? 'width:min(' + opts.width + 'px,100%)' : ''}"><div class="hd2"><h2 style="margin:0;font-size:16px;flex:1">${esc(title)}</h2></div><div class="bd">${bodyHtml}</div><div class="ft"><span style="flex:1"></span></div></div>`;
     const ft = ov.querySelector('.ft');
     (buttons || [['Đóng', 'btn', null]]).forEach(([l, c, v]) => { const b = document.createElement('button'); b.className = c; b.textContent = l; b.onclick = () => { const val = typeof v === 'function' ? v(ov) : v; if (val === false) return; ov.remove(); res(val); }; ft.appendChild(b); });
     document.body.appendChild(ov);
@@ -269,6 +360,7 @@ function modal(title, bodyHtml, buttons, opts = {}){
     if (opts.onOpen) opts.onOpen(ov);
   });
 }
+function opt(v, cur, label){ return `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(label ?? v)}</option>`; }
 
 // ═══════════════════════ hình học — port từ geometry.py ═══════════════════════
 function perSlideMax(n){ n = +n || 0; return n <= 0 ? 4 : clamp(n, 1, 9); }
@@ -292,7 +384,7 @@ function elemBox(name){
   return [c.x, c.y, c.w, c.h ?? .8];
 }
 const _cv = document.createElement('canvas').getContext('2d');
-function textW(s, sizePt, font, bold){ _cv.font = `${bold ? 700 : 400} ${sizePt}px "${font}", Arial, sans-serif`; return _cv.measureText(s).width; }
+function textW(s, size, font, bold){ _cv.font = `${bold ? 700 : 400} ${size}px "${font}", Arial, sans-serif`; return _cv.measureText(s).width; }
 function lineCount(text, widthPt, size, font, bold){
   const words = String(text || '').split(/\s+/).filter(Boolean); if (!words.length) return 1;
   let lines = 1, cur = 0; const sp = textW(' ', size, font, bold);
@@ -304,13 +396,14 @@ function fitSize(text, wIn, hIn, size, minSize, maxLines, font, bold){
   for (let s = size; s >= minSize; s -= .5){ const n = lineCount(text, wp, s, font, bold); if (n <= (maxLines || 2) && n * s * 1.2 <= hp + .5) return s; }
   return minSize;
 }
+function lighten(hex, k){ const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return hex; const n = parseInt(m[1], 16), f = v => Math.round(v + (255 - v) * k); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; }
 
 // ═══════════════════════ trạng thái ═══════════════════════
 const S = {
-  me: null, excel: null, fields: null, presets: [], presetId: '', presetName: '', base: null,
-  layout: null, opts: null, bg: '', bgs: [], sel: 'title', zoom: 0, idx: 0,
+  me: null, excel: null, fields: null, presets: [], presetId: '', presetName: '',
+  layout: null, opts: null, bg: '', bgs: [], sel: 'title', zoom: 0, idx: 0, filter: 'all',
   folders: [], files: new Map(), groups: [], ana: null, undo: [], redo: [], dirty: false,
-  thumbs: new Map(), dims: new Map(), exif: new Map(), tab: 'nguon',
+  thumbs: new Map(), dims: new Map(), exif: new Map(), rtab: 'chinh', view: 'start', jobs: [], hTab: 'all', title: '',
 };
 function snapshot(){ return JSON.stringify({layout: S.layout, opts: S.opts, bg: S.bg}); }
 function pushUndo(){ S.undo.push(snapshot()); if (S.undo.length > 100) S.undo.shift(); S.redo = []; S.dirty = true; }
@@ -321,8 +414,37 @@ function draftKey(){ return 'ap_editor_' + (S.me ? S.me.id : ''); }
 function saveDraft(){ try { localStorage.setItem(draftKey(), JSON.stringify({presetId: S.presetId, presetName: S.presetName, layout: S.layout, opts: S.opts, bg: S.bg})); } catch(e){} }
 function loadDraft(){ try { return JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch(e){ return null; } }
 
+// ═══════════════════════ màn hình ═══════════════════════
+function setView(v){
+  S.view = v;
+  $('#vStart').classList.toggle('hidden', v !== 'start');
+  $('#vHist').classList.toggle('hidden', v !== 'hist');
+  $('#body').classList.toggle('hidden', v !== 'edit');
+  if (v === 'edit') requestAnimationFrame(() => renderSlide());
+  if (v === 'hist') renderHistory();
+  if (v === 'start') renderStart();
+  renderSteps();
+}
+function renderSteps(){
+  const has = S.files.size > 0, cur = S.view === 'edit' ? 2 : S.view === 'start' ? 1 : 0;
+  document.querySelectorAll('#steps button').forEach(b => {
+    const n = +b.dataset.step; b.classList.remove('cur', 'done');
+    if (n === cur) b.classList.add('cur'); else if (n === 1 && has) b.classList.add('done');
+    b.querySelector('.b').textContent = b.classList.contains('done') ? '✓' : n;
+    b.setAttribute('aria-current', n === cur ? 'step' : 'false');
+  });
+}
+$('#steps').onclick = e => { const b = e.target.closest('button'); if (!b) return; const n = +b.dataset.step;
+  if (n === 1){ if (S.files.size) { setView('edit'); $('#left').scrollTop = 0; } else setView('start'); }
+  if (n === 2){ if (S.files.size) setView('edit'); else toast('Chọn thư mục ảnh trước.'); }
+  if (n === 3){ if (S.files.size){ setView('edit'); startExport(); } else toast('Chọn thư mục ảnh trước.'); } };
+$('#hLogo').onclick = () => setView(S.files.size ? 'edit' : 'start');
+$('#bHist').onclick = () => setView('hist');
+$('#hBack').onclick = () => setView(S.files.size ? 'edit' : 'start');
+
 // ═══════════════════════ đăng nhập ═══════════════════════
 function showLogin(){ $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }
+$('#lEye').onclick = () => { const i = $('#lPw'); i.type = i.type === 'password' ? 'text' : 'password'; };
 $('#fLogin').onsubmit = async e => {
   e.preventDefault(); $('#lErr').textContent = '';
   try { const d = await api('/login', {method: 'POST', json: {email: $('#lEmail').value, password: $('#lPw').value, cookie: true, client: 'web-editor'}}); $('#lPw').value = ''; enter(d.user); }
@@ -331,11 +453,13 @@ $('#fLogin').onsubmit = async e => {
 async function enter(u){
   S.me = u; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
   $('#bAcc').textContent = (u.name || u.email).split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  await Promise.all([loadFields(), loadPresets(), loadBgs()]);
+  $('#hello').textContent = `Chào ${u.name || u.email.split('@')[0]}, làm báo cáo nào hôm nay?`;
+  await Promise.all([loadFields(), loadPresets(), loadBgs(), loadJobs()]);
   const d = loadDraft();
-  if (d && d.layout && d.opts){ S.presetId = d.presetId; S.presetName = d.presetName; S.layout = d.layout; S.opts = d.opts; S.bg = d.bg || ''; S.base = null; }
+  if (d && d.layout && d.opts){ S.presetId = d.presetId; S.presetName = d.presetName; S.layout = d.layout; S.opts = d.opts; S.bg = d.bg || ''; normalizeOpts(); }
   else await applyPreset(S.presets.find(p => p.id === 'builtin:Báo cáo')?.id || S.presets[0].id, true);
-  renderAll(); fitZoom();
+  renderAll(); setView('start');
+  setInterval(() => { if (!document.hidden) loadJobs(); }, 20000);
   if (u.must_change) setTimeout(changePw, 600);
 }
 async function changePw(){
@@ -346,22 +470,31 @@ async function changePw(){
 
 // ═══════════════════════ dữ liệu máy chủ ═══════════════════════
 async function loadFields(){
-  try {
-    const d = await api('/excel/fields'); S.excel = d.excel; S.fields = d;
-    $('#syncChip').textContent = 'FILE TỔNG: ' + d.excel.file_name; $('#syncChip').style.color = '#6ee7a0';
-  } catch(e){ S.fields = null; $('#syncChip').textContent = e.message; $('#syncChip').style.background = '#2a1515'; $('#syncChip').style.color = '#fca5a5'; }
+  try { const d = await api('/excel/fields'); S.excel = d.excel; S.fields = d;
+    $('#syncChip').textContent = 'FILE TỔNG: ' + d.excel.file_name; $('#syncChip').title = 'Cập nhật ' + fmtT(d.excel.updated_at);
+    $('#startExcel').textContent = `FILE TỔNG: ${d.excel.file_name} · cập nhật ${fmtT(d.excel.updated_at)} · ${(d.rows || 0).toLocaleString('vi-VN')} điểm`;
+  } catch(e){ S.fields = null; $('#syncChip').textContent = e.message; $('#syncChip').className = 'tiny err'; $('#startExcel').textContent = e.message; }
 }
 async function loadPresets(){ S.presets = (await api('/presets')).presets; }
 async function loadBgs(){ try { S.bgs = (await api('/manifest/backgrounds')).files; } catch(e){ S.bgs = []; } }
+async function loadJobs(){
+  try { S.jobs = (await api('/jobs')).jobs; } catch(e){ return; }
+  const now = Date.now() / 1000, ready = S.jobs.filter(j => j.state === 'done' && (!j.expires_ts || j.expires_ts > now)).length;
+  $('#histBadge').textContent = ready; $('#histBadge').classList.toggle('hidden', !ready);
+  if (S.view === 'hist') renderHistory(); if (S.view === 'start') renderStart(); if (S.view === 'edit' && S.rtab === 'ls') renderRight();
+}
+function normalizeOpts(){
+  S.opts = Object.assign(defaultOpts(), S.opts || {});
+  S.opts.visible = Object.assign({image: true, avatar: true, title: true, info: true, channel: true}, S.opts.visible || {});
+  S.opts.fx = Object.assign(defaultFx(), S.opts.fx || {});
+  S.opts.qty_show = Object.assign({LCD: true, DP: true, DS: true, GP: true}, S.opts.qty_show || {});
+  S.layout.font = S.layout.font || {name: 'Arial', bold: true, color: '#000000'};
+}
 async function applyPreset(id, silent){
   const d = await api('/presets/' + encodeURIComponent(id));
   const data = d.data || {}, keep = S.opts ? {channel_filter: S.opts.channel_filter, city_filter: S.opts.city_filter, district_filter: S.opts.district_filter} : {};
   if (silent !== true) pushUndo();
-  S.presetId = id; S.presetName = d.name; S.base = deep(data);
-  S.layout = deep(data.layout || {}); S.opts = Object.assign(defaultOpts(), deep(data.opts || {}));
-  S.opts.visible = Object.assign({image: true, avatar: true, title: true, info: true, channel: true}, S.opts.visible || {});
-  S.opts.fx = Object.assign(defaultFx(), S.opts.fx || {});
-  S.opts.qty_show = Object.assign({LCD: true, DP: true, DS: true, GP: true}, S.opts.qty_show || {});
+  S.presetId = id; S.presetName = d.name; S.layout = deep(data.layout || {}); S.opts = deep(data.opts || {}); normalizeOpts();
   if (silent === 'keepfilters') Object.assign(S.opts, keep);
   saveDraft(); renderAll(); reanalyze();
 }
@@ -377,7 +510,9 @@ function addFiles(list, rootName){
   const i = S.folders.length + 1, items = files.map(x => ({rel: `f${i}/` + x.path, file: x.file}));
   items.forEach(x => S.files.set(x.rel, x.file));
   S.folders.push({name: rootName, items, bytes: files.reduce((a, x) => a + x.file.size, 0)});
-  S.idx = 0; renderSide(); reanalyze();
+  S.idx = 0; S.filter = 'all';
+  if (!S.title) S.title = rootName;
+  setView('edit'); renderLeft(); reanalyze();
   log(`Đã thêm thư mục «${rootName}»: ${files.length} ảnh.`);
 }
 $('#dirInput').onchange = e => {
@@ -392,14 +527,17 @@ async function readEntry(entry, path, out){
   while (true){ const batch = await new Promise(r => rd.readEntries(r, () => r([]))); if (!batch.length) break; for (const e of batch) await readEntry(e, path + entry.name + '/', out); }
 }
 async function onDrop(e){
-  e.preventDefault(); document.querySelectorAll('.drop').forEach(d => d.classList.remove('over'));
+  e.preventDefault(); document.querySelectorAll('.drop,.bigdrop').forEach(d => d.classList.remove('over'));
   const items = [...(e.dataTransfer.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
   for (const en of items){ const out = []; log('Đang đọc thư mục ' + en.name + '…'); await readEntry(en, '', out); if (out.length) addFiles(out, en.name); }
 }
-const thumbQ = []; let thumbBusy = 0;
-function wantThumb(rel){
-  if (S.thumbs.has(rel) || thumbQ.includes(rel)) return; thumbQ.push(rel); pumpThumbs();
+function bindDrop(el){
+  el.onclick = () => $('#dirInput').click(); el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') $('#dirInput').click(); };
+  el.ondragover = e => { e.preventDefault(); el.classList.add('over'); }; el.ondragleave = () => el.classList.remove('over'); el.ondrop = onDrop;
 }
+bindDrop($('#bigDrop'));
+const thumbQ = []; let thumbBusy = 0;
+function wantThumb(rel){ if (!rel || S.thumbs.has(rel) || thumbQ.includes(rel)) return; thumbQ.push(rel); pumpThumbs(); }
 function pumpThumbs(){
   while (thumbBusy < 3 && thumbQ.length){
     const rel = thumbQ.shift(), f = S.files.get(rel); if (!f) continue; thumbBusy++;
@@ -448,7 +586,7 @@ function stampText(rel){
   return fx.display_mode === 'Chỉ ngày' ? date : fx.display_mode === 'Chỉ giờ' ? time : `${date} ${time}`;
 }
 
-// ═══════════════════════ phân tích (máy chủ nhóm mã, khớp Excel, avatar) ═══════════════════════
+// ═══════════════════════ phân tích ═══════════════════════
 let anaT = null, anaSeq = 0;
 function reanalyze(){ clearTimeout(anaT); anaT = setTimeout(doAnalyze, 250); }
 async function doAnalyze(){
@@ -464,82 +602,77 @@ async function doAnalyze(){
 }
 const curGroup = () => S.groups[S.idx] || null;
 const curFiles = () => { const g = curGroup(); return g ? g.files.slice(0, perSlideMax(S.opts.n_per_slide)) : []; };
+const isNoAv = g => S.opts.visible.avatar && !g.avatar;
+const isNone = g => g.kind === 'none' || g.kind === 'fuzzy';
+function visibleIdx(){ return S.groups.map((g, i) => i).filter(i => S.filter === 'all' || (S.filter === 'noav' ? isNoAv(S.groups[i]) : isNone(S.groups[i]))); }
 
 // ═══════════════════════ vẽ slide ═══════════════════════
-let scale = 60; // px / inch
+let scale = 60;
 function fitZoom(){ S.zoom = 0; renderSlide(); }
 function computeScale(){
   const st = $('#stage'), [sw, sh] = slideWH();
-  const fit = Math.max(20, Math.min((st.clientWidth - 56) / sw, (st.clientHeight - 70) / sh));
+  const fit = Math.max(20, Math.min((st.clientWidth - 48) / sw, (st.clientHeight - 100) / sh));
   scale = S.zoom ? 96 * S.zoom / 100 : fit;
   $('#zoomLbl').textContent = Math.round(scale / 96 * 100) + '%';
 }
 function px(v){ return (v * scale).toFixed(2) + 'px'; }
 function renderSlide(){
-  if (!S.layout) return;
+  if (!S.layout || S.view !== 'edit') return;
   computeScale();
   const [sw, sh] = slideWH(), L = S.layout, font = L.font || {}, vis = S.opts.visible, g = curGroup(), el = $('#slide');
   el.style.width = px(sw); el.style.height = px(sh);
-  const bg = S.bg ? `url("api/files/backgrounds/${enc(S.bg)}") center/cover no-repeat` : '#fff';
-  el.style.background = bg;
-  if ($('#cGrid').checked){ el.style.backgroundImage = (S.bg ? `url("api/files/backgrounds/${enc(S.bg)}"),` : '') + `linear-gradient(rgba(46,155,255,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(46,155,255,.18) 1px,transparent 1px)`; el.style.backgroundSize = (S.bg ? 'cover,' : '') + `${scale / 2}px ${scale / 2}px,${scale / 2}px ${scale / 2}px`; }
-  $('#empty').classList.toggle('hidden', !!g);
-  const name = g ? g.name : 'Tên điểm', code = g ? g.code : 'MÃ RP';
-  const files = curFiles(), K = g ? g.slides : 1;
-  let html = '';
+  const bgUrl = S.bg ? `url("api/files/backgrounds/${enc(S.bg)}")` : '';
+  if ($('#cGrid').checked){ const gl = `linear-gradient(rgba(58,160,255,.2) 1px,transparent 1px),linear-gradient(90deg,rgba(58,160,255,.2) 1px,transparent 1px)`;
+    el.style.background = '#fff'; el.style.backgroundImage = bgUrl ? `${gl},${bgUrl}` : gl; el.style.backgroundSize = `${scale / 2}px ${scale / 2}px,${scale / 2}px ${scale / 2}px${bgUrl ? ',cover' : ''}`; }
+  else { el.style.backgroundImage = ''; el.style.background = bgUrl ? `${bgUrl} center/cover no-repeat` : '#fff'; }
+  const name = g ? g.name : 'Tên điểm', files = curFiles(), K = g ? g.slides : 1;
   const box = n => { const [x, y, w, h] = elemBox(n); return `left:${px(x)};top:${px(y)};width:${px(w)};height:${px(h)}`; };
   const op = c => (c && c.opacity != null && c.opacity < 100) ? `opacity:${c.opacity / 100};` : '';
-  // ảnh
+  let html = '';
   if (L.image){
-    const a = L.image, [ax, ay, aw, ah] = elemBox('image');
+    const a = L.image, [, , aw, ah] = elemBox('image');
     const n = files.length || perSlideMax(S.opts.n_per_slide), cells = gridCells([0, 0, aw, ah], n, AR[S.opts.ar_label] ?? 4/3, a.gap ?? .1);
-    const inner = cells.map(([x, y, w, h], i) => {
+    html += `<div class="el ${vis.image ? '' : 'hid'}" data-el="image" style="${box('image')};${op(a)}">` + cells.map(([x, y, w, h], i) => {
       const rel = files[i], url = rel ? S.thumbs.get(rel) : '', dm = rel ? S.dims.get(rel) : null;
       if (rel) wantThumb(rel);
-      const portrait = dm && dm[1] > dm[0], fit = (a.fit_mode === 'fit' || portrait) ? 'contain' : 'cover';
+      const fit = (a.fit_mode === 'fit' || (dm && dm[1] > dm[0])) ? 'contain' : 'cover';
       const st = stampText(rel), fx = S.opts.fx, fh = Math.max(7, h * scale * (fx.font_scale || 3.5) / 100), pos = fx.position || 'bottom_right';
       const stamp = rel && st ? `<span class="stamp" style="font-size:${fh}px;color:${st === 'không EXIF' ? '#fca5a5' : fx.text_color};${pos.includes('right') ? 'right' : 'left'}:${fh * .5}px;${pos.includes('bottom') ? 'bottom' : 'top'}:${fh * .5}px;${fx.add_background ? 'background:rgba(0,0,0,.75);padding:' + fh * .25 + 'px ' + fh * .35 + 'px' : 'text-shadow:0 0 2px #000'}">${esc(st)}</span>` : '';
       return `<div class="cell" style="left:${px(x)};top:${px(y)};width:${px(w)};height:${px(h)};border-radius:${(a.radius || 0) / 100 * Math.min(w, h) * scale / 2}px;${fit === 'contain' ? 'background:transparent' : ''}">${url ? `<img src="${url}" alt="" style="object-fit:${fit}">` : (rel ? '' : `<span style="position:absolute;inset:0;display:grid;place-items:center;color:#5b6472;font-size:11px">Ảnh ${i + 1}</span>`)}${stamp}</div>`;
-    }).join('');
-    html += `<div class="el ${vis.image ? '' : 'hid'}" data-el="image" style="${box('image')};${op(a)}">${inner}</div>`;
+    }).join('') + '</div>';
   }
-  // avatar
   if (L.avatar){
     const a = L.avatar, src = g && g.avatar ? `api/files/avatars/${enc(g.avatar)}` : '';
     html += `<div class="el ${vis.avatar ? '' : 'hid'}" data-el="avatar" style="${box('avatar')};${op(a)};border-radius:${(a.radius || 0) / 100 * a.w * scale / 2}px;overflow:hidden;background:${src ? 'transparent' : '#d9dde3'}">${src ? `<img src="${src}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">` : `<span style="display:grid;place-items:center;height:100%;font-size:11px;color:#5b6472">${g ? 'Thiếu avatar' : 'Avatar'}</span>`}</div>`;
   }
-  // tiêu đề
   if (L.title){
     const t = L.title, [, , tw, th] = elemBox('title'), fam = t.font || font.name || 'Arial';
     let s = t.show_counter ? `${name} (1/${K})` : name; if (t.upper !== false) s = s.toUpperCase();
     const size = fitSize(s, tw, th, t.size || 23, t.min_size || 12, t.max_lines || 2, fam, font.bold !== false);
     html += `<div class="el ${vis.title ? '' : 'hid'}" data-el="title" style="${box('title')};${op(t)}"><div class="ttext" style="justify-content:${{left: 'flex-start', center: 'center', right: 'flex-end'}[t.align || 'left']};text-align:${t.align || 'left'};font-family:'${fam}',Arial;font-size:${size * scale / 72}px;font-weight:${font.bold !== false ? 700 : 400};font-style:${font.italic ? 'italic' : 'normal'};color:${t.color || font.color || '#000'};letter-spacing:${(t.tracking || 0) / 100}em">${esc(s)}</div></div>`;
   }
-  // bảng thông tin
   if (L.info){
     const c = L.info, fam = c.font || font.name || 'Arial', sz = (c.size || 12) * scale / 72, acc = c.accent_color || '#2563eb', vc = font.color || '#0f172a';
     let inner = '';
-    const style = S.opts.slide_style;
-    if (style === 'saleskit'){
+    if (S.opts.slide_style === 'saleskit'){
       const t = (g && g.info_table) || {school: name, address: '[Địa chỉ]', traffic: '—', specs: [{area: '—', form: '—', size: '', qty: '—', note: ''}]};
-      const hd = (x, w) => `<td style="background:${acc};color:#fff;font-weight:700;width:${w}">${esc(x)}</td>`;
+      const hd = x => `<td style="background:${acc};color:#fff;font-weight:700">${esc(x)}</td>`;
       inner = `<table class="info" style="font-family:'${fam}',Arial;font-size:${sz}px;color:#1B2430;border:1px solid #D0D4DE">
-        <tr>${hd('ĐỊA ĐIỂM', '22%')}<td colspan="4" style="background:#EDEAF4;font-weight:700">${esc(t.school)}</td></tr>
-        <tr>${hd('ĐỊA CHỈ', '22%')}<td colspan="4" style="background:#EDEAF4">${esc(t.address)}</td></tr>
-        <tr>${hd('TRAFFIC', '22%')}<td colspan="4" style="background:#EDEAF4">${esc(t.traffic)}</td></tr>
-        <tr>${['KHU VỰC', 'HÌNH THỨC', 'KÍCH THƯỚC', 'SỐ LƯỢNG', 'GHI CHÚ'].map(x => hd(x, '')).join('')}</tr>
+        <tr>${hd('ĐỊA ĐIỂM')}<td colspan="4" style="background:#EDEAF4;font-weight:700">${esc(t.school)}</td></tr>
+        <tr>${hd('ĐỊA CHỈ')}<td colspan="4" style="background:#EDEAF4">${esc(t.address)}</td></tr>
+        <tr>${hd('TRAFFIC')}<td colspan="4" style="background:#EDEAF4">${esc(t.traffic)}</td></tr>
+        <tr>${['KHU VỰC', 'HÌNH THỨC', 'KÍCH THƯỚC', 'SỐ LƯỢNG', 'GHI CHÚ'].map(hd).join('')}</tr>
         ${(t.specs || []).slice(0, 4).map(r => `<tr>${[r.area, r.form, r.size, r.qty, r.note].map(x => `<td style="background:#EDEAF4">${esc(x)}</td>`).join('')}</tr>`).join('')}</table>`;
-    } else if (style === 'nelson'){
+    } else if (S.opts.slide_style === 'nelson'){
       const t = (g && g.nelson_table) || {specs: [{qty: '—', note: '—', form: '—'}]};
       inner = `<table class="info" style="font-family:'${fam}',Arial;font-size:${sz}px;color:#fff"><tr>${['SỐ LƯỢNG', 'GHI CHÚ', 'HÌNH THỨC'].map(x => `<td style="background:${acc};font-weight:700">${x}</td>`).join('')}</tr>
         ${(t.specs || []).slice(0, 4).map(r => `<tr>${[r.qty, r.note, r.form].map(x => `<td style="background:rgba(44,36,25,.75)">${esc(x)}</td>`).join('')}</tr>`).join('')}</table>`;
     } else {
       const rows = (g && g.info_rows && g.info_rows.length) ? g.info_rows : [['Address', '[Địa chỉ]', false], ['District', '[Quận]', false], ['Quantity', '—', false], ['Traffic / day', '—', true], ['Traffic / week', '—', true]];
-      inner = `<table class="info" style="font-family:'${fam}',Arial;color:${vc}">${rows.map(([l, v, a]) => `<tr style="height:${a ? 1.35 : 1}fr"><td style="width:42%;font-size:${sz * .85}px;font-weight:400;color:${lighten(vc, .45)}">${esc(l)}</td><td style="text-align:right;font-weight:700;font-size:${sz * (a ? 1.5 : 1)}px;color:${a ? acc : vc}">${esc(v)}</td></tr>`).join('')}</table>`;
+      inner = `<table class="info" style="font-family:'${fam}',Arial;color:${vc}">${rows.map(([l, v, a]) => `<tr><td style="width:42%;font-size:${sz * .85}px;color:${lighten(vc, .45)}">${esc(l)}</td><td style="text-align:right;font-weight:700;font-size:${sz * (a ? 1.5 : 1)}px;color:${a ? acc : vc}">${esc(v)}</td></tr>`).join('')}</table>`;
     }
     html += `<div class="el ${vis.info ? '' : 'hid'}" data-el="info" style="${box('info')};${op(c)}">${inner}</div>`;
   }
-  // kênh
   if (L.channel){
     const c = L.channel, [, , cw, ch] = elemBox('channel'), fam = c.font || font.name || 'Arial';
     const s = g ? g.channel_text : (S.opts.channel_template || '').replace('{channel}', 'Kênh');
@@ -547,8 +680,10 @@ function renderSlide(){
     html += `<div class="el ${vis.channel && S.opts.channel_enabled !== false ? '' : 'hid'}" data-el="channel" style="${box('channel')};${op(c)}"><div class="ttext" style="justify-content:${{left: 'flex-start', center: 'center', right: 'flex-end'}[c.align || 'left']};text-align:${c.align || 'left'};font-family:'${fam}',Arial;font-size:${size * scale / 72}px;font-weight:${font.bold !== false ? 700 : 400};color:${c.color || font.color || '#000'}">${esc(s)}</div></div>`;
   }
   el.innerHTML = html;
-  drawSelection();
+  drawSelection(); renderQbar();
 }
+const HANDLES = [['nw', 0, 0], ['n', .5, 0], ['ne', 1, 0], ['e', 1, .5], ['se', 1, 1], ['s', .5, 1], ['sw', 0, 1], ['w', 0, .5]];
+const CURSORS = {nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize'};
 function drawSelection(){
   const el = $('#slide'); el.querySelectorAll('.hd,.guide').forEach(x => x.remove());
   el.querySelectorAll('.el').forEach(x => x.classList.toggle('sel', x.dataset.el === S.sel));
@@ -556,8 +691,54 @@ function drawSelection(){
   const [x, y, w, h] = elemBox(S.sel);
   for (const [k, fx, fy] of HANDLES){ const d = document.createElement('div'); d.className = 'hd'; d.dataset.h = k; d.style.left = px(x + w * fx); d.style.top = px(y + h * fy); d.style.cursor = CURSORS[k]; el.appendChild(d); }
 }
-const HANDLES = [['nw', 0, 0], ['n', .5, 0], ['ne', 1, 0], ['e', 1, .5], ['se', 1, 1], ['s', .5, 1], ['sw', 0, 1], ['w', 0, .5]];
-const CURSORS = {nw: 'nwse-resize', se: 'nwse-resize', ne: 'nesw-resize', sw: 'nesw-resize', n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize'};
+
+// ═══════════════════════ thanh chỉnh nhanh ═══════════════════════
+function colorOf(n, kind){ const c = S.layout[n], f = S.layout.font || {}; if (kind === 'accent') return c.accent_color || '#2563EB'; if (n === 'info') return f.color || '#000000'; return c.color || f.color || '#000000'; }
+function setColor(n, kind, v){ pushUndo(); const c = S.layout[n]; if (kind === 'accent') c.accent_color = v; else if (n === 'info') { S.layout.font = S.layout.font || {}; S.layout.font.color = v; } else c.color = v; saveDraft(); renderSlide(); if (S.rtab === 'chinh') renderRight(); }
+function renderQbar(){
+  const q = $('#qbar'), n = S.sel;
+  if (!n || !S.layout[n] || S.view !== 'edit'){ q.classList.add('hidden'); return; }
+  const c = S.layout[n], text = ['title', 'channel', 'info'].includes(n), font = S.layout.font || {};
+  let h = `<span class="lbl">${EL_LABEL[n]}</span>`;
+  if (text){
+    h += `<select class="inp" data-q="font" style="width:120px;height:30px" aria-label="Font">${opt('', c.font || '', 'Font mẫu')}${FONTS.map(f => opt(f, c.font || '')).join('')}</select>
+      <button class="btn icon" data-q="dec" aria-label="Giảm cỡ chữ">A−</button><span class="sz">${c.size}</span><button class="btn icon" data-q="inc" aria-label="Tăng cỡ chữ">A+</button>
+      <button class="btn icon" data-q="bold" aria-label="Đậm" style="font-weight:700;${font.bold !== false ? 'border-color:var(--guide);background:var(--sel)' : ''}">B</button>
+      <span class="vsep"></span>
+      <button class="swb" data-q="color" aria-label="Màu chữ" title="Màu chữ"><i style="background:${colorOf(n)}"></i></button>`;
+    if (n === 'info') h += `<button class="swb" data-q="accent" aria-label="Màu nhấn" title="Màu nhấn"><i style="background:${colorOf(n, 'accent')}"></i></button>`;
+    if (n !== 'info') h += `<div class="seg">${['left', 'center', 'right'].map(a => `<button data-q="al-${a}" class="${(c.align || 'left') === a ? 'on' : ''}" aria-label="Căn ${a}">${{left: '⟸', center: '≡', right: '⟹'}[a]}</button>`).join('')}</div>`;
+  } else if (n === 'image'){
+    h += `<div class="seg"><button data-q="fit-fill" class="${c.fit_mode !== 'fit' ? 'on' : ''}">Lấp đầy</button><button data-q="fit-fit" class="${c.fit_mode === 'fit' ? 'on' : ''}">Vừa khung</button></div>
+      <select class="inp" data-q="nps" style="width:96px;height:30px" aria-label="Ảnh mỗi slide">${opt(0, S.opts.n_per_slide, 'Tự')}${[1, 2, 3, 4, 6, 9].map(k => opt(k, S.opts.n_per_slide, k + ' ảnh')).join('')}</select>`;
+  }
+  h += `<span class="vsep"></span><button class="btn icon" data-q="hide" aria-label="Ẩn phần tử" title="Ẩn phần tử"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/></svg></button>`;
+  q.innerHTML = h; q.classList.remove('hidden');
+  q.querySelectorAll('[data-q]').forEach(b => {
+    const k = b.dataset.q;
+    if (b.tagName === 'SELECT') b.onchange = () => { pushUndo(); if (k === 'font') c.font = b.value; else { S.opts.n_per_slide = +b.value; reanalyze(); } saveDraft(); renderSlide(); renderRight(); };
+    else b.onclick = e => {
+      if (k === 'inc' || k === 'dec'){ pushUndo(); c.size = clamp((c.size || 12) + (k === 'inc' ? 1 : -1), 6, 96); }
+      else if (k === 'bold'){ pushUndo(); S.layout.font.bold = S.layout.font.bold === false; }
+      else if (k === 'color' || k === 'accent') return colorPop(b, n, k === 'accent' ? 'accent' : 'text');
+      else if (k.startsWith('al-')){ pushUndo(); c.align = k.slice(3); }
+      else if (k.startsWith('fit-')){ pushUndo(); c.fit_mode = k.slice(4); }
+      else if (k === 'hide'){ pushUndo(); S.opts.visible[n] = false; toast(EL_LABEL[n] + ' đã ẩn — bật lại ở tab Chỉnh.'); }
+      saveDraft(); renderSlide(); renderRight();
+    };
+  });
+}
+function colorPop(anchor, n, kind){
+  document.querySelectorAll('.pop').forEach(p => p.remove());
+  const cur = colorOf(n, kind).toUpperCase(), p = document.createElement('div'); p.className = 'pop';
+  p.innerHTML = COLORS.map(c => `<button class="sw ${cur === c ? 'on' : ''}" data-c="${c}" style="background:${c}" aria-label="Màu ${c}"></button>`).join('') + `<input type="color" value="${/^#[0-9A-F]{6}$/.test(cur) ? cur.toLowerCase() : '#000000'}" style="width:28px;height:24px;border:0;background:none;cursor:pointer" aria-label="Màu khác"><span class="tiny muted" style="width:100%">${kind === 'accent' ? 'Màu nhấn' : (n === 'info' ? 'Màu chữ (chung mẫu)' : 'Màu chữ')}</span>`;
+  const st = $('#stage'), r = anchor.getBoundingClientRect(), sr = st.getBoundingClientRect();
+  p.style.left = (r.left - sr.left + st.scrollLeft - 80) + 'px'; p.style.top = (r.top - sr.top + st.scrollTop - 96) + 'px';
+  st.appendChild(p);
+  p.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { setColor(n, kind, b.dataset.c); p.remove(); });
+  p.querySelector('input').onchange = e => { setColor(n, kind, e.target.value.toUpperCase()); p.remove(); };
+  setTimeout(() => document.addEventListener('mousedown', function h(ev){ if (!p.contains(ev.target)){ p.remove(); document.removeEventListener('mousedown', h); } }), 0);
+}
 
 // ═══════════════════════ kéo / đổi cỡ / hít ═══════════════════════
 let drag = null;
@@ -575,10 +756,10 @@ function snapLines(except){
 function snapVal(cands, lines, tol){ let best = null; for (const c of cands) for (const l of lines){ const d = l - c; if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best[0]))) best = [d, l]; } return best; }
 $('#slide').addEventListener('pointerdown', e => {
   const hd = e.target.closest('.hd'), elx = e.target.closest('.el');
-  if (!hd && !elx){ S.sel = null; drawSelection(); renderInsp(); return; }
+  if (!hd && !elx){ S.sel = null; drawSelection(); renderQbar(); renderRight(); return; }
   const name = hd ? S.sel : elx.dataset.el;
-  if (S.sel !== name){ S.sel = name; drawSelection(); renderInsp(); }
-  const c = S.layout[name], [x, y, w, h] = elemBox(name);
+  if (S.sel !== name){ S.sel = name; drawSelection(); renderQbar(); if (S.rtab === 'chinh') renderRight(); }
+  const [x, y, w, h] = elemBox(name);
   drag = {name, mode: hd ? hd.dataset.h : 'move', sx: e.clientX, sy: e.clientY, box: [x, y, w, h], before: snapshot(), moved: false, ar: w / h};
   $('#slide').setPointerCapture(e.pointerId); e.preventDefault();
 });
@@ -588,13 +769,13 @@ $('#slide').addEventListener('pointermove', e => {
   if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 2 / scale) return;
   drag.moved = true;
   const c = S.layout[drag.name], [bx, by, bw, bh] = drag.box, [sw, sh] = slideWH();
-  let x = bx, y = by, w = bw, h = bh, m = drag.mode;
+  let x = bx, y = by, w = bw, h = bh; const m = drag.mode;
   if (m === 'move'){ x = bx + dx; y = by + dy; }
   else {
     if (m.includes('e')) w = bw + dx; if (m.includes('s')) h = bh + dy;
     if (m.includes('w')){ w = bw - dx; x = bx + dx; } if (m.includes('n')){ h = bh - dy; y = by + dy; }
     if ((e.shiftKey || drag.name === 'avatar') && m.length === 2){ const ar = drag.ar; if (w / h > ar) w = h * ar; else h = w / ar; if (m.includes('w')) x = bx + bw - w; if (m.includes('n')) y = by + bh - h; }
-    if (drag.name === 'avatar'){ h = w / drag.ar; }
+    if (drag.name === 'avatar') h = w / drag.ar;
     w = Math.max(.2, w); h = Math.max(.15, h);
   }
   const gx = [], gy = [];
@@ -615,12 +796,12 @@ $('#slide').addEventListener('pointermove', e => {
 });
 $('#slide').addEventListener('pointerup', () => {
   if (!drag) return;
-  if (drag.moved){ S.undo.push(drag.before); S.redo = []; S.dirty = true; saveDraft(); }
+  if (drag.moved){ S.undo.push(drag.before); S.redo = []; S.dirty = true; saveDraft(); renderHeaderBtns(); }
   drag = null; guides([], []);
 });
 $('#stage').addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); const cur = Math.round(scale / 96 * 100); S.zoom = clamp(cur + (e.deltaY < 0 ? 10 : -10), 25, 400); renderSlide(); }, {passive: false});
 window.addEventListener('keydown', e => {
-  if (e.target.closest('input,select,textarea') || document.querySelector('.ovl')) return;
+  if (S.view !== 'edit' || e.target.closest('input,select,textarea') || document.querySelector('.ovl')) return;
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && k === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
   if ((e.ctrlKey || e.metaKey) && k === 'y'){ e.preventDefault(); redo(); return; }
@@ -631,172 +812,93 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('resize', () => { if (S.layout) renderSlide(); });
 
-// ═══════════════════════ dải ảnh theo mã ═══════════════════════
-const DOT = {exact: 'var(--ok)', merged: 'var(--ok)', fuzzy: 'var(--warn)', none: 'var(--err)'};
+// ═══════════════════════ dải ảnh ═══════════════════════
+const DOT = {exact: '#34d399', merged: '#34d399', fuzzy: '#fbbf24', none: '#f87171'};
 function renderStrip(){
-  const n = S.groups.length, a = S.ana;
+  const n = S.groups.length, a = S.ana, vis = visibleIdx();
   $('#posLbl').textContent = n ? `${S.idx + 1} / ${n}` : '0 / 0';
-  $('#estLbl').textContent = a ? `${n} nhóm ảnh → khoảng ${a.slides} slide ảnh` + (S.opts.store_index ? ' + slide danh sách' : '') + (S.opts.fx.dashboard ? ' + tổng quan' : '') : '';
-  $('#thumbs').innerHTML = S.groups.map((g, i) => `<button class="th ${i === S.idx ? 'on' : ''}" data-i="${i}" title="${esc(g.code)} — ${esc(g.name)}"><span class="im" data-rel="${esc(g.files[0])}" style="${S.thumbs.get(g.files[0]) ? `background-image:url(${S.thumbs.get(g.files[0])})` : ''}"><span class="dot" style="background:${DOT[g.kind] || DOT.none}"></span><span class="n">${g.files.length}</span></span><span class="c">${esc(g.code)}</span></button>`).join('');
+  $('#estLbl').textContent = a ? `· khoảng ${a.slides} slide ảnh` : '';
+  const noav = S.groups.filter(isNoAv).length, none = S.groups.filter(isNone).length;
+  $('#fchips').innerHTML = `<button class="fchip ${S.filter === 'all' ? 'on' : ''}" data-f="all">Tất cả ${n}</button>` +
+    (noav ? `<button class="fchip w ${S.filter === 'noav' ? 'on' : ''}" data-f="noav">Thiếu avatar ${noav}</button>` : '') +
+    (none ? `<button class="fchip e ${S.filter === 'none' ? 'on' : ''}" data-f="none">Không khớp ${none}</button>` : '');
+  $('#thumbs').innerHTML = vis.map(i => { const g = S.groups[i], u = S.thumbs.get(g.files[0]);
+    return `<button class="th ${i === S.idx ? 'on' : ''}" data-i="${i}" data-rel="${esc(g.files[0])}" title="${esc(g.code)} — ${esc(g.name)}" style="${u ? `background-image:url(${u})` : ''}"><span class="dot" style="background:${DOT[g.kind] || DOT.none}"></span><span class="n">${g.files.length}</span><span class="c">${esc(g.code)}</span></button>`; }).join('') || (n ? '<span class="small muted" style="padding:8px">Không có nhóm nào trong bộ lọc này.</span>' : '');
   const io = new IntersectionObserver(es => es.forEach(en => { if (en.isIntersecting){ wantThumb(en.target.dataset.rel); io.unobserve(en.target); } }), {root: $('#thumbs')});
-  $('#thumbs').querySelectorAll('.im').forEach(x => io.observe(x));
+  $('#thumbs').querySelectorAll('.th').forEach(x => io.observe(x));
   const on = $('#thumbs .th.on'); if (on) on.scrollIntoView({block: 'nearest', inline: 'center'});
-  $('#orderLbl').textContent = S.opts.sort_mode === 'list' ? 'Thứ tự slide: theo thứ tự list' : 'Thứ tự slide: tỉnh Bắc → Nam';
+  $('#orderLbl').textContent = S.opts.sort_mode === 'list' ? 'Thứ tự slide: theo FILE TỔNG' : 'Thứ tự slide: tỉnh Bắc → Nam';
+  $('#bExport').textContent = a ? `Xuất PPTX · ${a.slides} slide` : 'Xuất PPTX';
 }
 function refreshThumb(rel){
   const url = S.thumbs.get(rel);
-  document.querySelectorAll(`#thumbs .im[data-rel="${CSS.escape(rel)}"]`).forEach(x => x.style.backgroundImage = `url(${url})`);
+  document.querySelectorAll(`#thumbs .th[data-rel="${CSS.escape(rel)}"]`).forEach(x => x.style.backgroundImage = `url(${url})`);
   if (curFiles().includes(rel)) renderSlide();
 }
-function go(d){ if (!S.groups.length) return; S.idx = clamp(S.idx + d, 0, S.groups.length - 1); renderSlide(); renderStrip(); }
+function go(d){ const vis = visibleIdx(); if (!vis.length) return; let p = vis.indexOf(S.idx); p = p < 0 ? 0 : clamp(p + d, 0, vis.length - 1); S.idx = vis[p]; renderSlide(); renderStrip(); }
 $('#thumbs').onclick = e => { const b = e.target.closest('.th'); if (b){ S.idx = +b.dataset.i; renderSlide(); renderStrip(); } };
+$('#fchips').onclick = e => { const b = e.target.closest('[data-f]'); if (!b) return; S.filter = b.dataset.f; const v = visibleIdx(); if (v.length && !v.includes(S.idx)) S.idx = v[0]; renderSlide(); renderStrip(); };
 $('#bPrev').onclick = () => go(-1); $('#bNext').onclick = () => go(1);
-$('#findCode').oninput = e => { const q = e.target.value.trim().toUpperCase(); if (!q) return; const i = S.groups.findIndex(g => g.code.includes(q)); if (i >= 0){ S.idx = i; renderSlide(); renderStrip(); } };
+$('#findCode').oninput = e => { const q = e.target.value.trim().toUpperCase(); if (!q) return; const i = S.groups.findIndex(g => g.code.includes(q)); if (i >= 0){ S.filter = 'all'; S.idx = i; renderSlide(); renderStrip(); } };
 
-// ═══════════════════════ panel trái ═══════════════════════
-function opt(v, cur, label){ return `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(label ?? v)}</option>`; }
-function renderSide(){
-  const s = $('#side'), o = S.opts, f = S.fields;
-  document.querySelectorAll('#rail button').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
-  if (S.tab === 'nguon'){
-    const a = S.ana, c = a ? a.counts : null, photos = S.folders.reduce((x, f) => x + f.items.length, 0);
-    s.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><h2>Nguồn &amp; lọc</h2><button class="btn sm ghost" id="bGuide" style="color:#4aa3f5">Thứ tự thao tác</button></div>
-      <div class="card"><div class="h"><span class="step">1</span>FILE TỔNG &amp; avatar</div>
-        <button class="btn pri" id="bSync" style="justify-content:center">Đồng bộ từ máy chủ</button>
-        <div class="small muted">${S.excel ? `${esc(S.excel.file_name)} · ${(f.rows || 0).toLocaleString('vi-VN')} dòng<br>cập nhật ${fmtT(S.excel.updated_at)}` : 'Chưa có FILE TỔNG — báo quản trị đẩy lên.'}</div>
-        <label class="f">Kênh<select class="inp" data-o="channel_filter">${opt(ALL.ch, o.channel_filter)}${(f ? f.channels : []).map(v => opt(v, o.channel_filter)).join('')}</select></label>
-        <div class="g2"><label class="f">Tỉnh / thành<select class="inp" data-o="city_filter">${opt(ALL.city, o.city_filter)}${(f ? f.cities : []).map(v => opt(v, o.city_filter)).join('')}</select></label>
-        <label class="f">Quận / huyện<select class="inp" data-o="district_filter">${opt(ALL.dist, o.district_filter)}${(f ? f.districts : []).map(v => opt(v, o.district_filter)).join('')}</select></label></div>
-      </div>
-      <div class="card"><div class="h"><span class="step">2</span>Thư mục ảnh</div>
-        <div class="drop" id="drop" role="button" tabindex="0"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4aa3f5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/><path d="M12 12v5M9.5 14.5 12 12l2.5 2.5"/></svg>
-          <b style="color:var(--text);font-weight:500">Kéo thả thư mục vào đây</b><span class="small">hoặc bấm để chọn — gồm cả thư mục con</span></div>
-        ${S.folders.map((x, i) => `<div class="fold"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c9c9d2" stroke-width="2"><path d="M3 7h6l2 2h10v10H3z"/></svg><div><b>${esc(x.name)}</b><span class="tiny muted">${x.items.length} ảnh · ${fmtB(x.bytes)} · trên máy, chưa tải lên</span></div><button class="btn icon sm ghost" data-rmf="${i}" aria-label="Bỏ thư mục">×</button></div>`).join('')}
-        ${photos ? `<div class="g3"><div class="stat"><b>${a ? a.groups_all : '…'}</b><span>mã ảnh</span></div><div class="stat"><b class="ok">${c ? c.avatar : '…'}</b><span>có avatar</span></div><div class="stat"><b class="${c && (c.none + c.fuzzy) ? 'warn' : ''}">${c ? c.none + c.fuzzy : '…'}</b><span>lệch FILE TỔNG</span></div></div>` : ''}
-      </div>
-      <div class="card"><div class="h">Xếp &amp; chia slide</div>
-        <div class="g2"><label class="f">Xếp slide<select class="inp" data-o="sort_mode">${opt('city', o.sort_mode, 'Tỉnh Bắc → Nam')}${opt('list', o.sort_mode, 'Thứ tự FILE TỔNG')}</select></label>
-        <label class="f">Ảnh / slide<select class="inp" data-o="n_per_slide" data-num="1">${opt(0, o.n_per_slide, 'Tự')}${[1, 2, 3, 4, 5, 6, 8, 9].map(n => opt(n, o.n_per_slide)).join('')}</select></label>
-        <label class="f">Tỉ lệ ảnh<select class="inp" data-o="ar_label">${Object.keys(AR).map(k => opt(k, o.ar_label)).join('')}</select></label>
-        <label class="f">Khổ slide<select class="inp" data-o="slide_size">${opt('16:9', o.slide_size)}${opt('4:3', o.slide_size)}</select></label></div>
-      </div>`;
-    const dr = $('#drop');
-    dr.onclick = () => $('#dirInput').click(); dr.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') $('#dirInput').click(); };
-    dr.ondragover = e => { e.preventDefault(); dr.classList.add('over'); }; dr.ondragleave = () => dr.classList.remove('over'); dr.ondrop = onDrop;
-    $('#bSync').onclick = async () => { await loadFields(); await loadBgs(); reanalyze(); renderSide(); toast('Đã đồng bộ FILE TỔNG, avatar, ảnh nền.'); };
-    $('#bGuide').onclick = () => modal('Thứ tự thao tác', `<ol style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px"><li>Nguồn: chọn kênh / tỉnh / quận, thêm thư mục ảnh (kéo thả được).</li><li>Mẫu: chọn mẫu slide và ảnh nền; kéo thả phần tử trên slide để chỉnh.</li><li>Dấu: bật đóng dấu ngày giờ / mini-map.</li><li>Bấm <b>Xuất PPTX</b> — ảnh được tải lên, máy chủ dựng slide, bạn tải file về.</li></ol>`);
-    s.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => { const i = +b.dataset.rmf; S.folders[i].items.forEach(x => S.files.delete(x.rel)); S.folders.splice(i, 1); renderSide(); reanalyze(); });
-  } else if (S.tab === 'mau'){
-    const kinds = {builtin: 'Có sẵn', shared: 'Mẫu chung', mine: 'Mẫu của tôi'};
-    s.innerHTML = `<h2>Mẫu slide</h2>
-      <div class="g2">${S.presets.map(p => `<button class="pick ${p.id === S.presetId ? 'on' : ''}" data-preset="${esc(p.id)}"><span class="pv" style="${presetThumb(p)}"></span><b class="small">${esc(p.name)}</b><span class="tiny muted">${kinds[p.kind]}</span></button>`).join('')}</div>
-      <button class="btn" id="bSaveP" style="justify-content:center;border-style:dashed">Lưu bố cục hiện tại thành mẫu…</button>
-      ${S.presets.find(p => p.id === S.presetId && p.kind === 'mine') ? `<button class="btn danger sm" id="bDelP">Xoá mẫu «${esc(S.presetName)}»</button>` : ''}
-      <div style="height:1px;background:var(--border)"></div>
-      <div style="display:flex;justify-content:space-between;align-items:center"><h2>Ảnh nền</h2><span class="small muted">${S.bgs.filter(b => b.path.startsWith('shared/')).length} chung · ${S.bgs.filter(b => !b.path.startsWith('shared/')).length} của tôi</span></div>
-      <div class="g2"><button class="pick ${S.bg ? '' : 'on'}" data-bg=""><span class="pv"></span><span class="tiny">Nền trắng</span></button>
-        ${S.bgs.map(b => `<button class="pick ${S.bg === b.path ? 'on' : ''}" data-bg="${esc(b.path)}"><span class="pv" style="background-image:url('api/files/backgrounds/${enc(b.path)}')"></span><span class="tiny" style="display:flex;width:100%;justify-content:space-between"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.path.split('/').pop())}</span><span class="${b.path.startsWith('shared/') ? 'muted' : ''}" style="${b.path.startsWith('shared/') ? '' : 'color:var(--sel-t)'}">${b.path.startsWith('shared/') ? 'chung' : 'của tôi'}</span></span></button>`).join('')}</div>
-      <button class="btn" id="bUpBg" style="justify-content:center">Tải ảnh nền của tôi lên…</button>`;
-    s.querySelectorAll('[data-preset]').forEach(b => b.onclick = async () => {
-      if (S.dirty && !(await modal('Đổi mẫu', 'Bố cục đang chỉnh sẽ được thay bằng mẫu mới (vẫn hoàn tác được bằng Ctrl+Z).', [['Huỷ', 'btn', false], ['Đổi mẫu', 'btn pri', true]]))) return;
-      await applyPreset(b.dataset.preset, 'keepfilters'); S.dirty = false; renderSide(); });
-    s.querySelectorAll('[data-bg]').forEach(b => b.onclick = () => { pushUndo(); S.bg = b.dataset.bg; saveDraft(); renderSlide(); renderSide(); });
-    $('#bSaveP').onclick = savePresetDlg;
-    if ($('#bDelP')) $('#bDelP').onclick = async () => { if (!(await modal('Xoá mẫu', `Xoá mẫu «${esc(S.presetName)}» khỏi máy chủ?`, [['Huỷ', 'btn', false], ['Xoá', 'btn danger', true]]))) return; await api('/presets/' + S.presetId, {method: 'DELETE'}); await loadPresets(); renderHeader(); renderSide(); toast('Đã xoá mẫu.'); };
-    $('#bUpBg').onclick = () => $('#bgInput').click();
-  } else if (S.tab === 'dau'){
-    const fx = S.opts.fx;
-    s.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><h2>Đóng dấu lên ảnh</h2><label class="c small"><input type="checkbox" data-fx="use_timestamp" ${fx.use_timestamp ? 'checked' : ''}> Bật</label></div>
-      <div class="card">
-        <label class="f">Hiển thị<select class="inp" data-fx="display_mode">${['Ngày + Giờ', 'Chỉ ngày', 'Chỉ giờ'].map(v => opt(v, fx.display_mode)).join('')}</select></label>
-        <div class="g2"><label class="f">Ngày<select class="inp" data-fx="date_format">${['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'YYYY/MM/DD'].map(v => opt(v, fx.date_format)).join('')}</select></label>
-        <label class="f">Giờ<select class="inp" data-fx="time_format">${opt('24h', fx.time_format)}${opt('12h (AM/PM)', fx.time_format)}</select></label></div>
-        <div class="f" style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)">Vị trí<div class="pos4">${['top_left', 'top_right', 'bottom_left', 'bottom_right'].map(p => `<button data-pos="${p}" class="${fx.position === p ? 'on' : ''}" aria-label="${{top_left: 'Trên trái', top_right: 'Trên phải', bottom_left: 'Dưới trái', bottom_right: 'Dưới phải'}[p]}"></button>`).join('')}</div></div>
-        <label class="f">Cỡ chữ: ${fx.font_scale}% cạnh ảnh<input type="range" min="1.5" max="8" step="0.5" value="${fx.font_scale}" data-fx="font_scale" data-num="1"></label>
-        <div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)">Màu chữ<div style="display:flex;gap:6px">${['#FF9900', '#FFFFFF', '#FDE047', '#EF4444'].map(c => `<button class="sw ${fx.text_color.toUpperCase() === c ? 'on' : ''}" data-color="${c}" style="background:${c}" aria-label="Màu ${c}"></button>`).join('')}<input type="color" value="${fx.text_color}" data-fx="text_color" style="width:30px;height:26px;border:0;background:none" aria-label="Màu khác"></div></div>
-      </div>
-      <div class="card" style="gap:8px">
-        <label class="c"><input type="checkbox" data-fx="add_background" ${fx.add_background ? 'checked' : ''}> Nền tối sau chữ</label>
-        <label class="c"><input type="checkbox" data-fx="use_exif" ${fx.use_exif ? 'checked' : ''}> Lấy giờ từ EXIF ảnh gốc</label>
-        <label class="c"><input type="checkbox" data-fx="stamp_location" ${fx.stamp_location ? 'checked' : ''}> Ghi địa điểm (GPS → địa chỉ)</label>
-        <label class="c"><input type="checkbox" data-fx="minimap" ${fx.minimap ? 'checked' : ''}> Mini-map GPS góc ảnh</label>
-      </div>
-      <p class="small muted" style="margin:0">Xem trước dùng ngày giờ EXIF đọc ngay trên máy. Máy chủ đóng dấu thật lúc xuất.</p>`;
-    s.querySelectorAll('[data-pos]').forEach(b => b.onclick = () => { pushUndo(); fx.position = b.dataset.pos; saveDraft(); renderSide(); renderSlide(); });
-    s.querySelectorAll('[data-color]').forEach(b => b.onclick = () => { pushUndo(); fx.text_color = b.dataset.color; saveDraft(); renderSide(); renderSlide(); });
-  } else {
-    s.innerHTML = `<h2>Tuỳ chọn xuất</h2>
-      <div class="card" style="gap:8px">
-        <label class="c"><input type="checkbox" data-fx="dashboard" ${o.fx.dashboard ? 'checked' : ''}> Slide tổng quan đầu file</label>
-        <label class="c"><input type="checkbox" data-o="store_index" ${o.store_index ? 'checked' : ''}> Slide + Excel danh sách cửa hàng</label>
-        <label class="c"><input type="checkbox" data-o="write_checklist" ${o.write_checklist ? 'checked' : ''}> Checklist đối chiếu (Excel)</label>
-        <label class="c"><input type="checkbox" data-o="pad_blank_slides" ${o.pad_blank_slides ? 'checked' : ''}> Ô trống theo số màn</label>
-        <label class="c"><input type="checkbox" data-o="channel_enabled" ${o.channel_enabled !== false ? 'checked' : ''}> Dòng kênh quảng cáo</label>
-      </div>
-      <div class="card">
-        <label class="f">Chia file<select class="inp" data-o="slides_per_file" data-num="1">${opt(0, o.slides_per_file, 'Một file')}${[100, 200, 300, 500].map(n => opt(n, o.slides_per_file)).join('')}</select></label>
-        <label class="f">Mẫu dòng kênh<input class="inp" data-o="channel_template" value="${esc(o.channel_template)}"></label>
-        <div style="font-size:12px;color:var(--muted)">Số lượng hiện trên bảng</div>
-        <div style="display:flex;gap:14px">${['LCD', 'DP', 'DS', 'GP'].map(q => `<label class="c"><input type="checkbox" data-q="${q}" ${o.qty_show[q] ? 'checked' : ''}> ${q}</label>`).join('')}</div>
-      </div>`;
-  }
+// ═══════════════════════ cột trái — Bước 1 ═══════════════════════
+function renderLeft(){
+  const s = $('#left'), o = S.opts, f = S.fields, a = S.ana, c = a ? a.counts : null;
+  const ok = c ? c.exact + c.merged : 0, none = S.groups.filter(isNone).length, noav = S.groups.filter(isNoAv).length;
+  s.innerHTML = `<div><span class="eyebrow">BƯỚC 1</span><h2>Ảnh &amp; lọc</h2></div>
+    ${S.folders.map((x, i) => `<div class="fold"><span class="ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#5fb2ff" stroke-width="2" stroke-linejoin="round"><path d="M3 7h6l2 2h10v10H3z"/></svg></span><div class="t"><b>${esc(x.name)}</b><span class="tiny muted">${x.items.length} ảnh · ${fmtB(x.bytes)}</span></div><button class="btn sm icon ghost" data-rmf="${i}" aria-label="Bỏ thư mục">×</button></div>`).join('')}
+    <div class="drop" id="drop" role="button" tabindex="0"><b style="color:var(--text);font-weight:500">+ Thêm thư mục ảnh</b><span class="tiny">kéo thả vào đây hoặc bấm để chọn</span></div>
+    <label class="f">Kênh<select class="inp" data-o="channel_filter">${opt(ALL.ch, o.channel_filter)}${(f ? f.channels : []).map(v => opt(v, o.channel_filter)).join('')}</select></label>
+    <div class="g2"><label class="f">Tỉnh<select class="inp" data-o="city_filter">${opt(ALL.city, o.city_filter)}${(f ? f.cities : []).map(v => opt(v, o.city_filter)).join('')}</select></label>
+    <label class="f">Quận<select class="inp" data-o="district_filter">${opt(ALL.dist, o.district_filter)}${(f ? f.districts : []).map(v => opt(v, o.district_filter)).join('')}</select></label></div>
+    <label class="f">Xếp slide<select class="inp" data-o="sort_mode">${opt('city', o.sort_mode, 'Tỉnh Bắc → Nam')}${opt('list', o.sort_mode, 'Thứ tự FILE TỔNG')}</select></label>
+    ${a ? `<div style="display:flex;flex-direction:column;gap:6px"><span class="small muted">Kiểm tra trước khi xuất</span>
+      <button class="check ok" data-chk="all"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg><span>${ok} mã khớp FILE TỔNG</span></button>
+      ${none ? `<button class="check e" data-chk="none"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg><span>${none} mã không có / gần đúng</span>›</button>` : ''}
+      ${noav ? `<button class="check w" data-chk="noav"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>${noav} mã thiếu avatar</span>›</button>` : ''}
+      ${a.filtered_out ? `<span class="tiny muted">${a.filtered_out} mã bị lọc theo kênh / tỉnh / quận.</span>` : ''}</div>` : ''}
+    <button class="btn sm ghost" id="bSync" style="align-self:flex-start;color:#5fb2ff">Đồng bộ FILE TỔNG, avatar, ảnh nền</button>`;
+  bindDrop($('#drop'));
+  $('#bSync').onclick = async () => { await loadFields(); await loadBgs(); reanalyze(); renderLeft(); toast('Đã đồng bộ từ máy chủ.'); };
+  s.querySelectorAll('[data-rmf]').forEach(b => b.onclick = () => { const i = +b.dataset.rmf; S.folders[i].items.forEach(x => S.files.delete(x.rel)); S.folders.splice(i, 1); if (!S.files.size) setView('start'); renderLeft(); reanalyze(); });
+  s.querySelectorAll('[data-chk]').forEach(b => b.onclick = () => { S.filter = b.dataset.chk; const v = visibleIdx(); if (v.length) S.idx = v[0]; renderSlide(); renderStrip(); });
   bindOpts(s);
 }
-function presetThumb(p){ return p.name === 'SALESKIT' ? 'background:linear-gradient(#fff 0 60%,#1e6ee8 60%)' : p.name === 'THE NELSON' ? 'background:#2c2419' : 'background:#fff'; }
 function bindOpts(root){
-  root.querySelectorAll('[data-o]').forEach(i => {
-    const ev = i.tagName === 'INPUT' && i.type === 'text' || i.classList.contains('inp') && i.tagName === 'INPUT' ? 'change' : 'change';
-    i.addEventListener(ev, () => { pushUndo(); const k = i.dataset.o; S.opts[k] = i.type === 'checkbox' ? i.checked : (i.dataset.num ? +i.value : i.value);
-      saveDraft(); renderSlide(); renderStrip(); if (['channel_filter', 'city_filter', 'district_filter', 'sort_mode', 'n_per_slide', 'pad_blank_slides', 'channel_template'].includes(k)) reanalyze(); });
-  });
-  root.querySelectorAll('[data-fx]').forEach(i => i.addEventListener(i.type === 'range' ? 'input' : 'change', () => { if (i.type !== 'range') pushUndo(); S.opts.fx[i.dataset.fx] = i.type === 'checkbox' ? i.checked : (i.dataset.num ? +i.value : i.value); saveDraft(); renderSlide(); if (i.type !== 'range') renderSide(); else i.closest('label').firstChild.textContent = `Cỡ chữ: ${i.value}% cạnh ảnh`; }));
-  root.querySelectorAll('[data-q]').forEach(i => i.addEventListener('change', () => { pushUndo(); S.opts.qty_show[i.dataset.q] = i.checked; saveDraft(); reanalyze(); }));
-}
-$('#rail').onclick = e => { const b = e.target.closest('button'); if (b){ S.tab = b.dataset.tab; renderSide(); } };
-$('#bgInput').onchange = async e => {
-  const fs = [...e.target.files]; e.target.value = ''; let ok = 0;
-  for (const f of fs){ try { await api(`/files/backgrounds/users/${S.me.id}/` + encodeURIComponent(f.name.normalize('NFC')), {method: 'PUT', body: f}); ok++; } catch(err){ toast(err.message); } }
-  await loadBgs(); renderSide(); if (ok) toast(`Đã tải ${ok} ảnh nền lên.`);
-};
-async function savePresetDlg(){
-  const admin = ['admin', 'super_admin'].includes(S.me.role);
-  const r = await modal('Lưu mẫu lên máy chủ', `<label class="f">Tên mẫu (trùng tên thì ghi đè)<input class="inp" id="pName" value="${esc(S.presets.find(p => p.id === S.presetId && p.kind !== 'builtin') ? S.presetName : '')}" placeholder="vd Sales · CF tuần"></label>${admin ? '<label class="c"><input type="checkbox" id="pShared"> Mẫu chung cho mọi người</label>' : ''}<p class="small muted" style="margin:0">Lưu bố cục, tuỳ chọn và dấu ngày giờ hiện tại. App desktop cũng lưu được mẫu bằng menu tài khoản.</p>`,
-    [['Huỷ', 'btn', null], ['Lưu mẫu', 'btn pri', ov => { const n = ov.querySelector('#pName').value.trim(); if (!n){ toast('Nhập tên mẫu.'); return false; } return {name: n, shared: !!(ov.querySelector('#pShared') || {}).checked}; }]]);
-  if (!r) return;
-  try {
-    const d = await api('/presets', {method: 'PUT', json: {name: r.name, shared: r.shared, data: {layout: S.layout, opts: S.opts}}});
-    await loadPresets(); const p = S.presets.find(x => x.name === r.name && x.kind === (r.shared ? 'shared' : 'mine'));
-    if (p){ S.presetId = p.id; S.presetName = p.name; S.base = deep({layout: S.layout, opts: S.opts}); }
-    S.dirty = false; saveDraft(); renderHeader(); renderSide(); toast(d.msg);
-  } catch(e){ toast(e.message); }
+  root.querySelectorAll('[data-o]').forEach(i => i.addEventListener('change', () => { pushUndo(); const k = i.dataset.o; S.opts[k] = i.type === 'checkbox' ? i.checked : (i.dataset.num ? +i.value : i.value);
+    saveDraft(); renderSlide(); renderStrip(); if (['channel_filter', 'city_filter', 'district_filter', 'sort_mode', 'n_per_slide', 'pad_blank_slides', 'channel_template'].includes(k)) reanalyze(); }));
+  root.querySelectorAll('[data-fx]').forEach(i => i.addEventListener(i.type === 'range' ? 'input' : 'change', () => { if (i.type !== 'range') pushUndo(); S.opts.fx[i.dataset.fx] = i.type === 'checkbox' ? i.checked : (i.dataset.num ? +i.value : i.value); saveDraft(); renderSlide(); if (i.type !== 'range') renderRight(); else i.closest('label').firstChild.textContent = `Cỡ chữ: ${i.value}% cạnh ảnh`; }));
+  root.querySelectorAll('[data-qs]').forEach(i => i.addEventListener('change', () => { pushUndo(); S.opts.qty_show[i.dataset.qs] = i.checked; saveDraft(); reanalyze(); }));
 }
 
-// ═══════════════════════ bảng thuộc tính ═══════════════════════
-function renderInsp(){
-  const p = $('#insp');
-  if (!S.layout){ p.innerHTML = ''; return; }
-  const n = S.sel, c = n ? S.layout[n] : null, font = S.layout.font || {};
-  const layers = `<div class="card" style="gap:2px"><div class="small muted" style="margin-bottom:4px">Phần tử trên slide</div>${ELS.filter(e => S.layout[e]).map(e => `<div class="layer ${e === n ? 'on' : ''}" data-layer="${e}"><span style="flex:1">${EL_LABEL[e]}</span><label class="c tiny muted"><input type="checkbox" data-vis="${e}" ${S.opts.visible[e] ? 'checked' : ''}> hiện</label></div>`).join('')}</div>`;
-  if (!c){ p.innerHTML = `<h2>Slide</h2><p class="small muted" style="margin:0">Bấm một phần tử trên slide để chỉnh font, màu, vị trí.</p>${layers}`; bindInsp(); return; }
-  const textEl = ['title', 'channel'].includes(n), info = n === 'info';
-  let h = `<div style="display:flex;align-items:center;justify-content:space-between"><h2>${EL_LABEL[n]}</h2><span class="tiny muted">đang chọn</span></div>`;
-  if (textEl || info){
-    h += `<div class="card"><label class="f">Font<select class="inp" data-c="font">${opt('', c.font || '', 'Theo mẫu (' + (font.name || 'Arial') + ')')}${FONTS.map(f => opt(f, c.font || '')).join('')}</select></label>
-      <div style="display:flex;gap:6px;align-items:end"><label class="f" style="width:70px">Cỡ<input class="inp" type="number" step="0.5" min="6" max="96" data-c="size" data-num="1" value="${c.size}"></label>
-      <label class="f" style="width:70px">Nhỏ nhất<input class="inp" type="number" step="0.5" min="5" max="60" data-c="min_size" data-num="1" value="${c.min_size ?? 8}"></label>
-      <button class="btn icon" data-font="bold" aria-pressed="${font.bold !== false}" style="${font.bold !== false ? 'border-color:#2e9bff;background:var(--sel)' : ''};font-weight:700" aria-label="Đậm">B</button>
-      <button class="btn icon" data-font="italic" aria-pressed="${!!font.italic}" style="${font.italic ? 'border-color:#2e9bff;background:var(--sel)' : ''};font-style:italic" aria-label="Nghiêng">I</button></div>`;
-    if (textEl) h += `<div class="seg" style="align-self:flex-start">${['left', 'center', 'right'].map(a => `<button data-c-align="${a}" class="${(c.align || 'left') === a ? 'on' : ''}">${{left: 'Trái', center: 'Giữa', right: 'Phải'}[a]}</button>`).join('')}</div>`;
-    if (info){
-      h += colorRow('Màu chữ (giá trị; nhãn tự nhạt hơn)', font.color || '#000000', 'font.color');
-      h += colorRow('Màu nhấn (số traffic, tiêu đề cột)', c.accent_color || '#2563EB', 'accent_color');
-      h += `<p class="tiny muted" style="margin:0">Màu chữ là màu chữ chung của mẫu (giống nút màu chữ thân trên app): tiêu đề và dòng kênh chưa đặt màu riêng cũng đổi theo.</p>`;
-    } else h += colorRow('Màu chữ', c.color || font.color || '#000000', 'color');
-    if (n === 'title') h += `<label class="c"><input type="checkbox" data-c="upper" ${c.upper !== false ? 'checked' : ''}> VIẾT HOA</label><label class="c"><input type="checkbox" data-c="full_width_on_slide" ${c.full_width_on_slide !== false ? 'checked' : ''}> Căn theo cả bề ngang slide</label><label class="c"><input type="checkbox" data-c="show_counter" ${c.show_counter ? 'checked' : ''}> Thêm (1/2) khi nhiều slide</label>`;
+// ═══════════════════════ cột phải: Chỉnh / Mẫu / Dấu / Lịch sử ═══════════════════════
+$('#rtabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; S.rtab = b.dataset.r; document.querySelectorAll('#rtabs button').forEach(x => x.classList.toggle('on', x === b)); renderRight(); };
+function renderRight(){
+  const p = $('#rbody'); if (!S.layout) return;
+  if (S.rtab === 'chinh') return renderInsp(p);
+  if (S.rtab === 'mau') return renderMau(p);
+  if (S.rtab === 'dau') return renderDau(p);
+  return renderJobsMini(p);
+}
+function colorRow(label, cur, n, kind){
+  cur = String(cur || '').toUpperCase();
+  return `<div style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)">${label}<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center">${COLORS.map(col => `<button class="sw ${cur === col ? 'on' : ''}" data-col="${col}" data-n="${n}" data-k="${kind}" style="background:${col}" aria-label="Màu ${col}"></button>`).join('')}<input type="color" value="${/^#[0-9A-F]{6}$/.test(cur) ? cur.toLowerCase() : '#000000'}" data-cpick="${kind}" data-n="${n}" style="width:28px;height:24px;border:0;background:none;cursor:pointer" aria-label="Chọn màu khác"></div></div>`;
+}
+function renderInsp(p){
+  const n = S.sel, c = n ? S.layout[n] : null;
+  const layers = `<div class="card" style="gap:2px"><div class="small muted" style="margin-bottom:2px">Phần tử trên slide</div>${ELS.filter(e => S.layout[e]).map(e => `<div class="layer ${e === n ? 'on' : ''}" data-layer="${e}"><span style="flex:1">${EL_LABEL[e]}</span><label class="c tiny muted"><input type="checkbox" data-vis="${e}" ${S.opts.visible[e] ? 'checked' : ''}> hiện</label></div>`).join('')}</div>`;
+  if (!c){ p.innerHTML = `<p class="small muted" style="margin:0">Bấm một phần tử trên slide để chỉnh. Thanh chỉnh nhanh hiện ngay dưới slide.</p>${layers}`; bindInsp(p); return; }
+  let h = `<h2>${EL_LABEL[n]}</h2>`;
+  if (['title', 'channel', 'info'].includes(n)){
+    h += `<div class="card"><div class="g2"><label class="f">Cỡ chữ<input class="inp" type="number" step="0.5" min="6" max="96" data-c="size" data-num="1" value="${c.size}"></label><label class="f">Nhỏ nhất<input class="inp" type="number" step="0.5" min="5" max="60" data-c="min_size" data-num="1" value="${c.min_size ?? 8}"></label></div>`;
+    if (n === 'info'){ h += colorRow('Màu chữ (giá trị; nhãn tự nhạt hơn)', colorOf('info'), 'info', 'text') + colorRow('Màu nhấn (số traffic, tiêu đề cột)', colorOf('info', 'accent'), 'info', 'accent') + `<p class="tiny muted" style="margin:0">Màu chữ là màu chung của mẫu: tiêu đề, dòng kênh chưa đặt màu riêng cũng đổi theo.</p>`; }
+    else h += colorRow('Màu chữ', colorOf(n), n, 'text');
+    if (n === 'title') h += `<label class="c small"><input type="checkbox" data-c="upper" ${c.upper !== false ? 'checked' : ''}> VIẾT HOA</label><label class="c small"><input type="checkbox" data-c="full_width_on_slide" ${c.full_width_on_slide !== false ? 'checked' : ''}> Căn theo cả bề ngang slide</label><label class="c small"><input type="checkbox" data-c="show_counter" ${c.show_counter ? 'checked' : ''}> Thêm (1/2) khi nhiều slide</label>`;
+    if (n === 'channel') h += `<label class="f">Mẫu dòng kênh<input class="inp" data-o="channel_template" value="${esc(S.opts.channel_template)}"></label>`;
     h += `<label class="f">Độ đậm nhạt: ${c.opacity ?? 100}%<input type="range" min="10" max="100" step="5" value="${c.opacity ?? 100}" data-c="opacity" data-num="1"></label></div>`;
   }
-  if (n === 'image') h += `<div class="card"><label class="f">Cách đặt ảnh<select class="inp" data-c="fit_mode">${opt('fill', c.fit_mode, 'Lấp đầy ô (cắt viền)')}${opt('fit', c.fit_mode, 'Vừa khung (không cắt)')}</select></label>
-    <label class="f">Khe giữa ảnh (inch)<input class="inp" type="number" min="0" max="1" step="0.02" data-c="gap" data-num="1" value="${c.gap ?? .1}"></label>
+  if (n === 'image') h += `<div class="card"><div class="g2"><label class="f">Tỉ lệ ảnh<select class="inp" data-o="ar_label">${Object.keys(AR).map(k => opt(k, S.opts.ar_label)).join('')}</select></label>
+    <label class="f">Khe (inch)<input class="inp" type="number" min="0" max="1" step="0.02" data-c="gap" data-num="1" value="${c.gap ?? .1}"></label></div>
     <label class="f">Bo góc: ${c.radius || 0}%<input type="range" min="0" max="50" step="2" value="${c.radius || 0}" data-c="radius" data-num="1"></label>
     <p class="tiny muted" style="margin:0">Ảnh dọc luôn để vừa khung (không cắt đầu chân), giống app.</p></div>`;
   if (n === 'avatar') h += `<div class="card"><label class="f">Tỉ lệ<select class="inp" data-c="ar" data-num="1">${opt(4/3, c.ar, '4:3')}${opt(1, c.ar, '1:1')}${opt(16/9, c.ar, '16:9')}${opt(3/4, c.ar, '3:4')}</select></label>
@@ -804,104 +906,230 @@ function renderInsp(){
   const [x, y, w, hh] = elemBox(n);
   h += `<div class="card g2" id="posCard" style="display:grid">${[['x', 'X (inch)', x], ['y', 'Y (inch)', y], ['w', 'Rộng', w], ['h', n === 'avatar' ? 'Cao (theo tỉ lệ)' : 'Cao', hh]].map(([k, l, v]) => `<label class="f">${l}<input class="inp" type="number" step="0.01" data-pos="${k}" value="${r2(v)}" ${k === 'h' && n === 'avatar' ? 'disabled' : ''}></label>`).join('')}</div>`;
   p.innerHTML = h + layers;
-  bindInsp();
+  bindInsp(p); bindOpts(p);
 }
-function colorRow(label, cur, ck){
-  cur = String(cur || '').toUpperCase();
-  return `<div style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)">${label}<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${COLORS.map(col => `<button class="sw ${cur === col ? 'on' : ''}" data-col="${col}" data-ck="${ck}" style="background:${col}" aria-label="Màu ${col}"></button>`).join('')}<input type="color" value="${/^#[0-9A-F]{6}$/.test(cur) ? cur.toLowerCase() : '#000000'}" data-cpick="${ck}" style="width:30px;height:26px;border:0;background:none;cursor:pointer" aria-label="Chọn màu khác"><span class="tiny">${esc(cur)}</span></div></div>`;
-}
-function lighten(hex, k){ const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return hex; const n = parseInt(m[1], 16), f = v => Math.round(v + (255 - v) * k); return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`; }
 function renderInspPos(){ const c = $('#posCard'); if (!c || !S.sel) return; const [x, y, w, h] = elemBox(S.sel); const v = {x, y, w, h}; c.querySelectorAll('[data-pos]').forEach(i => { if (document.activeElement !== i) i.value = r2(v[i.dataset.pos]); }); }
-function bindInsp(){
-  const p = $('#insp'), c = S.sel ? S.layout[S.sel] : null;
-  p.querySelectorAll('[data-layer]').forEach(d => d.onclick = e => { if (e.target.closest('label')) return; S.sel = d.dataset.layer; drawSelection(); renderInsp(); });
-  p.querySelectorAll('[data-vis]').forEach(i => i.onchange = () => { pushUndo(); S.opts.visible[i.dataset.vis] = i.checked; saveDraft(); renderSlide(); renderInsp(); if (i.dataset.vis === 'avatar') reanalyze(); });
+function bindInsp(p){
+  const c = S.sel ? S.layout[S.sel] : null;
+  p.querySelectorAll('[data-layer]').forEach(d => d.onclick = e => { if (e.target.closest('label')) return; S.sel = d.dataset.layer; drawSelection(); renderQbar(); renderRight(); });
+  p.querySelectorAll('[data-vis]').forEach(i => i.onchange = () => { pushUndo(); S.opts.visible[i.dataset.vis] = i.checked; saveDraft(); renderSlide(); renderRight(); if (i.dataset.vis === 'avatar') reanalyze(); });
+  p.querySelectorAll('[data-col]').forEach(b => b.onclick = () => setColor(b.dataset.n, b.dataset.k, b.dataset.col));
+  p.querySelectorAll('[data-cpick]').forEach(i => i.onchange = () => setColor(i.dataset.n, i.dataset.cpick, i.value.toUpperCase()));
   if (!c) return;
   p.querySelectorAll('[data-c]').forEach(i => i.addEventListener(i.type === 'range' ? 'input' : 'change', () => {
     if (i.type !== 'range' || !i._u){ pushUndo(); i._u = true; }
     c[i.dataset.c] = i.type === 'checkbox' ? i.checked : (i.dataset.num ? +i.value : i.value);
-    saveDraft(); renderSlide(); if (i.type !== 'range') renderInsp(); else { const l = i.closest('label'); l.firstChild.textContent = l.firstChild.textContent.replace(/\d+%/, i.value + '%'); }
+    saveDraft(); renderSlide(); if (i.type !== 'range') renderRight(); else { const l = i.closest('label'); l.firstChild.textContent = l.firstChild.textContent.replace(/\d+%/, i.value + '%'); }
   }));
-  p.querySelectorAll('[data-c-align]').forEach(b => b.onclick = () => { pushUndo(); c.align = b.dataset.cAlign; saveDraft(); renderSlide(); renderInsp(); });
-  const setCol = (ck, v) => { pushUndo(); if (ck === 'font.color'){ S.layout.font = S.layout.font || {}; S.layout.font.color = v; } else c[ck] = v; saveDraft(); renderSlide(); renderInsp(); };
-  p.querySelectorAll('[data-col]').forEach(b => b.onclick = () => setCol(b.dataset.ck, b.dataset.col));
-  p.querySelectorAll('[data-cpick]').forEach(i => i.onchange = () => setCol(i.dataset.cpick, i.value.toUpperCase()));
-  p.querySelectorAll('[data-font]').forEach(b => b.onclick = () => { pushUndo(); const f = S.layout.font = S.layout.font || {}; const k = b.dataset.font; f[k] = k === 'bold' ? f.bold === false : !f[k]; saveDraft(); renderSlide(); renderInsp(); });
-  p.querySelectorAll('[data-pos]').forEach(i => i.onchange = () => { pushUndo(); const k = i.dataset.pos, v = +i.value; if (S.sel === 'title' && (k === 'x' || k === 'w')) c.full_width_on_slide = false; c[k] = r2(v); saveDraft(); renderSlide(); renderInspPos(); });
+  p.querySelectorAll('[data-pos]').forEach(i => i.onchange = () => { pushUndo(); const k = i.dataset.pos; if (S.sel === 'title' && (k === 'x' || k === 'w')) c.full_width_on_slide = false; c[k] = r2(+i.value); saveDraft(); renderSlide(); renderInspPos(); });
+}
+function presetThumb(p){ return p.name === 'SALESKIT' ? 'background:linear-gradient(#fff 0 60%,#1e6ee8 60%)' : p.name === 'THE NELSON' ? 'background:#2c2419' : 'background:#fff'; }
+function renderMau(p){
+  const kinds = {builtin: 'Có sẵn', shared: 'Mẫu chung', mine: 'Mẫu của tôi'}, o = S.opts;
+  const dept = o.dept || (['saleskit', 'nelson'].includes(o.slide_style) ? 'bd' : 'sales');
+  p.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><h2>Mẫu slide</h2><div class="seg" id="segDept"><button data-d="sales" class="${dept === 'sales' ? 'on' : ''}">Sales</button><button data-d="bd" class="${dept === 'bd' ? 'on' : ''}">BD</button></div></div>
+    <div class="g2">${S.presets.map(x => `<button class="pick ${x.id === S.presetId ? 'on' : ''}" data-preset="${esc(x.id)}"><span class="pv" style="${presetThumb(x)}"></span><b class="tiny" style="font-weight:600">${esc(x.name)}</b><span class="tiny muted">${kinds[x.kind]}</span></button>`).join('')}</div>
+    <button class="btn" id="bSaveP" style="border-style:dashed">Lưu bố cục hiện tại thành mẫu…</button>
+    ${S.presets.find(x => x.id === S.presetId && x.kind === 'mine') ? `<button class="btn danger sm" id="bDelP">Xoá mẫu «${esc(S.presetName)}»</button>` : ''}
+    <div class="card"><div class="g2"><label class="f">Khổ slide<select class="inp" data-o="slide_size">${opt('16:9', o.slide_size)}${opt('4:3', o.slide_size)}</select></label>
+      <label class="f">Ảnh / slide<select class="inp" data-o="n_per_slide" data-num="1">${opt(0, o.n_per_slide, 'Tự')}${[1, 2, 3, 4, 5, 6, 8, 9].map(k => opt(k, o.n_per_slide)).join('')}</select></label></div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center"><h2>Ảnh nền</h2><button class="btn sm" id="bUpBg">Tải lên…</button></div>
+    <div class="g2"><button class="pick ${S.bg ? '' : 'on'}" data-bg=""><span class="pv"></span><span class="tiny">Nền trắng</span></button>
+      ${S.bgs.map(b => `<button class="pick ${S.bg === b.path ? 'on' : ''}" data-bg="${esc(b.path)}"><span class="pv" style="background-image:url('api/files/backgrounds/${enc(b.path)}')"></span><span class="tiny" style="display:flex;width:100%;justify-content:space-between;gap:4px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(b.path.split('/').pop())}</span><span style="${b.path.startsWith('shared/') ? 'color:var(--dim)' : 'color:var(--sel-t)'}">${b.path.startsWith('shared/') ? 'chung' : 'của tôi'}</span></span></button>`).join('')}</div>`;
+  p.querySelectorAll('[data-preset]').forEach(b => b.onclick = async () => {
+    if (S.dirty && !(await modal('Đổi mẫu', 'Bố cục đang chỉnh sẽ được thay bằng mẫu mới (vẫn hoàn tác được bằng Ctrl+Z).', [['Huỷ', 'btn', false], ['Đổi mẫu', 'btn pri', true]]))) return;
+    await applyPreset(b.dataset.preset, 'keepfilters'); S.dirty = false; renderRight(); });
+  p.querySelectorAll('[data-bg]').forEach(b => b.onclick = () => { pushUndo(); S.bg = b.dataset.bg; saveDraft(); renderSlide(); renderRight(); });
+  p.querySelectorAll('#segDept button').forEach(b => b.onclick = async () => { const id = b.dataset.d === 'bd' ? 'builtin:SALESKIT' : 'builtin:Báo cáo';
+    if (S.dirty && !(await modal('Đổi phòng ban', 'Chuyển sang mẫu có sẵn của ' + (b.dataset.d === 'bd' ? 'BD (SALESKIT)' : 'Sales (Báo cáo)') + '? Ctrl+Z để quay lại.', [['Huỷ', 'btn', false], ['Chuyển', 'btn pri', true]]))) return;
+    await applyPreset(id, 'keepfilters'); S.opts.dept = b.dataset.d; S.dirty = false; saveDraft(); renderRight(); });
+  $('#bSaveP').onclick = savePresetDlg; $('#bUpBg').onclick = () => $('#bgInput').click();
+  if ($('#bDelP')) $('#bDelP').onclick = async () => { if (!(await modal('Xoá mẫu', `Xoá mẫu «${esc(S.presetName)}» khỏi máy chủ?`, [['Huỷ', 'btn', false], ['Xoá', 'btn danger', true]]))) return; await api('/presets/' + S.presetId, {method: 'DELETE'}); await loadPresets(); renderHeaderBtns(); renderRight(); toast('Đã xoá mẫu.'); };
+  bindOpts(p);
+}
+function renderDau(p){
+  const fx = S.opts.fx;
+  p.innerHTML = `<div style="display:flex;align-items:center;justify-content:space-between"><h2>Dấu ngày giờ</h2><label class="c small"><input type="checkbox" data-fx="use_timestamp" ${fx.use_timestamp ? 'checked' : ''}> Bật</label></div>
+    <div class="card"><label class="f">Hiển thị<select class="inp" data-fx="display_mode">${['Ngày + Giờ', 'Chỉ ngày', 'Chỉ giờ'].map(v => opt(v, fx.display_mode)).join('')}</select></label>
+      <div class="g2"><label class="f">Ngày<select class="inp" data-fx="date_format">${['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD', 'YYYY/MM/DD'].map(v => opt(v, fx.date_format)).join('')}</select></label>
+      <label class="f">Giờ<select class="inp" data-fx="time_format">${opt('24h', fx.time_format)}${opt('12h (AM/PM)', fx.time_format)}</select></label></div>
+      <div style="display:flex;gap:16px;align-items:flex-start"><div style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)">Vị trí<div class="pos4">${['top_left', 'top_right', 'bottom_left', 'bottom_right'].map(q => `<button data-pos4="${q}" class="${fx.position === q ? 'on' : ''}" aria-label="${{top_left: 'Trên trái', top_right: 'Trên phải', bottom_left: 'Dưới trái', bottom_right: 'Dưới phải'}[q]}"></button>`).join('')}</div></div>
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted);flex:1">Màu chữ<div style="display:flex;gap:5px;flex-wrap:wrap">${['#FF9900', '#FFFFFF', '#FDE047', '#EF4444'].map(c => `<button class="sw ${fx.text_color.toUpperCase() === c ? 'on' : ''}" data-scol="${c}" style="background:${c}" aria-label="Màu ${c}"></button>`).join('')}<input type="color" value="${fx.text_color}" data-fx="text_color" style="width:28px;height:24px;border:0;background:none" aria-label="Màu khác"></div></div></div>
+      <label class="f">Cỡ chữ: ${fx.font_scale}% cạnh ảnh<input type="range" min="1.5" max="8" step="0.5" value="${fx.font_scale}" data-fx="font_scale" data-num="1"></label></div>
+    <div class="card" style="gap:6px">
+      <label class="c small"><input type="checkbox" data-fx="add_background" ${fx.add_background ? 'checked' : ''}> Nền tối sau chữ</label>
+      <label class="c small"><input type="checkbox" data-fx="use_exif" ${fx.use_exif ? 'checked' : ''}> Lấy giờ từ EXIF ảnh gốc</label>
+      <label class="c small"><input type="checkbox" data-fx="stamp_location" ${fx.stamp_location ? 'checked' : ''}> Ghi địa điểm (GPS → địa chỉ)</label>
+      <label class="c small"><input type="checkbox" data-fx="minimap" ${fx.minimap ? 'checked' : ''}> Mini-map GPS góc ảnh</label></div>
+    <p class="tiny muted" style="margin:0">Xem trước dùng ngày giờ EXIF đọc ngay trên máy; máy chủ đóng dấu thật lúc xuất.</p>`;
+  p.querySelectorAll('[data-pos4]').forEach(b => b.onclick = () => { pushUndo(); fx.position = b.dataset.pos4; saveDraft(); renderRight(); renderSlide(); });
+  p.querySelectorAll('[data-scol]').forEach(b => b.onclick = () => { pushUndo(); fx.text_color = b.dataset.scol; saveDraft(); renderRight(); renderSlide(); });
+  bindOpts(p);
+}
+function jobFiles(j){ return (j.files || []).map(f => ({...f, url: `api/jobs/${j.id}/files/${encodeURIComponent(f.name)}`, pptx: /\.pptx$/i.test(f.name), list: /_list_cuahang\.xlsx$/i.test(f.name), check: /_checklist\.xlsx$/i.test(f.name)})); }
+function expireText(j){ if (!j.expires_ts) return ''; const h = (j.expires_ts - Date.now() / 1000) / 3600; if (h <= 0) return 'Đã hết hạn'; return h < 1 ? `Còn ${Math.max(1, Math.round(h * 60))} phút — tải về sớm` : `Còn ${Math.round(h)} giờ` + (h <= 4 ? ' — tải về sớm' : ''); }
+function renderJobsMini(p){
+  const jobs = S.jobs.slice(0, 8);
+  p.innerHTML = (jobs.length ? jobs.map(j => { const fs = jobFiles(j), main = fs.find(f => f.pptx), h = (j.expires_ts ? (j.expires_ts - Date.now() / 1000) / 3600 : 99);
+    return `<div class="jcard"><div style="display:flex;align-items:center;gap:6px"><b style="flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(j.title)}</b><span class="chip ${j.state === 'done' ? 'done' : j.state === 'running' ? 'run' : ['failed', 'cancelled'].includes(j.state) ? 'fail' : 'wait'}">${STATE[j.state]}</span></div>
+      <span class="tiny muted">${fmtT(j.created_at)} · ${j.photos} ảnh${j.report ? ' · ' + j.report.slides + ' slide' : ''}</span>
+      ${j.state === 'running' ? `<div class="bar"><i style="width:${j.total ? (j.done / j.total * 100).toFixed(0) : 3}%"></i></div>` : ''}
+      ${j.state === 'done' && main ? `<a class="btn pri" href="${main.url}">Tải PPTX · ${fmtB(main.size)}</a><span class="tiny" style="color:${h <= 4 ? 'var(--warn)' : 'var(--dim)'}">${expireText(j)}${fs.filter(f => !f.pptx).map(f => ` · <a href="${f.url}">${f.list ? 'Excel danh sách' : 'Checklist'}</a>`).join('')}</span>` : ''}</div>`; }).join('') : '<p class="small muted" style="margin:0">Chưa xuất lần nào.</p>') + `<button class="btn ghost" id="bAllHist" style="color:#5fb2ff">Xem tất cả lịch sử</button>`;
+  $('#bAllHist').onclick = () => setView('hist');
+}
+$('#bgInput').onchange = async e => {
+  const fs = [...e.target.files]; e.target.value = ''; let ok = 0;
+  for (const f of fs){ try { await api(`/files/backgrounds/users/${S.me.id}/` + encodeURIComponent(f.name.normalize('NFC')), {method: 'PUT', body: f}); ok++; } catch(err){ toast(err.message); } }
+  await loadBgs(); renderRight(); if (ok) toast(`Đã tải ${ok} ảnh nền lên.`);
+};
+async function savePresetDlg(){
+  const admin = ['admin', 'super_admin'].includes(S.me.role);
+  const r = await modal('Lưu mẫu lên máy chủ', `<label class="f">Tên mẫu (trùng tên thì ghi đè)<input class="inp" id="pName" value="${esc(S.presets.find(x => x.id === S.presetId && x.kind !== 'builtin') ? S.presetName : '')}" placeholder="vd Sales · CF tuần"></label>${admin ? '<label class="c small"><input type="checkbox" id="pShared"> Mẫu chung cho mọi người</label>' : ''}<p class="tiny muted" style="margin:0">Lưu bố cục, tuỳ chọn và dấu ngày giờ hiện tại. App desktop cũng lưu được mẫu bằng menu tài khoản.</p>`,
+    [['Huỷ', 'btn', null], ['Lưu mẫu', 'btn pri', ov => { const nm = ov.querySelector('#pName').value.trim(); if (!nm){ toast('Nhập tên mẫu.'); return false; } return {name: nm, shared: !!(ov.querySelector('#pShared') || {}).checked}; }]]);
+  if (!r) return;
+  try {
+    const d = await api('/presets', {method: 'PUT', json: {name: r.name, shared: r.shared, data: {layout: S.layout, opts: S.opts}}});
+    await loadPresets(); const x = S.presets.find(y => y.name === r.name && y.kind === (r.shared ? 'shared' : 'mine'));
+    if (x){ S.presetId = x.id; S.presetName = x.name; }
+    S.dirty = false; saveDraft(); renderHeaderBtns(); renderRight(); toast(d.msg);
+  } catch(e){ toast(e.message); }
 }
 
-// ═══════════════════════ thanh trên ═══════════════════════
-function renderHeader(){
+// ═══════════════════════ thanh trên khung slide ═══════════════════════
+function renderHeaderBtns(){
   const kinds = {builtin: 'Có sẵn', shared: 'Mẫu chung', mine: 'Mẫu của tôi'};
-  $('#hdrPreset').innerHTML = ['builtin', 'shared', 'mine'].map(k => { const g = S.presets.filter(p => p.kind === k); return g.length ? `<optgroup label="${kinds[k]}">${g.map(p => `<option value="${esc(p.id)}" ${p.id === S.presetId ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</optgroup>` : ''; }).join('') + (S.presets.some(p => p.id === S.presetId) ? '' : `<option selected>${esc(S.presetName || 'Bố cục riêng')}</option>`);
-  const dept = S.opts && (S.opts.dept || (['saleskit', 'nelson'].includes(S.opts.slide_style) ? 'bd' : 'sales'));
-  document.querySelectorAll('#segDept button').forEach(b => b.classList.toggle('on', b.dataset.d === dept));
-  $('#hdrSub').textContent = (dept === 'bd' ? 'Báo cáo BD' : 'Báo cáo Sales') + ' · web';
+  $('#hdrPreset').innerHTML = ['builtin', 'shared', 'mine'].map(k => { const g = S.presets.filter(x => x.kind === k); return g.length ? `<optgroup label="${kinds[k]}">${g.map(x => `<option value="${esc(x.id)}" ${x.id === S.presetId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</optgroup>` : ''; }).join('') + (S.presets.some(x => x.id === S.presetId) ? '' : `<option selected>${esc(S.presetName || 'Bố cục riêng')}</option>`);
   $('#bUndo').disabled = !S.undo.length; $('#bRedo').disabled = !S.redo.length;
 }
-function renderAll(){ renderHeader(); renderSide(); renderSlide(); renderInsp(); renderStrip(); }
+function renderAll(){ renderHeaderBtns(); renderLeft(); renderSlide(); renderRight(); renderStrip(); renderSteps(); }
 $('#hdrPreset').onchange = async e => { await applyPreset(e.target.value, 'keepfilters'); S.dirty = false; };
-$('#segDept').onclick = async e => { const b = e.target.closest('button'); if (!b) return; const id = b.dataset.d === 'bd' ? 'builtin:SALESKIT' : 'builtin:Báo cáo';
-  if (S.dirty && !(await modal('Đổi phòng ban', 'Chuyển sang mẫu có sẵn của ' + (b.dataset.d === 'bd' ? 'BD (SALESKIT)' : 'Sales (Báo cáo)') + '? Ctrl+Z để quay lại.', [['Huỷ', 'btn', false], ['Chuyển', 'btn pri', true]]))) return;
-  await applyPreset(id, 'keepfilters'); S.opts.dept = b.dataset.d; S.dirty = false; saveDraft(); renderHeader(); };
 $('#bUndo').onclick = undo; $('#bRedo').onclick = redo;
 $('#bZoomIn').onclick = () => { S.zoom = clamp(Math.round(scale / 96 * 100) + 10, 25, 400); renderSlide(); };
 $('#bZoomOut').onclick = () => { S.zoom = clamp(Math.round(scale / 96 * 100) - 10, 25, 400); renderSlide(); };
-$('#bFit').onclick = fitZoom;
-$('#cGrid').onchange = renderSlide;
+$('#bFit').onclick = fitZoom; $('#cGrid').onchange = renderSlide;
 $('#bSavePreset').onclick = savePresetDlg;
-$('#bReset').onclick = async () => { if (!S.presets.some(p => p.id === S.presetId)) return toast('Bố cục này chưa lưu thành mẫu.'); await applyPreset(S.presetId, 'keepfilters'); S.dirty = false; toast('Đã đặt lại theo mẫu «' + S.presetName + '».'); };
+$('#bReset').onclick = async () => { if (!S.presets.some(x => x.id === S.presetId)) return toast('Bố cục này chưa lưu thành mẫu.'); await applyPreset(S.presetId, 'keepfilters'); S.dirty = false; toast('Đã đặt lại theo mẫu «' + S.presetName + '».'); };
 $('#bAcc').onclick = e => {
   document.querySelectorAll('.menu').forEach(m => m.remove());
   const m = document.createElement('div'); m.className = 'menu'; const r = e.currentTarget.getBoundingClientRect();
   m.style.top = (r.bottom + 6) + 'px'; m.style.right = (innerWidth - r.right) + 'px';
   const admin = ['admin', 'super_admin'].includes(S.me.role);
-  m.innerHTML = `<div style="padding:8px 10px" class="small"><b>${esc(S.me.name || S.me.email)}</b><br><span class="muted">${esc(S.me.email)}</span></div>
+  m.innerHTML = `<div style="padding:7px 10px" class="small"><b>${esc(S.me.name || S.me.email)}</b><br><span class="muted">${esc(S.me.email)}</span></div>
     ${admin ? '<a href="admin/">Trang quản trị kho</a>' : ''}<a href="quick/">Xuất nhanh (form đơn giản)</a><button data-m="pw">Đổi mật khẩu</button><button data-m="out">Đăng xuất</button>`;
   document.body.appendChild(m);
   m.onclick = async ev => { const k = ev.target.dataset.m; if (k === 'pw') changePw(); if (k === 'out'){ try { await api('/logout', {method: 'POST'}); } catch(e){} showLogin(); } m.remove(); };
   setTimeout(() => document.addEventListener('click', function h(ev){ if (!m.contains(ev.target)){ m.remove(); document.removeEventListener('click', h); } }), 0);
 };
 
+// ═══════════════════════ màn bắt đầu + lịch sử ═══════════════════════
+function renderStart(){
+  const now = Date.now() / 1000, rec = S.jobs.filter(j => j.state === 'done' && (!j.expires_ts || j.expires_ts > now)).slice(0, 4);
+  $('#recentBox').innerHTML = rec.length ? `<div style="display:flex;align-items:baseline;gap:10px"><h2 style="margin:0;font-size:15px;font-weight:600">Tải lại báo cáo gần đây</h2><a href="#" id="aAll" class="small">Xem tất cả</a></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:10px">${rec.map(j => { const m = jobFiles(j).find(f => f.pptx);
+      return `<div class="hrow" style="padding:10px"><div style="flex:1;min-width:0;display:flex;flex-direction:column"><b style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(j.title)}</b><span class="tiny muted">${fmtT(j.created_at)} · ${j.report ? j.report.slides + ' slide · ' : ''}${expireText(j)}</span></div>${m ? `<a class="btn pri" href="${m.url}">Tải · ${fmtB(m.size)}</a>` : ''}</div>`; }).join('')}</div>` : '';
+  const a = $('#aAll'); if (a) a.onclick = e => { e.preventDefault(); setView('hist'); };
+}
+function renderHistory(){
+  const q = ($('#hSearch').value || '').trim().toLowerCase(), now = Date.now() / 1000;
+  const grp = {all: () => true, run: j => ['uploading', 'queued', 'running'].includes(j.state), done: j => j.state === 'done', fail: j => ['failed', 'cancelled'].includes(j.state)};
+  const lab = {all: 'Tất cả', run: 'Đang chạy', done: 'Xong', fail: 'Lỗi / đã huỷ'};
+  $('#hTabs').innerHTML = Object.keys(grp).map(k => `<button role="tab" data-t="${k}" class="${S.hTab === k ? 'on' : ''}" aria-selected="${S.hTab === k}">${lab[k]} <span style="opacity:.7">${S.jobs.filter(grp[k]).length}</span></button>`).join('');
+  const list = S.jobs.filter(grp[S.hTab]).filter(j => !q || j.title.toLowerCase().includes(q));
+  const ready = S.jobs.filter(j => j.state === 'done' && (!j.expires_ts || j.expires_ts > now));
+  $('#histSub').textContent = `Tải lại file đã xuất bất cứ lúc nào trong ${S.jobs[0] && S.jobs[0].expires_ts && S.jobs[0].finished_ts ? Math.round((S.jobs[0].expires_ts - S.jobs[0].finished_ts) / 3600) : 24} giờ — không cần chọn ảnh và xuất lại.`;
+  $('#hZip').disabled = !ready.length; $('#hZip').textContent = ready.length ? `Tải hết ${ready.length} báo cáo còn hạn (.zip)` : 'Chưa có file còn hạn';
+  const tcol = s => s === 'saleskit' ? 'linear-gradient(#fff 0 62%,#1e6ee8 62%)' : s === 'nelson' ? '#2c2419' : '#ffffff';
+  $('#hList').innerHTML = list.map(j => { const fs = jobFiles(j), m = fs.find(f => f.pptx), meta = j.meta || {}, h = j.expires_ts ? (j.expires_ts - now) / 3600 : 99, rep = j.report || {};
+    const chip = j.state === 'done' ? 'done' : ['failed', 'cancelled'].includes(j.state) ? 'fail' : j.state === 'running' ? 'run' : 'wait';
+    const warn = [(rep.unmatched || []).length ? `${rep.unmatched.length} lệch FILE TỔNG` : '', (rep.missing_avatars || []).length ? `${rep.missing_avatars.length} thiếu avatar` : ''].filter(Boolean).join(' · ');
+    return `<article class="hrow"><div class="th2" style="background:${tcol(meta.style)}"></div>
+      <div class="info"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b style="font-size:14px;font-weight:600">${esc(j.title)}</b><span class="chip ${chip}">${STATE[j.state]}${j.state === 'running' && j.total ? ` ${j.done}/${j.total}` : ''}</span></div>
+        <span class="small muted">${fmtT(j.created_at)}${meta.preset_name ? ' · ' + esc(meta.preset_name) : ''}${meta.channel && meta.channel !== ALL.ch ? ' · ' + esc(meta.channel) : ''}${meta.city && meta.city !== ALL.city ? ' · ' + esc(meta.city) : ''}</span>
+        <span class="tiny muted">${j.photos} ảnh${rep.groups ? ' · ' + rep.groups + ' mã' : ''}${rep.slides ? ' · ' + rep.slides + ' slide' : ''}${warn ? ' · ' + warn : ''}${['failed', 'cancelled'].includes(j.state) ? ' · ' + esc(j.msg) : ''}</span>
+        ${j.state === 'running' ? `<div class="bar" style="margin-top:4px"><i style="width:${j.total ? (j.done / j.total * 100).toFixed(0) : 3}%"></i></div>` : ''}</div>
+      <div class="act">${j.state === 'done' && m ? `<a class="btn pri" href="${m.url}" style="height:36px">Tải PPTX · ${fmtB(m.size)}</a>
+        <div style="display:flex;gap:6px">${fs.filter(f => !f.pptx).map(f => `<a class="btn" href="${f.url}" style="flex:1">${f.list ? 'Excel danh sách' : 'Checklist'}</a>`).join('')}</div>
+        <span class="tiny" style="text-align:center;color:${h <= 4 ? 'var(--warn)' : 'var(--dim)'}">${expireText(j)}</span>` : ''}
+        ${['failed', 'cancelled', 'done'].includes(j.state) ? `<button class="btn" data-reopen="${j.id}" style="${j.state === 'done' ? '' : 'height:36px'}">Mở lại cài đặt${j.state === 'done' ? '' : ' & xuất lại'}</button>` : ''}
+        ${['uploading', 'queued', 'running'].includes(j.state) ? `<button class="btn danger" data-cancel="${j.id}">Huỷ xuất</button>` : `<button class="btn ghost sm" data-del="${j.id}" style="color:var(--dim)">Xoá khỏi lịch sử</button>`}</div></article>`; }).join('') || '<p class="muted">Không có lần xuất nào.</p>';
+  clearTimeout(renderHistory._t);
+  if (S.view === 'hist' && S.jobs.some(grp.run)) renderHistory._t = setTimeout(loadJobs, 3000);
+}
+$('#hTabs').onclick = e => { const b = e.target.closest('[data-t]'); if (b){ S.hTab = b.dataset.t; renderHistory(); } };
+$('#hSearch').oninput = renderHistory;
+$('#hZip').onclick = () => { const now = Date.now() / 1000, ids = S.jobs.filter(j => j.state === 'done' && (!j.expires_ts || j.expires_ts > now)).map(j => j.id); if (ids.length) location.href = 'api/jobs/zip?ids=' + ids.join(','); };
+$('#hList').onclick = async e => {
+  const t = e.target.closest('[data-reopen],[data-cancel],[data-del]'); if (!t) return;
+  try {
+    if (t.dataset.cancel){ await api(`/jobs/${t.dataset.cancel}/cancel`, {method: 'POST'}); toast('Đã gửi lệnh huỷ.'); }
+    if (t.dataset.del){ await api('/jobs/' + t.dataset.del, {method: 'DELETE'}); }
+    if (t.dataset.reopen){
+      const d = await api(`/jobs/${t.dataset.reopen}/settings`);
+      pushUndo(); S.layout = deep(d.preset.layout || {}); S.opts = deep(d.preset.opts || {}); normalizeOpts(); S.bg = d.background || ''; S.title = d.title || '';
+      const pr = S.presets.find(x => x.name === d.preset_name); S.presetId = pr ? pr.id : ''; S.presetName = d.preset_name || 'Bố cục lần xuất cũ';
+      saveDraft(); renderAll();
+      if (S.files.size){ setView('edit'); reanalyze(); toast('Đã mở lại cài đặt — bấm Xuất PPTX để xuất lại.'); }
+      else { setView('start'); toast('Đã mở lại cài đặt — chọn lại thư mục ảnh rồi xuất.'); }
+      return;
+    }
+  } catch(err){ toast(err.message); }
+  loadJobs();
+};
+
 // ═══════════════════════ xuất trên máy chủ ═══════════════════════
 let exporting = null;
-$('#bExport').onclick = () => {
+$('#bExport').onclick = () => startExport();
+function startExport(){
   if (exporting){ exporting.show(); return; }
-  if (!S.groups.length) return toast('Thêm thư mục ảnh trước (tab Nguồn).');
-  const a = S.ana, c = a.counts, miss = S.groups.filter(g => !g.avatar && S.opts.visible.avatar).map(g => g.code), none = S.groups.filter(g => g.kind === 'none').map(g => g.code);
+  if (!S.groups.length) return toast('Thêm thư mục ảnh trước (bước 1).');
+  const o = S.opts, a = S.ana, miss = S.groups.filter(isNoAv).map(g => g.code), none = S.groups.filter(g => g.kind === 'none').map(g => g.code);
   const files = S.groups.flatMap(g => g.files), bytes = files.reduce((x, r) => x + (S.files.get(r)?.size || 0), 0);
-  const title = (S.presetName || 'Report').replace(/[^\p{L}\p{N} _.-]+/gu, ' ').trim() + '_' + new Date().toISOString().slice(0, 10);
-  modal('Xuất PPTX trên máy chủ', `<div class="small muted">${a.groups.length} nhóm · ${files.length} ảnh · ${fmtB(bytes)} · mẫu ${esc(S.presetName || 'riêng')} · ${esc(S.opts.channel_filter)}</div>
+  const title = (S.title || S.presetName || 'Report').replace(/[^\p{L}\p{N} _.-]+/gu, ' ').trim() + '_' + new Date().toLocaleDateString('sv-SE');
+  modal('Xuất PPTX trên máy chủ', `<div class="small muted">${a.groups.length} nhóm · ${files.length} ảnh · ${fmtB(bytes)} · mẫu ${esc(S.presetName || 'riêng')} · ${esc(o.channel_filter)}</div>
     <label class="f">Tên file<input class="inp" id="xTitle" value="${esc(title)}"></label>
-    ${none.length ? `<div class="small warn">${none.length} mã ảnh không có trong FILE TỔNG: ${none.slice(0, 20).map(esc).join(', ')}${none.length > 20 ? '…' : ''} — slide vẫn xuất, bảng thông tin để trống.</div>` : '<div class="small ok">Mọi mã ảnh đều có trong FILE TỔNG.</div>'}
-    ${miss.length ? `<div class="small warn">${miss.length} mã thiếu avatar: ${miss.slice(0, 20).map(esc).join(', ')}${miss.length > 20 ? '…' : ''}</div>` : ''}`,
-    [['Huỷ', 'btn', null], ['Tải ảnh lên & xuất', 'btn pri', ov => ov.querySelector('#xTitle').value.trim() || title]]).then(t => { if (t) runExport(t, files); });
-};
+    <div class="card" style="gap:6px"><span class="small muted">Tuỳ chọn xuất</span>
+      <label class="c small"><input type="checkbox" id="xDash" ${o.fx.dashboard ? 'checked' : ''}> Slide tổng quan đầu file</label>
+      <label class="c small"><input type="checkbox" id="xIdx" ${o.store_index ? 'checked' : ''}> Slide + Excel danh sách cửa hàng</label>
+      <label class="c small"><input type="checkbox" id="xChk" ${o.write_checklist ? 'checked' : ''}> Checklist đối chiếu (Excel)</label>
+      <label class="c small"><input type="checkbox" id="xPad" ${o.pad_blank_slides ? 'checked' : ''}> Ô trống theo số màn</label>
+      <div class="g2"><label class="f">Chia file<select class="inp" id="xSplit">${opt(0, o.slides_per_file, 'Một file')}${[100, 200, 300, 500].map(k => opt(k, o.slides_per_file, k + ' slide/file')).join('')}</select></label>
+      <div class="f" style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)">Số lượng trên bảng<div style="display:flex;gap:8px;color:var(--text)">${['LCD', 'DP', 'DS', 'GP'].map(k => `<label class="c tiny"><input type="checkbox" data-xq="${k}" ${o.qty_show[k] ? 'checked' : ''}>${k}</label>`).join('')}</div></div></div></div>
+    ${none.length ? `<div class="small warn">${none.length} mã không có trong FILE TỔNG: ${none.slice(0, 15).map(esc).join(', ')}${none.length > 15 ? '…' : ''} — slide vẫn xuất, bảng để trống.</div>` : '<div class="small ok">Mọi mã ảnh đều có trong FILE TỔNG.</div>'}
+    ${miss.length ? `<div class="small warn">${miss.length} mã thiếu avatar: ${miss.slice(0, 15).map(esc).join(', ')}${miss.length > 15 ? '…' : ''}</div>` : ''}`,
+    [['Huỷ', 'btn', null], ['Tải ảnh lên & xuất', 'btn pri', ov => {
+      const qs = {}; ov.querySelectorAll('[data-xq]').forEach(i => qs[i.dataset.xq] = i.checked);
+      const changed = {dash: ov.querySelector('#xDash').checked, idx: ov.querySelector('#xIdx').checked, chk: ov.querySelector('#xChk').checked, pad: ov.querySelector('#xPad').checked, split: +ov.querySelector('#xSplit').value, qs};
+      return {t: ov.querySelector('#xTitle').value.trim() || title, changed}; }]]).then(r => {
+      if (!r) return;
+      const c = r.changed; S.opts.fx.dashboard = c.dash; S.opts.store_index = c.idx; S.opts.write_checklist = c.chk; S.opts.pad_blank_slides = c.pad; S.opts.slides_per_file = c.split; Object.assign(S.opts.qty_show, c.qs); saveDraft();
+      runExport(r.t, files); });
+}
 function runExport(title, files){
   const ov = document.createElement('div'); ov.className = 'ovl';
-  ov.innerHTML = `<div class="dlg"><div class="hd2"><div style="flex:1"><h2 style="margin:0;font-size:17px">Xuất PPTX trên máy chủ</h2><span class="small muted">${esc(title)}</span></div><button class="btn icon ghost" id="xMin" aria-label="Thu nhỏ, xuất tiếp ở nền">—</button></div>
-    <div class="bd" id="xSteps"></div><div class="ft"><span class="small muted" style="flex:1;min-width:220px">Có thể thu nhỏ hộp này. Kết quả giữ 1 ngày trong «Lần xuất».</span><button class="btn danger" id="xCancel">Huỷ xuất</button><button class="btn pri" id="xClose" disabled>Đóng</button></div></div>`;
+  ov.innerHTML = `<div class="dlg"><div class="hd2"><div style="flex:1"><h2 style="margin:0;font-size:16px">Đang xuất PPTX</h2><span class="tiny muted">${esc(title)}</span></div><button class="btn icon ghost" id="xMin" aria-label="Thu nhỏ, xuất tiếp ở nền" title="Thu nhỏ">—</button></div>
+    <div class="bd" id="xSteps"></div><div class="ft"><span class="tiny muted" style="flex:1;min-width:200px">Có thể thu nhỏ — kết quả nằm trong Lịch sử.</span><button class="btn danger" id="xCancel">Huỷ xuất</button></div></div>`;
   document.body.appendChild(ov);
-  const st = [{t: 'Đối chiếu ảnh với FILE TỔNG', s: 'done', d: `${S.groups.length} mã · ${S.ana.counts.none} không có trong FILE TỔNG · ${S.groups.filter(g => !g.avatar).length} thiếu avatar`},
-    {t: 'Tải ảnh lên máy chủ', s: 'run', d: 'Đang chuẩn bị…', p: 0}, {t: 'Dựng slide trên máy chủ', s: 'wait', d: 'Chờ'}, {t: 'Tải kết quả về', s: 'wait', d: ''}];
-  const paint = () => { $('#xSteps').innerHTML = st.map((x, i) => `<div class="stp ${x.s}"><span class="b">${x.s === 'done' ? '✓' : i + 1}</span><div style="flex:1;display:flex;flex-direction:column;gap:6px;padding-bottom:6px"><span class="t">${esc(x.t)}</span><span class="small muted">${x.html || esc(x.d)}</span>${x.p !== undefined && x.s === 'run' ? `<div class="bar"><i style="width:${(x.p * 100).toFixed(1)}%"></i></div>` : ''}</div></div>`).join(''); };
+  const st = [{t: 'Đối chiếu ảnh với FILE TỔNG', s: 'done', d: `${S.groups.length} mã · ${S.groups.filter(g => g.kind === 'none').length} không có trong FILE TỔNG · ${S.groups.filter(isNoAv).length} thiếu avatar`},
+    {t: 'Tải ảnh lên máy chủ', s: 'run', d: 'Đang chuẩn bị…', p: 0}, {t: 'Dựng slide trên máy chủ', s: 'wait', d: 'Chờ'}];
+  const paint = () => { $('#xSteps').innerHTML = st.map((x, i) => `<div class="stp ${x.s}"><span class="b">${x.s === 'done' ? '✓' : i + 1}</span><div style="flex:1;display:flex;flex-direction:column;gap:5px;padding-bottom:4px"><span class="t">${esc(x.t)}</span><span class="small muted">${x.html || esc(x.d)}</span>${x.p !== undefined && x.s === 'run' ? `<div class="bar"><i style="width:${(x.p * 100).toFixed(1)}%"></i></div>` : ''}</div></div>`).join(''); };
   paint();
   let stop = false, jid = null;
+  const restoreBtn = () => renderStrip();
   exporting = {show: () => ov.classList.remove('hidden')};
-  $('#xMin').onclick = () => { ov.classList.add('hidden'); $('#bExport').innerHTML = 'Đang xuất…'; };
-  $('#xClose').onclick = () => { ov.remove(); exporting = null; $('#bExport').innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Xuất PPTX'; };
+  $('#xMin').onclick = () => { ov.classList.add('hidden'); $('#bExport').textContent = 'Đang xuất… (bấm để xem)'; };
   $('#xCancel').onclick = async () => { stop = true; if (jid){ try { await api(`/jobs/${jid}/cancel`, {method: 'POST'}); } catch(e){} } };
   const put = (url, file, onp) => new Promise((res, rej) => { const x = new XMLHttpRequest(); x.open('PUT', url); x.setRequestHeader('X-Requested-With', 'autopptx');
     x.upload.onprogress = e => onp && onp(e.loaded); x.onload = () => { let d = {}; try { d = JSON.parse(x.responseText); } catch(e){} (x.status === 200 && d.ok !== false) ? res(d) : rej(new Error(d.msg || 'Lỗi ' + x.status)); }; x.onerror = () => rej(new Error('Mất kết nối')); x.send(file); });
+  const finish = () => { ov.remove(); exporting = null; restoreBtn(); loadJobs(); };
   (async () => {
     try {
-      const j = await api('/jobs', {method: 'POST', json: {preset: {layout: S.layout, opts: S.opts}, background: S.bg, title}}); jid = j.id;
+      const j = await api('/jobs', {method: 'POST', json: {preset: {layout: S.layout, opts: S.opts}, preset_name: S.presetName, background: S.bg, title}}); jid = j.id; loadJobs();
       const list = files.map(r => ({rel: r, file: S.files.get(r)})).filter(x => x.file), total = list.reduce((a, x) => a + x.file.size, 0);
       let sent = 0, done = 0, idx = 0; const inflight = new Map(), t0 = Date.now();
       const tick = () => { const cur = sent + [...inflight.values()].reduce((a, b) => a + b, 0), sec = (Date.now() - t0) / 1000, sp = cur / Math.max(sec, .5);
         st[1].d = `${done}/${list.length} ảnh · ${fmtB(cur)}/${fmtB(total)} · ${fmtB(sp)}/s · còn ~${Math.max(0, Math.round((total - cur) / Math.max(sp, 1)))} giây`; st[1].p = cur / total; paint(); };
       const worker = async () => { while (!stop && idx < list.length){ const k = idx++, it = list[k];
-        for (let at = 1; ; at++){ try { await put(`api/jobs/${jid}/photos/${enc(it.rel)}`, it.file, l => { inflight.set(k, l); tick(); }); break; } catch(e){ if (at >= 3 || /quá|đầy|không hợp lệ|bắt đầu/i.test(e.message)) throw e; await new Promise(r => setTimeout(r, 1500 * at)); } }
+        for (let at = 1; ; at++){ try { await put(`api/jobs/${jid}/photos/${enc(it.rel)}`, it.file, l => { inflight.set(k, l); tick(); }); break; } catch(e){ if (at >= 5 || /quá|đầy|không hợp lệ|bắt đầu/i.test(e.message)) throw e; await new Promise(r => setTimeout(r, 1500 * at)); } }
         inflight.delete(k); sent += it.file.size; done++; tick(); } };
       await Promise.all([1, 2, 3, 4].map(worker));
       if (stop) throw new Error('Đã huỷ.');
@@ -909,26 +1137,39 @@ function runExport(title, files){
       await api(`/jobs/${jid}/start`, {method: 'POST'}); st[2].s = 'run'; st[2].d = 'Đang chờ máy chủ…'; st[2].p = 0; paint();
       while (true){
         const r = await pollJob(jid);
-        if (r.state === 'running' || r.state === 'queued'){ st[2].d = r.msg; st[2].p = r.total ? r.done / r.total : 0; paint(); await new Promise(z => setTimeout(z, 1500)); continue; }
+        if (r.state === 'running' || r.state === 'queued'){ st[2].d = r.msg; st[2].p = r.total ? r.done / r.total : 0; paint(); if (exporting && ov.classList.contains('hidden')) $('#bExport').textContent = `Đang xuất ${Math.round(st[2].p * 100)}%… (bấm để xem)`; await new Promise(z => setTimeout(z, 1500)); continue; }
         if (r.state !== 'done') throw new Error(r.msg || 'Xuất không thành công.');
-        st[2].s = 'done'; st[2].d = r.msg; st[3].s = 'run';
-        const rep = r.report || {};
-        st[3].html = (r.files || []).map(f => `<a href="api/jobs/${jid}/files/${encodeURIComponent(f.name)}">${esc(f.name)}</a> <span class="muted">(${fmtB(f.size)})</span>`).join('<br>') +
-          ((rep.unmatched || []).length ? `<br><span class="warn">${rep.unmatched.length} mã không có trong FILE TỔNG</span>` : '') + ((rep.missing_avatars || []).length ? `<br><span class="warn">${rep.missing_avatars.length} mã thiếu avatar</span>` : '');
-        paint(); $('#xClose').disabled = false; $('#xCancel').classList.add('hidden'); exporting.show(); log(r.msg); break;
+        finish(); showDone(r); log(r.msg); break;
       }
-    } catch(e){ const i = st.findIndex(x => x.s === 'run'); if (i >= 0){ st[i].d = ''; st[i].html = `<span class="err">${esc(e.message)}</span>`; } paint(); $('#xClose').disabled = false; $('#xCancel').classList.add('hidden'); ov.classList.remove('hidden'); }
+    } catch(e){ const i = st.findIndex(x => x.s === 'run'); if (i >= 0){ st[i].d = ''; st[i].html = `<span class="err">${esc(e.message)}</span>`; } paint();
+      ov.classList.remove('hidden'); const c = $('#xCancel'); c.textContent = 'Đóng'; c.className = 'btn'; c.onclick = finish; }
   })();
 }
-$('#bJobs').onclick = async () => {
-  const d = await api('/jobs'); const ST = {uploading: 'Đang tải ảnh', queued: 'Đang chờ', running: 'Đang xuất', done: 'Xong', failed: 'Lỗi', cancelled: 'Đã huỷ'};
-  modal('Lần xuất gần đây', d.jobs.length ? d.jobs.map(j => `<div style="display:flex;gap:10px;padding:10px;background:var(--input);border-radius:9px;align-items:flex-start"><div style="flex:1;min-width:0"><b>${esc(j.title)}</b><div class="tiny muted">${fmtT(j.created_at)} · ${j.photos} ảnh · ${ST[j.state] || j.state}${j.state !== 'done' ? ' · ' + esc(j.msg) : ''}</div>
-    ${j.state === 'done' ? `<div class="small">${(j.files || []).map(f => `<a href="api/jobs/${j.id}/files/${encodeURIComponent(f.name)}">${esc(f.name)}</a> <span class="muted">(${fmtB(f.size)})</span>`).join('<br>')}</div>` : ''}</div></div>`).join('') + '<p class="tiny muted" style="margin:0">File kết quả giữ 1 ngày — tải về máy sớm.</p>' : '<p class="muted">Chưa xuất lần nào.</p>', null, {width: 620});
-};
+function showDone(j){
+  const fs = jobFiles(j), m = fs.find(f => f.pptx), rep = j.report || {}, st = j.stats || {};
+  const warn = [(rep.unmatched || []).length ? `${rep.unmatched.length} mã không có trong FILE TỔNG` : '', (rep.missing_avatars || []).length ? `${rep.missing_avatars.length} mã thiếu avatar` : ''].filter(Boolean);
+  const ov = document.createElement('div'); ov.className = 'ovl';
+  ov.innerHTML = `<div class="dlg" role="dialog" aria-modal="true" style="width:min(540px,100%)">
+    <div style="padding:20px 22px 14px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;background:#0f1a2a;border-bottom:1px solid #1d2b40">
+      <img src="static/ga-symbol.png" alt="" style="height:32px;width:auto">
+      <div style="width:42px;height:42px;border-radius:50%;background:#12301f;display:grid;place-items:center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7ee2a8" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+      <h2 style="margin:0;font-size:18px;font-weight:700">Đã xuất xong ${esc(j.title)}</h2>
+      <span class="muted small">${rep.slides || 0} slide · ${st.photos || j.photos} ảnh · ${rep.groups || 0} mã · dựng trong ${Math.round(rep.seconds || 0)} giây</span></div>
+    <div style="padding:16px 22px;display:flex;flex-direction:column;gap:10px">
+      ${m ? `<a class="btn pri" href="${m.url}" style="height:46px;justify-content:flex-start;gap:12px;padding:0 16px;border-radius:12px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg><span style="flex:1;text-align:left;display:flex;flex-direction:column;line-height:1.15"><b>Tải PPTX</b><span class="tiny" style="opacity:.85;font-weight:400">${esc(m.name)}</span></span><b>${fmtB(m.size)}</b></a>` : ''}
+      <div class="g2">${fs.filter(f => !f.pptx).map(f => `<a class="btn" href="${f.url}" style="height:38px;justify-content:space-between"><span>${f.list ? 'Excel danh sách' : 'Checklist đối chiếu'}</span><span class="tiny muted">${fmtB(f.size)}</span></a>`).join('')}</div>
+      ${warn.length ? `<details style="border-radius:11px;border:1px solid var(--warnline);background:#1d170c;padding:10px 12px"><summary style="cursor:pointer;color:var(--warn)">Cần xem lại: ${warn.join(' · ')}</summary><p class="small" style="margin:8px 0 0;color:#d8c79c">${[...(rep.unmatched || []).slice(0, 30), ...(rep.missing_avatars || []).slice(0, 30)].map(esc).join(', ')}<br>Slide của các mã này vẫn được xuất; danh sách đầy đủ nằm trong file Checklist.</p></details>` : ''}
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:11px;background:var(--sel);color:#cfe6ff;font-size:12px">Đã lưu vào Lịch sử — ${expireText(j).toLowerCase() || 'tải lại được'}, không cần xuất lại.</div></div>
+    <div style="padding:0 22px 18px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-d="hist" style="flex:1;height:36px">Mở Lịch sử</button><button class="btn" data-d="new" style="flex:1;height:36px">Làm báo cáo khác</button><button class="btn" data-d="close" style="flex:1;height:36px">Đóng</button></div></div>`;
+  document.body.appendChild(ov);
+  ov.onclick = e => { const b = e.target.closest('[data-d]'); if (e.target === ov) ov.remove(); if (!b) return; ov.remove();
+    if (b.dataset.d === 'hist') setView('hist');
+    if (b.dataset.d === 'new'){ S.folders = []; S.files.clear(); S.groups = []; S.ana = null; S.title = ''; setView('start'); renderAll(); } };
+}
 
 // ═══════════════════════ khởi động ═══════════════════════
 document.addEventListener('dragover', e => e.preventDefault());
-document.addEventListener('drop', e => { if (!e.target.closest('.drop') && $('#app') && !$('#app').classList.contains('hidden')) onDrop(e); });
+document.addEventListener('drop', e => { if (!e.target.closest('.drop,.bigdrop') && !$('#app').classList.contains('hidden')) onDrop(e); });
 api('/me').then(d => enter(d.user)).catch(() => showLogin());
 </script>
 </body>

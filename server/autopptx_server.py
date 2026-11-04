@@ -584,7 +584,25 @@ def job_public(r, with_result=True):
         d['msg'] = r['msg'] or d.get('msg', '')
     if r['state'] == 'queued':
         d['msg'] = 'Đang chờ tới lượt xuất…'
+    d['created_ts'] = r['created_ts']
+    d['finished_ts'] = r['finished_ts']
+    if r['state'] in ('done', 'failed', 'cancelled') and r['finished_ts']:
+        d['expires_ts'] = r['finished_ts'] + JOB_KEEP_HOURS * 3600
+    d['meta'] = job_meta(r['id'])
     return d
+
+
+def job_meta(jid):
+    """Mẫu / kênh / tỉnh của lần xuất — để Lịch sử ghi rõ và «Mở lại cài đặt»."""
+    try:
+        with open(os.path.join(job_dir(jid), 'job.json'), encoding='utf-8') as f:
+            spec = json.load(f)
+    except Exception:
+        return {}
+    o = (spec.get('preset') or {}).get('opts') or {}
+    return {'preset_name': spec.get('preset_name') or '', 'dept': o.get('dept') or '',
+            'style': o.get('slide_style') or '', 'channel': o.get('channel_filter') or '',
+            'city': o.get('city_filter') or '', 'district': o.get('district_filter') or ''}
 
 
 def queue_position(con, jid):
@@ -823,6 +841,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
+            mm = re.match(r'^/static/([a-z0-9_.-]+\.(?:png|svg|ico))$', path)
+            if mm and m in ('GET', 'HEAD'):
+                return self.serve_static(mm.group(1))
             if path in ('/admin/', '/admin/index.html') and m in ('GET', 'HEAD'):
                 return self.serve_ui('admin.html')
             if path in ('/quick/', '/quick/index.html') and m in ('GET', 'HEAD'):
@@ -880,6 +901,21 @@ class Handler(BaseHTTPRequestHandler):
             con.close()
 
     # ── trang quản trị ──
+    def serve_static(self, name):
+        fp = os.path.join(HERE, 'static', name)
+        if not os.path.isfile(fp):
+            raise ApiError(404, 'Không có file.')
+        with open(fp, 'rb') as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header('Content-Type', {'png': 'image/png', 'svg': 'image/svg+xml',
+                                          'ico': 'image/x-icon'}[name.rsplit('.', 1)[1]])
+        self.send_header('Content-Length', str(len(body)))
+        self.send_header('Cache-Control', 'public, max-age=86400')
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(body)
+
     def serve_ui(self, name):
         fp = os.path.join(HERE, name)
         try:
@@ -1215,6 +1251,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({'ok': True, 'jobs': out})
         if rest in ('', '/') and m == 'POST':
             return self.job_create(con, u)
+        if rest == '/zip' and m == 'GET':
+            return self.jobs_zip(con, u, q)
         mm = re.match(r'^/([a-z0-9]{16})(/.*)?$', rest)
         if not mm:
             raise ApiError(404, 'Không có lần xuất này.')
@@ -1230,6 +1268,15 @@ class Handler(BaseHTTPRequestHandler):
                 if pos > 0:
                     out['msg'] = f'Đang chờ: còn {pos} báo cáo phía trước.'
             return self.send_json({'ok': True, 'job': out})
+        if sub == '/settings' and m == 'GET':
+            try:
+                with open(os.path.join(d, 'job.json'), encoding='utf-8') as f:
+                    spec = json.load(f)
+            except Exception:
+                raise ApiError(404, 'Không còn cài đặt của lần xuất này.')
+            return self.send_json({'ok': True, 'preset': spec.get('preset') or {},
+                                   'preset_name': spec.get('preset_name') or '',
+                                   'background': spec.get('bg_rel') or '', 'title': r['title']})
         if sub == '' and m == 'DELETE':
             if r['state'] in ('queued', 'running'):
                 raise ApiError(400, 'Huỷ lần xuất trước khi xoá.')
@@ -1344,7 +1391,9 @@ class Handler(BaseHTTPRequestHandler):
         os.makedirs(os.path.join(jd, 'photos'), exist_ok=True)
         shutil.copyfile(os.path.join(STORE, 'excel', f'{row["owner"]}.xlsx'),
                         os.path.join(jd, 'excel.xlsx'))
-        spec = {'preset': preset, 'bg_image': bg_image, 'avatar_dir': os.path.join(STORE, 'avatars'),
+        spec = {'preset': preset, 'bg_image': bg_image, 'bg_rel': bg or '',
+                'avatar_dir': os.path.join(STORE, 'avatars'),
+                'preset_name': str(d.get('preset_name') or '')[:80],
                 'out_name': safe + '.pptx', 'excel_name': row['file_name'], 'user': u['email']}
         with open(os.path.join(jd, 'job.json'), 'w', encoding='utf-8') as f:
             json.dump(spec, f, ensure_ascii=False)
@@ -1356,6 +1405,50 @@ class Handler(BaseHTTPRequestHandler):
             con.commit()
         self.send_json({'ok': True, 'id': jid, 'excel': self.excel_public(row),
                         'max_gb': JOB_MAX_GB})
+
+    def jobs_zip(self, con, u, q):
+        """Tải nhiều kết quả còn hạn thành một .zip (ghi luồng, không nén lại PPTX)."""
+        import zipfile
+        ids = [x for x in (q.get('ids') or '').split(',') if JOB_ID_RE.match(x)][:30]
+        rows = []
+        for jid in ids:
+            r = con.execute("SELECT * FROM jobs WHERE id=? AND state='done'", (jid,)).fetchone()
+            if r and (r['user_id'] == u['id'] or u['role'] in ('admin', 'super_admin')):
+                rows.append(r)
+        if not rows:
+            raise ApiError(404, 'Không còn file nào để tải.')
+        files = []
+        for r in rows:
+            folder = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', '_', r['title']).strip(' ._') or r['id']
+            for f in (json.loads(r['result'] or '{}').get('files') or []):
+                fp = os.path.join(job_dir(r['id']), 'out', os.path.basename(f['name']))
+                if os.path.isfile(fp):
+                    files.append((fp, f'{folder}/{os.path.basename(f["name"])}'))
+        if not files:
+            raise ApiError(404, 'File đã hết hạn.')
+        name = 'AutoPPTX_' + time.strftime('%Y%m%d_%H%M') + '.zip'
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/zip')
+        self.send_header('Content-Disposition', "attachment; filename*=UTF-8''" + urllib.parse.quote(name))
+        self.send_header('Connection', 'close')
+        self.end_headers()
+        self.close_connection = True
+
+        class _W:
+            def __init__(self, w):
+                self.w, self.n = w, 0
+            def write(self, b):
+                self.w.write(b)
+                self.n += len(b)
+                return len(b)
+            def tell(self):
+                return self.n
+            def flush(self):
+                self.w.flush()
+
+        with zipfile.ZipFile(_W(self.wfile), 'w', zipfile.ZIP_STORED, allowZip64=True) as z:
+            for fp, arc in files:
+                z.write(fp, arc)
 
     def send_path(self, full, accel_uri, ctype, download_name):
         if not os.path.isfile(full):

@@ -12,6 +12,8 @@ scp -q -i "$KEY" -o BatchMode=yes \
   server/autopptx_server.py server/render_job.py server/admin.html server/report.html server/editor.html \
   server/setup.sh server/requirements.txt server/autopptx-store.service server/nginx-autopptx.conf \
   "$HOST:/tmp/autopptx-server/"
+"${SSH[@]}" 'mkdir -p /tmp/autopptx-server/static'
+scp -q -i "$KEY" -o BatchMode=yes server/static/* "$HOST:/tmp/autopptx-server/static/"
 # Đúng code xuất của app (đọc Excel, khớp mã/avatar, dựng PPTX) — không kèm giao diện Tk.
 scp -q -i "$KEY" -o BatchMode=yes \
   autopptx2/__init__.py autopptx2/constants.py autopptx2/datasource.py \

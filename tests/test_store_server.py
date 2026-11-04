@@ -375,7 +375,23 @@ class StoreServerTest(unittest.TestCase):
         # ảnh gốc đã xoá sau khi xuất
         self.assertFalse(os.path.isdir(os.path.join(self.S.JOBS, jid, 'photos')))
         st, d = self.req('GET', '/api/jobs', self.staff)
-        self.assertIn(jid, [x['id'] for x in d['jobs']])
+        row = next(x for x in d['jobs'] if x['id'] == jid)
+        self.assertGreater(row['expires_ts'], row['finished_ts'])
+        # Mở lại cài đặt của lần xuất
+        st, d = self.req('GET', f'/api/jobs/{jid}/settings', self.staff)
+        self.assertEqual(st, 200, d)
+        self.assertEqual(d['preset']['opts']['n_per_slide'], 2)
+        self.assertEqual(d['title'], 'Báo cáo thử W1')
+        # Tải nhiều kết quả thành .zip
+        import zipfile
+        st, b = self.req('GET', f'/api/jobs/zip?ids={jid}', self.staff, raw=True)
+        self.assertEqual(st, 200)
+        names = zipfile.ZipFile(io.BytesIO(b)).namelist()
+        self.assertIn('Báo cáo thử W1/Báo cáo thử W1.pptx', names)
+        st, _ = self.req('GET', f'/api/jobs/zip?ids={jid}', self.admin.replace(self.admin, 'sai'))
+        self.assertEqual(st, 401)
+        st, b = self.req('GET', '/static/ga-symbol.png', raw=True)
+        self.assertEqual((st, b[:4]), (200, b'\x89PNG'))
         st, d = self.req('DELETE', f'/api/jobs/{jid}', self.staff)
         self.assertEqual(st, 200)
 
