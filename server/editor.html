@@ -7,7 +7,7 @@
 <title>AutoPPTX Web · Golden Asia</title>
 <link rel="icon" type="image/png" href="static/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Saira:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0c0c0f;--panel:#161619;--side:#121215;--input:#1e1e22;--border:#2a2a30;--work:#0a0a0d;
   --text:#e8e8ec;--muted:#a6a6b3;--dim:#9a9aa8;--accent:#1774d2;--accent-h:#3595ee;--sel:#16304f;--sel-t:#7cbcf7;
@@ -43,7 +43,7 @@ input[type=checkbox],input[type=range]{accent-color:var(--accent)}
 .stat span{font-size:10px;color:var(--dim)}
 /* khung */
 #app{height:100vh;display:flex;flex-direction:column;overflow:hidden}
-header{height:44px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px;background:var(--panel);border-bottom:1px solid var(--border);overflow-x:auto}
+#app>header{height:44px;flex-shrink:0;display:flex;align-items:center;gap:4px;padding:0 8px;background:var(--panel);border-bottom:1px solid var(--border);overflow-x:auto}
 .sep{width:1px;height:18px;background:var(--border);margin:0 4px;flex-shrink:0}
 .seg{display:flex;background:var(--input);border:1px solid var(--border);border-radius:7px;padding:2px;flex-shrink:0}
 .seg button{height:22px;padding:0 10px;border:0;border-radius:5px;background:transparent;color:#c9c9d2;cursor:pointer}
@@ -85,7 +85,7 @@ table.info td{padding:0 2px;vertical-align:middle;overflow:hidden}
 .th .n{position:absolute;right:4px;top:4px;font-size:10px;background:rgba(0,0,0,.6);padding:0 4px;border-radius:3px}
 .th .dot{position:absolute;left:5px;top:5px;width:8px;height:8px;border-radius:50%}
 .th .c{font-size:10px;color:#c9c9d2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-footer{height:22px;flex-shrink:0;display:flex;align-items:center;gap:14px;padding:0 10px;background:var(--panel);border-top:1px solid var(--border);font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden}
+#app>footer{height:22px;flex-shrink:0;display:flex;align-items:center;gap:14px;padding:0 10px;background:var(--panel);border-top:1px solid var(--border);font-size:10.5px;color:var(--dim);white-space:nowrap;overflow:hidden}
 .drop{border:1.5px dashed #3a3a44;border-radius:8px;padding:10px;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;color:var(--muted);cursor:pointer}
 .drop.over{border-color:var(--guide);background:rgba(46,155,255,.07)}
 .fold{display:flex;align-items:center;gap:8px;padding:5px 8px;background:var(--input);border-radius:7px}
@@ -124,49 +124,8 @@ footer{height:22px;flex-shrink:0;display:flex;align-items:center;gap:14px;paddin
 .hbrand img{height:20px;width:auto;display:block}
 .hbrand .v{width:1px;height:20px;background:#34343c}
 .hbrand b{font-size:13px;line-height:1.1}
-/* đăng nhập — phong cách goldenasia.vn: nền xanh #1791ff, vạch dọc mảnh, chữ Saira in hoa */
-#login{position:fixed;inset:0;overflow:auto;font-family:Saira,'Be Vietnam Pro',system-ui,sans-serif;color:#fff;
-  background:radial-gradient(70% 60% at 42% 18%,rgba(120,200,255,.55) 0%,rgba(23,145,255,0) 62%),
-    radial-gradient(90% 80% at 100% 100%,#0a4fc4 0%,rgba(10,79,196,0) 60%),#1791ff}
-#login::before{content:'';position:fixed;inset:0;pointer-events:none;
-  background:repeating-linear-gradient(90deg,rgba(255,255,255,.07) 0 1px,transparent 1px 6px);
-  -webkit-mask:linear-gradient(180deg,rgba(0,0,0,.9),rgba(0,0,0,.25));mask:linear-gradient(180deg,rgba(0,0,0,.9),rgba(0,0,0,.25))}
-#login .lg-wrap{position:relative;min-height:100%;display:flex;flex-direction:column;padding:22px clamp(18px,5vw,72px)}
-#login .lg-top{display:flex;align-items:center;justify-content:space-between;gap:12px}
-#login .lg-top img{height:30px;width:auto;display:block;filter:brightness(0) invert(1)}
-#login .lg-dl{display:flex;align-items:center;gap:8px}
-#login .lg-dl-t{font-size:12px;color:rgba(255,255,255,.85);margin-right:2px;white-space:nowrap}
-#login .lg-dlb{height:34px;padding:0 12px;border-radius:6px;background:rgba(255,255,255,.2);color:#fff;border:0;display:inline-flex;align-items:center;gap:7px;font:500 13px Saira,sans-serif;text-decoration:none;cursor:pointer;white-space:nowrap;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-#login .lg-dlb:hover{background:rgba(255,255,255,.32);color:#fff}
-#login .lg-dlb.on{background:#fff;color:#0b5fd9}
-#login .lg-dlb.on:hover{background:#eaf4ff;color:#0b5fd9}
-#login .lg-dlb small{font-size:11px;opacity:.7;font-weight:400}
-#login .lg-dlm{position:relative}
-#login .lg-pop{position:absolute;right:0;top:calc(100% + 6px);background:#fff;color:#0b1a33;border-radius:8px;padding:6px;min-width:260px;box-shadow:0 20px 50px rgba(4,40,110,.35);z-index:5;display:none}
-#login .lg-dlm.open .lg-pop{display:block}
-#login .lg-pop a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;color:inherit;text-decoration:none}
-#login .lg-pop a:hover{background:#eef5ff}
-#login .lg-pop a div{flex:1;display:flex;flex-direction:column;line-height:1.3}
-#login .lg-pop b{font-size:13px;font-weight:600}
-#login .lg-pop span{font-size:11px;color:#6b7689}
-#login .lg-pop em{font-style:normal;font-size:11px;color:#6b7689}
-#login .lg-main{flex:1;display:flex;align-items:center;gap:clamp(24px,5vw,80px);padding:36px 0;flex-wrap:wrap}
-#login .lg-hero{flex:1 1 420px;min-width:0}
-#login .lg-name{font-size:clamp(24px,2.6vw,34px);font-weight:700;line-height:1.2}
-#login .lg-hero p{margin:0;max-width:520px;font-size:15px;line-height:1.6;color:rgba(255,255,255,.9)}
-#login form{flex:0 1 380px;width:100%;background:#fff;color:#0b1a33;border-radius:8px;padding:28px 28px 22px;display:flex;flex-direction:column;gap:6px;box-shadow:0 30px 70px rgba(4,40,110,.35)}
-#login form h2{margin:0;font-size:24px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
-#login form .sub{margin:0 0 14px;font-size:13px;color:#5a6577;line-height:1.5}
-#login form label{font-size:12px;font-weight:600;color:#33405a}
-#login .inp{height:42px;border-radius:4px;padding:0 12px;background:#f3f6fb;border:1px solid #d6deea;color:#0b1a33;font-size:14px;font-family:inherit}
-#login .inp:focus{outline:2px solid #1791ff;outline-offset:-1px;background:#fff}
-#login .lg-btn{height:44px;margin-top:6px;border:0;border-radius:4px;background:#1791ff;color:#fff;font:600 15px Saira,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px}
-#login .lg-btn:hover{background:#0c7ee6}
-#login .lg-btn:disabled{opacity:.6;cursor:default}
-#login .lg-note{font-size:11.5px;color:#6b7689}
-#login #lErr{margin:4px 0 0;font-size:12.5px;color:#d92d2d;min-height:0}
-#login .lg-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;color:rgba(255,255,255,.8)}
-@media (max-width:760px){#login .lg-wrap{padding:16px}#login .lg-top{flex-wrap:wrap;row-gap:10px}#login .lg-top img{height:24px}#login .lg-main{padding:24px 0;gap:18px;align-items:stretch;flex-direction:column}#login .lg-hero{flex:0 0 auto}#login form{flex:0 0 auto;padding:22px 20px 18px}#login .lg-dlb{height:30px;padding:0 10px;font-size:12px}#login .lg-dl-t,#login .lg-dlb small{display:none}#login .lg-foot{font-size:11px}}
+/* đăng nhập: giao diện Golden Cloud nạp từ static/login.{html,css,js} */
+#login{position:fixed;inset:0;z-index:40;overflow-y:auto;overflow-x:hidden;background:#193fbc}
 @media (max-width:1180px){.hbrand .sub{display:none}}
 @media (max-width:900px){aside#side{width:260px}aside#insp{display:none}.hbrand img{display:none}.hbrand .v{display:none}}
 @media (max-width:640px){#body{flex-wrap:wrap}aside#side{width:100%;max-height:45vh}nav#rail{width:100%;flex-direction:row;height:auto;padding:4px;justify-content:center}}
@@ -174,31 +133,7 @@ footer{height:22px;flex-shrink:0;display:flex;align-items:center;gap:14px;paddin
 </head>
 <body>
 
-<div id="login" class="hidden">
-  <div class="lg-wrap">
-    <div class="lg-top">
-      <img src="static/ga-logo-white.png" alt="Golden Asia">
-      <div class="lg-dl hidden" id="lgDl" aria-label="Tải ứng dụng máy tính"></div>
-    </div>
-    <div class="lg-main">
-      <div class="lg-hero">
-        <div class="lg-name">AutoPPTX Studio</div>
-      </div>
-      <form id="fLogin">
-        <h2>Đăng nhập</h2>
-        <p class="sub">Dùng tài khoản công ty để vào AutoPPTX.</p>
-        <label for="lEmail">Email</label>
-        <input class="inp" id="lEmail" type="email" placeholder="ban@goldenasia.vn" autocomplete="username" required style="margin-bottom:8px">
-        <label for="lPw">Mật khẩu</label>
-        <input class="inp" id="lPw" type="password" placeholder="••••••••" autocomplete="current-password" required>
-        <button class="lg-btn">Đăng nhập <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></svg></button>
-        <p id="lErr"></p>
-        <span class="lg-note">Trình duyệt giữ phiên 60 ngày, không lưu mật khẩu. Quên mật khẩu? Nhờ quản trị cấp mật khẩu tạm.</span>
-      </form>
-    </div>
-    <div class="lg-foot"><span>© Golden Asia · Discover the difference</span><span>Công cụ nội bộ</span></div>
-  </div>
-</div>
+<div id="login" class="hidden"></div>
 
 <div id="app" class="hidden">
   <header>
@@ -372,14 +307,92 @@ function saveDraft(){ try { localStorage.setItem(draftKey(), JSON.stringify({pre
 function loadDraft(){ try { return JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch(e){ return null; } }
 
 // ═══════════════════════ đăng nhập ═══════════════════════
-function showLogin(){ $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }
-$('#fLogin').onsubmit = async e => {
-  e.preventDefault(); $('#lErr').textContent = '';
-  try { const d = await api('/login', {method: 'POST', json: {email: $('#lEmail').value, password: $('#lPw').value, cookie: true, client: 'web-editor'}}); $('#lPw').value = ''; enter(d.user); }
-  catch(err){ $('#lErr').textContent = err.message; }
-};
+const LOGIN_V = '20261105b';
+let loginReady = null, RL = null;
+function loadLogin(){
+  if (loginReady) return loginReady;
+  loginReady = (async () => {
+    const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'static/login.css?v=' + LOGIN_V;
+    const cssDone = new Promise(r => { css.onload = css.onerror = r; }); document.head.appendChild(css);
+    const js = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'static/login.js?v=' + LOGIN_V; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+    const html = await fetch('static/login.html?v=' + LOGIN_V).then(r => { if (!r.ok) throw new Error('login ' + r.status); return r.text(); });
+    await Promise.all([cssDone, js]);
+    $('#login').innerHTML = html;
+    bindLogin();
+  })();
+  loginReady.catch(() => { loginReady = null; });
+  return loginReady;
+}
+function basicLogin(){   // dự phòng khi không nạp được giao diện đầy đủ
+  $('#login').innerHTML = `<div style="min-height:100vh;display:grid;place-items:center;padding:20px;background:#193fbc;font-family:Nunito,sans-serif">
+    <form id="fLogin" novalidate style="width:min(380px,100%);background:#fffdf8;color:#142955;border-radius:22px;padding:28px;display:flex;flex-direction:column;gap:8px">
+      <h2 style="margin:0 0 8px">Đăng nhập</h2>
+      <label for="email">Email</label><input class="inp" id="email" type="email" autocomplete="username" style="background:#fff;color:#142955;height:40px">
+      <label for="password">Mật khẩu</label><input class="inp" id="password" type="password" autocomplete="current-password" style="background:#fff;color:#142955;height:40px">
+      <button class="btn pri" style="height:42px;justify-content:center;margin-top:8px">Đăng nhập</button><p id="lErr" style="margin:6px 0 0;color:#d64545"></p></form></div>`;
+  bindSubmit();
+}
+function bindSubmit(){
+  const f = $('#fLogin');
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const em = $('#email'), pw = $('#password'), err = $('#lErr'), btn = f.querySelector('[type=submit],button:not([type])');
+    err.textContent = '';
+    if (!em.value.trim() || !pw.value){ err.textContent = 'Nhập email và mật khẩu.'; (em.value.trim() ? pw : em).focus(); return; }
+    f.setAttribute('aria-busy', 'true'); if (btn) btn.disabled = true;
+    try {
+      const d = await api('/login', {method: 'POST', json: {email: em.value.trim(), password: pw.value, cookie: true, client: 'web-editor'}});
+      const rem = f.querySelector('.remember-control input');
+      try { if (rem && rem.checked) localStorage.setItem('ap_login_email', em.value.trim()); else if (rem) localStorage.removeItem('ap_login_email'); } catch(_){}
+      if (RL) try { RL.prepareSignIn(); } catch(_){}
+      pw.value = ''; enter(d.user);
+    } catch(x){ err.textContent = x.message; }
+    finally { f.setAttribute('aria-busy', 'false'); if (btn) btn.disabled = false; }
+  };
+}
+function bindLogin(){
+  const root = $('#login .rocket-login'), em = $('#email'), pw = $('#password'), eye = $('#show-password');
+  const tg = root.querySelector('.cms-theme-toggle');
+  const setTheme = t => {
+    root.dataset.theme = t; tg.setAttribute('aria-pressed', String(t === 'dark'));
+    const l = t === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'; tg.setAttribute('aria-label', l); tg.title = l;
+  };
+  let th = 'light'; try { th = localStorage.getItem('ap_login_theme') || 'light'; } catch(_){}
+  setTheme(th);
+  tg.onclick = () => { const t = root.dataset.theme === 'dark' ? 'light' : 'dark'; setTheme(t); try { localStorage.setItem('ap_login_theme', t); } catch(_){} };
+  const rem = root.querySelector('.remember-control input');
+  try { const e = localStorage.getItem('ap_login_email'); if (e){ em.value = e; if (rem) rem.checked = true; } } catch(_){}
+  eye.onclick = () => {
+    const v = pw.type === 'password'; pw.type = v ? 'text' : 'password';
+    eye.setAttribute('aria-pressed', String(v)); eye.setAttribute('aria-label', v ? 'Ẩn mật khẩu' : 'Hiện mật khẩu');
+    if (RL) RL.setPrivacy(v);
+  };
+  const caret = () => { if (RL) RL.followCaret(pw.selectionStart ?? pw.value.length); };
+  ['input', 'keyup', 'click'].forEach(ev => pw.addEventListener(ev, caret));
+  $('#lForgot').onclick = () => { $('#lNote').textContent = 'Quên mật khẩu: nhờ quản trị cấp mật khẩu tạm. Đổi mật khẩu: đăng nhập rồi mở menu tài khoản ở góc phải.'; };
+  const dlg = $('#saturn-letter'), sat = root.querySelector('[data-world="saturn"]');
+  if (dlg && sat && dlg.showModal){
+    const closeL = () => { if (dlg.open) dlg.close(); root.classList.remove('letter-open'); };
+    sat.style.cursor = 'pointer';
+    sat.addEventListener('click', () => { if (root.matches('.flight-active')) return; root.classList.add('letter-open'); dlg.showModal(); });
+    dlg.querySelectorAll('.letter-close,.letter-continue').forEach(b => { b.onclick = closeL; });
+    dlg.addEventListener('close', () => root.classList.remove('letter-open'));
+    dlg.addEventListener('click', e => { if (e.target === dlg) closeL(); });
+  }
+  bindSubmit();
+  renderLoginDownloads();
+}
+async function showLogin(){
+  $('#app').classList.add('hidden');
+  try { await loadLogin(); } catch(e){ if (!$('#fLogin')) basicLogin(); }
+  $('#login').classList.remove('hidden');
+  const pw = $('#password'); if (pw && pw.type !== 'password'){ pw.type = 'password'; const eye = $('#show-password'); if (eye) eye.setAttribute('aria-pressed', 'false'); }
+  const root = $('#login .rocket-login');
+  if (root && !RL && window.RocketLogin){ try { RL = window.RocketLogin.init(root); } catch(e){ console.error(e); } }
+}
 async function enter(u){
   S.me = u; $('#login').classList.add('hidden'); $('#app').classList.remove('hidden');
+  if (RL){ try { RL.destroy(); } catch(_){} RL = null; }
   $('#bAcc').textContent = (u.name || u.email).split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
   await Promise.all([loadFields(), loadPresets(), loadBgs()]);
   const d = loadDraft();
@@ -993,16 +1006,17 @@ async function loadDownloads(){
 }
 const dlSize = f => f.size >= 1048576 ? Math.round(f.size / 1048576) + ' MB' : fmtB(f.size);
 async function renderLoginDownloads(){
-  const box = $('#lgDl'), d = await loadDownloads();
+  const box = $('#lgDl'); if (!box) return;
+  const d = await loadDownloads();
   const win = d.files.filter(f => f.os === 'windows'), mac = d.files.filter(f => f.os.startsWith('mac'));
-  if (!win.length && !mac.length){ box.classList.add('hidden'); return; }
-  let h = `<span class="lg-dl-t">Ứng dụng máy tính${d.version ? ' · v' + esc(d.version) : ''}</span>`;
-  if (win.length) h += `<a class="lg-dlb${myOS === 'windows' ? ' on' : ''}" href="${win[0].url}" download title="${esc(win[0].hint + ' · ' + win[0].name)}">${OS_SVG.windows}Windows <small>${dlSize(win[0])}</small></a>`;
-  if (mac.length === 1) h += `<a class="lg-dlb${myOS === 'mac' ? ' on' : ''}" href="${mac[0].url}" download title="${esc(mac[0].hint + ' · ' + mac[0].name)}">${OS_SVG.mac}macOS <small>${dlSize(mac[0])}</small></a>`;
-  else if (mac.length) h += `<div class="lg-dlm"><button type="button" class="lg-dlb${myOS === 'mac' ? ' on' : ''}" aria-haspopup="true">${OS_SVG.mac}macOS <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
-    <div class="lg-pop" role="menu">${mac.map(f => `<a href="${f.url}" download role="menuitem">${OS_SVG.mac}<div><b>${esc(f.label)}</b><span>${esc(f.hint)}</span></div><em>${dlSize(f)}</em></a>`).join('')}</div></div>`;
-  box.innerHTML = h; box.classList.remove('hidden');
-  const dm = box.querySelector('.lg-dlm');
+  if (!win.length && !mac.length){ box.hidden = true; return; }
+  let h = `<span class="rl-dl-t">Ứng dụng máy tính${d.version ? ' · v' + esc(d.version) : ''}</span>`;
+  if (win.length) h += `<a class="rl-dlb${myOS === 'windows' ? ' on' : ''}" href="${win[0].url}" download title="${esc(win[0].hint + ' · ' + win[0].name)}">${OS_SVG.windows}Windows <small>${dlSize(win[0])}</small></a>`;
+  if (mac.length === 1) h += `<a class="rl-dlb${myOS === 'mac' ? ' on' : ''}" href="${mac[0].url}" download title="${esc(mac[0].hint + ' · ' + mac[0].name)}">${OS_SVG.mac}macOS <small>${dlSize(mac[0])}</small></a>`;
+  else if (mac.length) h += `<div class="rl-dlm"><button type="button" class="rl-dlb${myOS === 'mac' ? ' on' : ''}" aria-haspopup="true">${OS_SVG.mac}macOS <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg></button>
+    <div class="rl-pop" role="menu">${mac.map(f => `<a href="${f.url}" download role="menuitem">${OS_SVG.mac}<div><b>${esc(f.label)}</b><span>${esc(f.hint)}</span></div><em>${dlSize(f)}</em></a>`).join('')}</div></div>`;
+  box.innerHTML = h; box.hidden = false;
+  const dm = box.querySelector('.rl-dlm');
   if (dm){
     dm.querySelector('button').onclick = e => { e.stopPropagation(); dm.classList.toggle('open'); };
     document.addEventListener('click', e => { if (!dm.contains(e.target)) dm.classList.remove('open'); });
@@ -1015,7 +1029,6 @@ async function downloadsDlg(){
   modal('Tải ứng dụng máy tính' + (d.version ? ' · v' + d.version : ''), `<p class="small muted" style="margin:0">Bản cài AutoPPTX Studio cho máy tính — đăng nhập bằng cùng tài khoản này.${d.notes ? '<br>' + esc(d.notes) : ''}</p>${rows}`, [['Đóng', 'btn', null]]);
 }
 
-renderLoginDownloads();
 api('/me').then(d => enter(d.user)).catch(() => showLogin());
 </script>
 </body>

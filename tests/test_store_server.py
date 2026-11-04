@@ -411,6 +411,14 @@ class StoreServerTest(unittest.TestCase):
         self.assertEqual(st, 401)
         st, b = self.req('GET', '/static/ga-symbol.png', raw=True)
         self.assertEqual((st, b[:4]), (200, b'\x89PNG'))
+        # trang đăng nhập (giao diện Golden Cloud) nạp từ static/
+        for name, must in (('login.html', b'id="fLogin"'), ('login.css', b'.rocket-login'),
+                           ('login.js', b'RocketLogin')):
+            st, b = self.req('GET', '/static/' + name, raw=True)
+            self.assertEqual(st, 200, name)
+            self.assertIn(must, b, name)
+        st, _ = self.req('GET', '/static/../autopptx_server.py', raw=True)
+        self.assertEqual(st, 404)
         st, d = self.req('DELETE', f'/api/jobs/{jid}', self.staff)
         self.assertEqual(st, 200)
 

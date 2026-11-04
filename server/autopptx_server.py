@@ -883,7 +883,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header('Content-Length', '0')
                 self.end_headers()
                 return
-            mm = re.match(r'^/static/([a-z0-9_.-]+\.(?:png|svg|ico))$', path)
+            mm = re.match(r'^/static/([a-z0-9_.-]+\.(?:png|svg|ico|css|js|html))$', path)
             if mm and m in ('GET', 'HEAD'):
                 return self.serve_static(mm.group(1))
             mm = re.match(r'^/download/([^/]+)$', path)
@@ -959,8 +959,9 @@ class Handler(BaseHTTPRequestHandler):
         with open(fp, 'rb') as f:
             body = f.read()
         self.send_response(200)
-        self.send_header('Content-Type', {'png': 'image/png', 'svg': 'image/svg+xml',
-                                          'ico': 'image/x-icon'}[name.rsplit('.', 1)[1]])
+        self.send_header('Content-Type', {'png': 'image/png', 'svg': 'image/svg+xml', 'ico': 'image/x-icon',
+                                          'css': 'text/css; charset=utf-8', 'js': 'text/javascript; charset=utf-8',
+                                          'html': 'text/html; charset=utf-8'}[name.rsplit('.', 1)[1]])
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'public, max-age=86400')
         self.end_headers()
