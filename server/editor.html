@@ -396,7 +396,9 @@ async function enter(u){
   $('#bAcc').textContent = (u.name || u.email).split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
   await Promise.all([loadFields(), loadPresets(), loadBgs()]);
   const d = loadDraft();
-  if (d && d.layout && d.opts){ S.presetId = d.presetId; S.presetName = d.presetName; S.layout = d.layout; S.opts = d.opts; S.bg = d.bg || ''; S.base = null; }
+  if (d && d.layout && d.opts){ S.presetId = d.presetId; S.presetName = d.presetName; S.layout = d.layout; S.opts = d.opts; S.bg = d.bg || ''; S.base = null;
+    // bản nháp cũ (trước 05/11) tắt địa điểm mặc định → bật lại 1 lần như app
+    const fx = S.opts.fx; if (fx && !fx._loc_web_v1){ fx.stamp_location = true; fx._loc_web_v1 = true; } }
   else await applyPreset(S.presets.find(p => p.id === 'builtin:Báo cáo')?.id || S.presets[0].id, true);
   renderAll(); fitZoom();
   if (u.must_change) setTimeout(changePw, 600);
@@ -424,6 +426,8 @@ async function applyPreset(id, silent){
   S.layout = deep(data.layout || {}); S.opts = Object.assign(defaultOpts(), deep(data.opts || {}));
   S.opts.visible = Object.assign({image: true, avatar: true, title: true, info: true, channel: true}, S.opts.visible || {});
   S.opts.fx = Object.assign(defaultFx(), S.opts.fx || {});
+  // mẫu lưu từ app / mẫu có sẵn để địa điểm tắt → web bật mặc định (mẫu lưu từ web giữ nguyên lựa chọn)
+  if (!(data.opts && data.opts.fx && data.opts.fx._loc_web_v1)){ S.opts.fx.stamp_location = true; S.opts.fx._loc_web_v1 = true; }
   S.opts.qty_show = Object.assign({LCD: true, DP: true, DS: true, GP: true}, S.opts.qty_show || {});
   if (silent === 'keepfilters') Object.assign(S.opts, keep);
   saveDraft(); renderAll(); reanalyze();
@@ -431,7 +435,7 @@ async function applyPreset(id, silent){
 function defaultOpts(){ return {n_per_slide: 0, slides_per_file: 0, ar_label: '4:3', slide_size: '16:9', channel_filter: ALL.ch, city_filter: ALL.city, district_filter: ALL.dist,
   sort_mode: 'city', pad_blank_slides: false, channel_enabled: true, channel_template: 'Report {channel} 2026', write_checklist: true, store_index: true, slide_style: 'report', scan_subfolders: true}; }
 function defaultFx(){ return {use_timestamp: true, font_scale: 3.5, text_color: '#FF9900', position: 'bottom_right', add_background: true, display_mode: 'Ngày + Giờ',
-  date_format: 'DD/MM/YYYY', time_format: '24h', use_exif: true, stamp_location: false, minimap: false, dashboard: true}; }
+  date_format: 'DD/MM/YYYY', time_format: '24h', use_exif: true, stamp_location: true, minimap: false, dashboard: true, _loc_web_v1: true}; }
 
 // ═══════════════════════ ảnh: chọn thư mục, kéo thả, thumbnail, EXIF ═══════════════════════
 function addFiles(list, rootName){
@@ -499,6 +503,30 @@ async function readExifDate(file){
       }
       off += 2 + len;
     }
+  } catch(e){}
+  return null;
+}
+// Ảnh có toạ độ GPS trong EXIF không (ảnh gửi qua Zalo/Messenger thường bị xoá GPS).
+async function hasExifGps(file){
+  if (!/\.jpe?g$/i.test(file.name)) return null;
+  try {
+    const buf = new DataView(await file.slice(0, 131072).arrayBuffer());
+    if (buf.getUint16(0) !== 0xFFD8) return false;
+    let off = 2;
+    while (off < buf.byteLength - 4){
+      const mk = buf.getUint16(off), len = buf.getUint16(off + 2);
+      if (mk === 0xFFE1 && buf.getUint32(off + 4) === 0x45786966){
+        const t = off + 10, le = buf.getUint16(t) === 0x4949, u16 = o => buf.getUint16(t + o, le), u32 = o => buf.getUint32(t + o, le);
+        const scan = (ifd, want) => { const n = u16(ifd); for (let i = 0; i < n; i++){ const e = ifd + 2 + i * 12; if (u16(e) === want) return u32(e + 8); } return null; };
+        const gps = scan(u32(4), 0x8825);
+        if (!gps) return false;
+        const lat = scan(gps, 0x0002), lon = scan(gps, 0x0004);
+        return !!(lat && lon && (u32(lat) || u32(lat + 8)) && (u32(lon) || u32(lon + 8)));
+      }
+      if (mk === 0xFFDA) break;
+      off += 2 + len;
+    }
+    return false;
   } catch(e){}
   return null;
 }
@@ -937,9 +965,40 @@ $('#bExport').onclick = () => {
   modal('Xuất PPTX trên máy chủ', `<div class="small muted">${a.groups.length} nhóm · ${files.length} ảnh · ${fmtB(bytes)} · mẫu ${esc(S.presetName || 'riêng')} · ${esc(S.opts.channel_filter)}</div>
     <label class="f">Tên file<input class="inp" id="xTitle" value="${esc(title)}"></label>
     ${none.length ? `<div class="small warn">${none.length} mã ảnh không có trong FILE TỔNG: ${none.slice(0, 20).map(esc).join(', ')}${none.length > 20 ? '…' : ''} — slide vẫn xuất, bảng thông tin để trống.</div>` : '<div class="small ok">Mọi mã ảnh đều có trong FILE TỔNG.</div>'}
-    ${miss.length ? `<div class="small warn">${miss.length} mã thiếu avatar: ${miss.slice(0, 20).map(esc).join(', ')}${miss.length > 20 ? '…' : ''}</div>` : ''}`,
-    [['Huỷ', 'btn', null], ['Tải ảnh lên & xuất', 'btn pri', ov => ov.querySelector('#xTitle').value.trim() || title]]).then(t => { if (t) runExport(t, files); });
+    ${miss.length ? `<div class="small warn">${miss.length} mã thiếu avatar: ${miss.slice(0, 20).map(esc).join(', ')}${miss.length > 20 ? '…' : ''}</div>` : ''}
+    <div class="card" style="gap:6px">
+      <label class="c"><input type="checkbox" id="xTs" ${S.opts.fx.use_timestamp ? 'checked' : ''}> Đóng ngày giờ lên ảnh</label>
+      <label class="c"><input type="checkbox" id="xLoc" ${S.opts.fx.stamp_location ? 'checked' : ''}> In địa điểm theo GPS của ảnh (đường · phường · quận · tỉnh)</label>
+      <span class="tiny muted" id="xGps">Đang kiểm tra GPS trong ảnh…</span>
+    </div>`,
+    [['Huỷ', 'btn', null], ['Tải ảnh lên & xuất', 'btn pri', ov => ov.querySelector('#xTitle').value.trim() || title]],
+    {onOpen: ov => {
+      const fx = S.opts.fx;
+      ov.querySelector('#xTs').onchange = e => { fx.use_timestamp = e.target.checked; saveDraft(); renderSlide(); if (S.tab === 'dau') renderSide(); };
+      ov.querySelector('#xLoc').onchange = e => { fx.stamp_location = e.target.checked; saveDraft(); if (S.tab === 'dau') renderSide(); };
+      countGps(files).then(([n, jpg]) => {
+        const el = ov.querySelector('#xGps'); if (!el) return;
+        if (!jpg){ el.textContent = ''; return; }
+        el.className = 'tiny ' + (n === jpg ? 'ok' : n ? 'warn' : 'err');
+        el.textContent = n === jpg ? `Cả ${jpg} ảnh đều có GPS.`
+          : `${n}/${jpg} ảnh có GPS — ${jpg - n} ảnh không có toạ độ (thường do gửi qua Zalo/Messenger hoặc camera tắt định vị) sẽ không in được địa chỉ.`;
+      });
+    }}).then(t => { if (t) runExport(t, files); });
 };
+async function countGps(rels){
+  S.gps = S.gps || new Map();
+  let n = 0, jpg = 0, i = 0;
+  const todo = rels.filter(r => /\.jpe?g$/i.test(r));
+  async function worker(){
+    while (i < todo.length){
+      const rel = todo[i++];
+      if (!S.gps.has(rel)){ const f = S.files.get(rel); S.gps.set(rel, f ? await hasExifGps(f) : null); }
+      const v = S.gps.get(rel); if (v !== null){ jpg++; if (v) n++; }
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return [n, jpg];
+}
 function runExport(title, files){
   const ov = document.createElement('div'); ov.className = 'ovl';
   ov.innerHTML = `<div class="dlg"><div class="hd2"><div style="flex:1"><h2 style="margin:0;font-size:17px">Xuất PPTX trên máy chủ</h2><span class="small muted">${esc(title)}</span></div><button class="btn icon ghost" id="xMin" aria-label="Thu nhỏ, xuất tiếp ở nền">—</button></div>

@@ -998,6 +998,9 @@ class Handler(BaseHTTPRequestHandler):
         u = con.execute('SELECT * FROM users WHERE email=?', (email,)).fetchone()
         if not u or u['disabled'] or not check_password(pw, u['pass_hash']):
             login_failed(email)
+            why = 'không có tài khoản' if not u else 'tài khoản bị khoá' if u['disabled'] else 'sai mật khẩu'
+            # Ghi lý do vào journal để hỗ trợ người dùng (không bao giờ ghi mật khẩu).
+            print(f'login thất bại: {email[:80]} · {why} · {client[:80]}', file=sys.stderr, flush=True)
             time.sleep(0.8)
             raise ApiError(401, 'Sai email hoặc mật khẩu.')
         tok = secrets.token_urlsafe(32)
